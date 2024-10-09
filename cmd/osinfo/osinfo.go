@@ -1,10 +1,14 @@
 // cmd/osinfo/osinfo.go
-package main
+package osinfo
 
 import (
+    "fmt"
     "github.com/spf13/cobra"
+    "github.com/papa0four/cpscan/cmd/root"
     "github.com/papa0four/cpscan/internal/osfingerprint"
 )
+
+var verbose bool
 
 // osinfoCmd represents the command for gathering OS information
 var osinfoCmd = &cobra.Command{

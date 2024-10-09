@@ -34,7 +34,7 @@ func GetOSFingerprint() (*OSInfo, error) {
     switch runtime.GOOS {
     case "windows":
         osInfo.AdditionalInfo["ProductName"] = "Windows"
-        osInfo.AdditionalInfo["EditionID"] = info.PlatformmFamily // Windows-specific details
+        osInfo.AdditionalInfo["EditionID"] = info.PlatformFamily // Windows-specific details
     case "darwin":
         osInfo.AdditionalInfo["ProductName"] = "MacOS"
         osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
