@@ -1,4 +1,4 @@
-module github.com/yourusername/cpspan
+module github.com/papa0four/cpspan
 
 go 1.23.2
 
