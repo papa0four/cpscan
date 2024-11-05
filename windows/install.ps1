@@ -1,58 +1,94 @@
-# Powershell Script to install application and create custom executable
+# Powershell Script to Install Dependencies and Create 'cpscan' Exectuable
+
+# Check if the script is running as Administrator
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Output "Please run this script as Administrator."
+    exit
+}
 
 # Check if Go is installed
-$goVersion = & go version 2>&1
-if ($goVersion -like "*Go is not recognized*") {
+$goExecutable = "$env:ProgramFiles\Go\bin\go.exe"
+if (Test-Path $goExecutable) {
+    Write-Output "Go is already installed."
+} else {
     Write-Output "Go not found. Installing the latest version of Go..."
-
-    # Download the lastest Go installer
-    $url = "https://golang.org/dl/go1.21.1.windows-amd64.msi"
+    # Download and install Go
+    $url = "https://go.dev/dl/go1.23.2.windows-amd64.msi"
     $installerPath = "$env:TEMP\go-installer.msi"
-    Invoke-WebRequest -Uri $url -Outfile $installerPath
+    Invoke-WebRequest -Uri $url -OutFile $installerPath
 
     # Install Go
-    Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
+    Start-Process msiexec.exe -ArgumentsList "/i `"$installerPath`" /quiet /norestart" -Wait
 
-    # Remove the installer
+    # Remove Installer
     Remove-Item -Path $installerPath
+
+    # Set Go environment variables
+    $env:Path += ";$env:ProgramFiles\Go\bin"
+    [Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
+    Write-Output "Go installation completed. Added Go to system Path."
+}
+
+# Reload environment variables for current session
+If (Test-Path "$env:ProgramFiles\Go\bin\go.exe") {
+    & "$env:ProgramFiles\Go\bin\go.exe" version
 } else {
-    Write-Output "Go is already installed."
+    Write-Output "Go executable not found in expected path."
+    exit
 }
 
-# Temporarily add Go and cpscan paths to the current session's Path
-$env:Path += ";C:\Program Files\Go\bin;$env:ProgramFiles\cpscan"
+# Prepare to build cpscan executable
+Write-Output "Building 'cpscan' executable from project root directory."
 
-# Ensure Go and cpscan paths are added permanently for future sessions
-$profilePath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath("UserProfile"), "Documents", "Powershell", "Microsoft.Powershell_profile.ps1")
-if (!(Test-Path -Path $profilePath)) {
-    New-Item -ItemType File -Path $profilePath -Force
+# Move to the root directory
+cd "$PSScriptRoot\..\.."
+
+# Initialize go.mod if not present
+if (!(Test-Path "go.mod")) {
+    Write-Output "Initializing Go modules..."
+    & "$env:ProgramFiles\Go\bin\go.exe" mod init cpscan
 }
-
-Add-Content -Path $profilePath -Value 'if (!(($env:Path -split ";") -contains "C:\Program Files\Go\bin")) { $env:Path += ";C:\Program Files\Go\bin" }'
-Add-Content -Path $profilePath -Value 'if (!(($env:Path -split ";") -contains "$env:ProgramFiles\cpscan")) { $env:Path += ";$env:PrgramFiles\cpscan" }'
-
-# Locate the project root directory (where cmd/main.go exists)
-$projectRoot = Get-ChildItem -Path (Get-Location) -Recurse -Filter "main.go" | Where-Object { $_.FullName -match "\\cmd\\main\.go$" } | Select-Object -ExpandProperty DirectoryName | Select-Object -First 1
-
-if (-not $projectRoot) {
-    Write-Output "Error: Could not locate 'cmd/main.go'. Please ensure you are in the project directory or that the project structure is correct."
-    exit 1
-}
-
-# Change to the project's root directory
-Set-Location -Path $projectRoot
-Write-Output "Building 'cpscan' executable from project root at $projectRoot..."
+& "$env:ProgramFiles\Go\bin\go.exe" mod tidy
 
 # Build the executable
-go build -o cpspan ./cmd/main.go
+& "$env:ProgramFiles\Go\bin\go.exe" build -o cpscan.exe ./cmd/main.go
+if (!(Test-Path ".\cpscan")) {
+    Write-Output "Build failed: cpscan executable not created."
+    exit
+}
 
-# Move 'cpscan.exe' to a directory in PATH
-$destinationPath = "$env:ProgramFiles\cpscan\cpscan.exe"
-New-Item -ItemType Directory -Path "$env:ProgramFiles\cpscan\cpscan.exe" -Force | Out-Null
-Move-Item -Path ".\cpscan.exe" -Destination $destinationPath -Force
+# Move cpscan to Program Files Directory
+$destinationPath = "$env:ProgramFiles\cpscan"
+if (!(Test-Path $destinationPath)) {
+    New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+}
+Move-Item -Path ".\cpscan.exe" -Desination "$destinationPath\cpscan.exe" -Force
 
-Write-Output "cpscan installed successfully. You can now run it using the 'cpscan' command."
+# Add cpscan to Path and set it permanently
+$env:Path += ";$destinationPath"
+[Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
+Write-Output "cpscan installed successfully."
 
-# Refresh the current session Path to use cpscan immediately
-& $env:Path
+# Automatically restart the session
+Write-Output "Restarting PowerShell session to apply changes
 
+# Automatically restart the session
+Write-Output "Restarting PowerShell session to apply changes
+
+# Automatically restart the session
+Write-Output "Restarting PowerShell session to apply changes..."
+
+# Check if running in PowerShell or Command Prompt and restart accordingly
+if ($Host.Name -eq "ConsoleHost") {
+    # Close the current Powershell session and reopen
+    Start-Process powershell.exe -ArgumentList "-NoExit", "Command", "cd $pwd; Write-Output 'Session restarted. You can now use cpscan.'"
+    Stop-Process -Id $PID
+} elseif ($Host.Name -eq "Windows PowerShell ISE Host") {
+    # Restart for PowerShell ISE
+    Start-Process powershell_ise.exe -ArgumentList "-File", $MyInvocation.MyCommand.Path
+    Stop-Process -Id $PID
+} else {
+    # Fallback to close and open PowerShell in case of other hosts
+    Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "cd $pwd; Write-Output 'Session restarted. You can now use cpscan.'"
+    Stop-Process -Id $PID
+}
