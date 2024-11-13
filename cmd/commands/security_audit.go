@@ -18,9 +18,9 @@ var securityAuditCmd = &cobra.Command{
         fmt.Println(os)
         fmt.Printf("Running security audit for OS: %s\n", os)
 
-        // // Detect the OS and call the appropriate audit function
-        // if os == "windows" {
-        //     security.RunWindowsAudit()
+        // Detect the OS and call the appropriate audit function
+        if os == "windows" {
+            security.RunWindowsAudit()
         if os == "linux" || os == "darwin" || os == "freebsd" || os == "openbsd" {
             security.RunUnixAudit()
         } else {
