@@ -201,7 +201,7 @@ func checkUserAccounts() string {
     sources := []string{
         "/etc/passwd",            // Default Unix
         "/etc/master.passwd",     // BSD systems
-        "/etc/security/passwd.db" // Possible security-focused systems
+        "/etc/security/passwd.db", // Possible security-focused systems
     }
 
     // Detect NSS configurations if present
