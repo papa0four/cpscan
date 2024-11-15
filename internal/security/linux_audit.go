@@ -3,14 +3,12 @@
 package security
 
 import (
-    "errors"
     "bufio"
     "fmt"
     "os"
     "os/exec"
     "strconv"
     "strings"
-    "github.com/papa0four/cpscan/internal/softwarelist"
 )
 
 // RunUnixAudit runs all checks based on the verbose flag
@@ -20,7 +18,7 @@ func RunUnixAudit(verbose bool, checks ...string) {
         if verbose {
             fmt.Println("Running all checks in verbose mode...")
             runCheck("SSH Configuration", checkSSHConfig, verbose)
-            runCheck("Firewall Rules", checkFilrewallRules, verbose)
+            runCheck("Firewall Rules", checkFirewallRules, verbose)
             runCheck("User Accounts", checkUserAccounts, verbose)
         } else {
             printHelpMessage()
