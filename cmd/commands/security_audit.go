@@ -63,7 +63,7 @@ var securityAuditCmd = &cobra.Command{
                 cmd.Help()
                 return
             }
-            security.RunWindowsAudit(verbos, checks...)
+            security.RunWindowsAudit(verbose, checks...)
         default:
             if !supportedOS[os] {
                 fmt.Println("No specific checks provided. Showing help:")
