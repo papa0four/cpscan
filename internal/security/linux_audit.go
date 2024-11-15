@@ -235,7 +235,8 @@ func parseUserFile(filePath string) []string {
 
     users := []string{}
     lines := strings.Split(string(output), "\n")
-    for _, line := strings.Split(line, ":") {
+    for _, line := range lines {
+        fields := strings.Split(line, ":")
         if len(fields) >= 2 {
             username := fields[0]
             uid, _ := strconv.Atoi(fields[1])
