@@ -14,15 +14,14 @@ import (
 )
 
 // RunUnixAudit runs all checks based on the verbose flag
-func RunUnixAudit(verbose bool, check ...string) {
+func RunUnixAudit(verbose bool, checks ...string) {
     // If no specific checks are specified
     if len(checks) == 0 {
         if verbose {
             fmt.Println("Running all checks in verbose mode...")
             runCheck("SSH Configuration", checkSSHConfig, verbose)
-            runCheck("Firewall Rules", checkFilewallRules, verbose)
+            runCheck("Firewall Rules", checkFilrewallRules, verbose)
             runCheck("User Accounts", checkUserAccounts, verbose)
-            runCheck("Installed Services", checkInstalledServices, verbose)
         } else {
             printHelpMessage()
             return            
@@ -66,7 +65,7 @@ func printHelpMessage() {
 func runCheck(title string, checkFunc func() string, verbose bool) {
     if verbose {
         fmt.Println("\n=======================================")
-        fmt.Printlnf("== %s\n", title)
+        fmt.Println("== %s\n", title)
         fmt.Println("=======================================")
     }
     result := checkFunc()
@@ -133,6 +132,7 @@ func checkSSHConfig() string {
 }
 
 func checkFirewallRules() string {
+    var outputDetails []string
     firewalls := []struct {
         name    string
         command []string
@@ -166,7 +166,7 @@ func checkFirewallRules() string {
 
     // Print a summary if multiple firewalls are active
     if multipleActive {
-        outputDetails = appen([]string{"Multiple firewall tools are active on this system:"},
+        outputDetails = append([]string{"Multiple firewall tools are active on this system:"},
             outputDetails...)
     }
 
@@ -199,9 +199,9 @@ func checkFilePermissions(filePath string) string {
 func checkUserAccounts() string {
     // Potential user account sources based on typical Unix variations
     sources := []string{
-        "/etc/passwd",            // Default Unix
-        "/etc/master.passwd",     // BSD systems
-        "/etc/security/passwd.db" // Possible security-focused systems
+        "/etc/passwd",               // Default Unix
+        "/etc/master.passwd",        // BSD systems
+        "/etc/security/passwd.db",   // Possible security-focused systems
     }
 
     // Detect NSS configurations if present
