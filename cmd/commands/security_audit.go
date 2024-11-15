@@ -28,13 +28,13 @@ var securityAuditCmd = &cobra.Command{
     -v, --verbose              Run all checks with detailed output`,
     Run: func(cmd *cobra.Command, args []string) {
         os := runtime.GOOS
-        fmt.Println(os)
         fmt.Printf("Running security audit for OS: %s\n", os)
 
         // Detect the OS and call the appropriate audit function
         if os == "windows" {
             fmt.Println("The security audit feature is currently not available for Windows.")
             return
+        }
         if os == "linux" || os == "darwin" || os == "freebsd" || os == "openbsd" {
             security.RunUnixAudit()
         } else {
