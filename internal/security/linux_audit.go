@@ -141,7 +141,7 @@ func checkFirewallRules() string {
         {"ufw", []string{"ufw", "status"}},
         {"firewalld", []string{"firewall-cmd", "--list-all"}},
         {"pfctl", []string{"pfctl", "-sr"}}, // macOS & BSD-based systems
-        {"ipfw", []string{"ipfw", "show"}},, // BSD & older UNIX systems
+        {"ipfw", []string{"ipfw", "show"}}, // BSD & older UNIX systems
     }
     
     multipleActive := false
