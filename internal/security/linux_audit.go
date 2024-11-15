@@ -21,7 +21,7 @@ func RunUnixAudit(verbose bool, checks ...string) {
             runCheck("Firewall Rules", checkFirewallRules, verbose)
             runCheck("User Accounts", checkUserAccounts, verbose)
         } else {
-            printHelpMessage()
+            PrintHelpMessage()
             return            
         }
     } else {
@@ -41,13 +41,13 @@ func RunUnixAudit(verbose bool, checks ...string) {
                 }, verbose)
             default:
                 fmt.Println("Unknown check: %s\n", check)
-                printHelpMessage()
+                PrintHelpMessage()
             }
         }
     }
 }
 
-func printHelpMessage() {
+func PrintHelpMessage() {
     // Print the help message if neither verbose nor specific checks are provided 
     fmt.Println(" Usage: cpscan security_audit [ -v, --verbose ] | " + 
         "[ --check-ssh | --check-firewall | --check-users | --file-permissions <file_path> ]")

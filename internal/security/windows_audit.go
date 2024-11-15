@@ -15,7 +15,7 @@ func RunWindowsAudit(verbose bool, checks ...string) {
         if verbose {
             fmt.Println("Running all checks in verbose mode...")
         } else {
-            printHelpMessage()
+            PrintHelpMessage()
             return
         }
         runCheck("Firewall Status", checkFirewallStatus, verbose)
@@ -39,7 +39,7 @@ func RunWindowsAudit(verbose bool, checks ...string) {
                 }, verbose)
             default:
                 fmt.Printf("Unknown check: %s\n\n", check)
-                printHelpMessage()
+                PrintHelpMessage()
                 return
             }
         }
@@ -60,8 +60,8 @@ func runCheck(title string, checkFunc func() string, verbose bool) {
     }
 }
 
-// printHelpMessage provides help for available submodule options
-func printHelpMessage() {
+// PrintHelpMessage provides help for available submodule options
+func PrintHelpMessage() {
     fmt.Println("Usage: cpscan security_audit [options]")
     fmt.Println("Perform a security audit for Windows systems. Available options:")
     fmt.Println("  --check-firewall         Check the status of Windows Firewall")
