@@ -63,7 +63,7 @@ func printHelpMessage() {
 func runCheck(title string, checkFunc func() string, verbose bool) {
     if verbose {
         fmt.Println("\n=======================================")
-        fmt.Println("== %s\n", title)
+        fmt.Println("==", title)
         fmt.Println("=======================================")
     }
     result := checkFunc()
