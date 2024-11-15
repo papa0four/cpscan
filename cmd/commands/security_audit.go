@@ -39,16 +39,6 @@ var securityAuditCmd = &cobra.Command{
             "openbsd":  true,
         }
 
-        // Detect the OS and call the appropriate audit function
-        if os == "windows" {
-            fmt.Println("The security audit feature is currently not available for Windows.")
-            return
-        }
-        if !supportedOS[os] {
-            fmt.Println("Unsupported OS for security audit.")
-            return
-        }
-
         // Determine which audits to run based on flags
         checks := []string{}
         if checkSSH {
@@ -64,21 +54,29 @@ var securityAuditCmd = &cobra.Command{
             checks = append(checks, "file-permissions")
         }
 
-        // Display help message if no specific checks or verbose flag provided
-        if verbose && len(checks) == 0 {
-            fmt.Println("Verbose flag set. Running all checks with detailed output...")
-            checks = []string{"ssh", "firewall", "users", "file-permissions"}
+        // Handle different operating systems
+        switch os {
+        case "windows":
+            // Windows-specific checks
+            if len(checks) == 0 && !verbose {
+                fmt.Println("No specific checks provided. Showing help:")
+                cmd.Help()
+                return
+            }
+            security.RunWindowsAudit(verbos, checks...)
+        default:
+            if !supportedOS[os] {
+                fmt.Println("No specific checks provided. Showing help:")
+                cmd.Help()
+                return
+            }
+            if len(checks) == 0 && !verbose {
+                fmt.Println("No specific checks provided. Showing help:")
+                cmd.Help()
+                return
+            }
+            security.RunUnixAudit(verbose, checks...)
         }
-
-        // Display help message if no checks are specified and verbose mode is not enabled
-        if len(checks) == 0 {
-            fmt.Println("No specific checks provided. Showing help:")
-            cmd.Help()
-            return
-        }
-
-        // Execute the audit with secific flags
-        security.RunUnixAudit(verbose, checks...)
     },
 }
 

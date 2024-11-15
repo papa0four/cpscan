@@ -7,7 +7,7 @@ INSTALL_DIR="$HOME/.local/bin"
 
 # Function to check if Go is installed
 check_go_installed() {
-    if command -v go >/dev/null 2.&1; then
+    if command -v go >/dev/null 2>&1; then
         echo "Go found in PATH."
         return 0
     elif [ -x "/usr/local/go/bin/go" ]; then
@@ -36,14 +36,24 @@ if ! go version >/dev/null 2>&1; then
     exit 1
 fi
 
-# Pull the latest changes from the GitHub repo
-if [ -d "$PROJECT" ]; then
-    echo "Updating cpscan from the GitHub repository..."
-    cd "$PROJECT_DIR" || exit
-    git pull origin main
+# Update or clone the GitHub repository
+if [ -d "$PROJECT_DIR" ]; then
+    if [ -d "PROJECT_DIR/.git" ]; then
+        echo "Updating cpscan repository in $PROJECT_DIR..."
+        cd "$PROJECT_DIR" || exit
+        git reset --hard HEAD # Reset any local changes
+        git clean -fd         # Remove untracked files
+        git pull origin main  # Pull the latest changes
+    else
+        echo "Warning: $PROJECT_DIR exists but is not a Git repository."
+        echo "Re-cloning repository into $PROJECT_DIR..."
+        rm -rf "$PROJECT_DIR"
+        git clone "$GITHUB_URL" "$PROJECT_DIR"
+        cd "$PROJECT_DIR" || exit
+    fi
 else
-    echo "Cloning cpscan repository..."
-    git clone "$GITHUB_URL" "$PROJECT_DIR"
+    echo "Cloning cpscan repository into $PROJECT_DIR..."
+    git clone "GITHUB_URL" "$PROJECT_DIR"
     cd "$PROJECT_DIR" || exit
 fi
 
