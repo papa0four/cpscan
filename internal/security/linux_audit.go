@@ -200,7 +200,7 @@ func checkUserAccounts() string {
     // Potential user account sources based on typical Unix variations
     sources := []string{
         "/etc/passwd",            // Default Unix
-        "/etc/master.passwd"      // BSD systems
+        "/etc/master.passwd",      // BSD systems
         "/etc/security/passwd.db" // Possible security-focused systems
     }
 
