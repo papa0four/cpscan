@@ -69,16 +69,20 @@ func init() {
 
 // ScanResult represents the combined results of all scans
 type ScanResult struct {
-    Timestamp     time.Time             `json:"timestamp"`
-    Duration      time.Duration         `json:"duration"`
-    OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
-    SoftwareInfo  string               `json:"software_info,omitempty"`
-    SecurityAudit *audit.AuditResult   `json:"security_audit,omitempty"`
-    Errors        []string             `json:"errors,omitempty"`
+    Timestamp     time.Time                 `json:"timestamp"`
+    Duration      time.Duration             `json:"duration"`
+    OSInfo        *osfingerprint.OSInfo     `json:"os_info,omitempty"`
+    SoftwareInfo  string                    `json:"software_info,omitempty"`
+    SecurityAudit *audit.AuditResult        `json:"security_audit,omitempty"`
+    Errors        []string                  `json:"errors,omitempty"`
 }
 
 func runAllScans(cmd *cobra.Command, args []string) error {
     startTime := time.Now()
+
+    if isModuleSkipped("os") && isModuleSkipped("software") && isModuleSkipped("security") {
+        return fmt.Errorf("all modules have been skipped, at least one module must be run")
+    }
     
     // Create channels for results and errors
     results := make(chan *ScanResult, 1)
@@ -252,6 +256,10 @@ func outputResults(result *ScanResult) error {
 }
 
 func isModuleSkipped(module string) bool {
+    if len(skipModules) == 0 {
+        return false
+    }
+
     for _, skip := range skipModules {
         if strings.EqualFold(skip, module) {
             return true

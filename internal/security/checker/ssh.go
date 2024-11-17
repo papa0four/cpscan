@@ -127,7 +127,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 		}
  	} else {
 		result.Details = append(result.Details,
-			fmt.Sprintf("% WARNING: PermitRootLogin setting not found (defaults may apply)", types.SymbolWarning))
+			fmt.Sprintf("%s WARNING: PermitRootLogin setting not found (defaults may apply)", types.SymbolWarning))
 	}
 
 	// Check password authentication
