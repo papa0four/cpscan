@@ -32,7 +32,7 @@ func runUnixAudit(cmd *cobra.Command, args []string) error {
 
     // Create and run auditor
     auditor := audit.NewSecurityAuditor(opts)
-    result, err := auditor.RunAudit(args...)
+    result, err := auditor.RunAudit()
     if err != nil {
         return fmt.Errorf("audit failed: %w", err)
     }

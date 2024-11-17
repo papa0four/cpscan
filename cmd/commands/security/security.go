@@ -203,7 +203,7 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
     errorChan := make(chan error, 1)
 
     go func() {
-        result, err := auditor.RunAudit(args...)
+        result, err := auditor.RunAudit()
         if err != nil {
             errorChan <- err
             return
