@@ -165,6 +165,7 @@ func runSoftwareInventory() (string, error) {
     if allVerbose {
         fmt.Printf("Found %d installed packages\n", 
             strings.Count(software, "\n")+1)
+        fmt.Println("For a comprehensive list of software, run 'cpscan software'.")
     }
 
     return software, nil
