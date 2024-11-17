@@ -1,42 +1,41 @@
+// cmd/commands/security/security_windows.go
 //go:build windows
 // +build windows
 
-package security                                                                                                          
-                                                                                                                       
-import (                                                                                                               
-    "fmt"                                                                                                              
-    "runtime"                                                                                                          
-                                                                                                                       
+package security
+
+import (
+    "fmt"
+    "runtime"
+    
+    "github.com/spf13/cobra"
     "github.com/papa0four/cpscan/internal/security/audit"
-)                                                                                                                                                                                                                                           
-                                                                                                                       
+)
+
 func init() {
-    SecurityCmd.Run = runWindowsAudit
+    SecurityCmd.RunE = runWindowsAudit
 }
 
-func runWindowsAudit(cmd *cobra.Command, args []string) {
-    os := runtime.GOOS
-    fmt.Printf("Running security audit for OS: %s\n", os)
-
-    checks := []string{}
-    if checkSSH {
-        checks = append(checks, "ssh")
-    }
-    if checkFirewall {
-        checks = append(checks, "firewall")
-    }
-    if checkUsers {
-        checks = append(checks, "users")
-    }
-    if checkFilePerms != "" {
-        checks = append(checks, "file-permissions")
+func runWindowsAudit(cmd *cobra.Command, args []string) error {
+    if verbose {
+        fmt.Printf("Running security audit for OS: %s\n", runtime.GOOS)
     }
 
-    if len(checks) == 0 && !securityVerbose {
-        fmt.Println("No specific checks provided. Showing help:")
-        audit.PrintHelpMessage()
-        return
+    // Convert command flags to audit options
+    opts := audit.AuditOptions{
+        Verbose:     verbose,
+        CustomPaths: customPaths,
+        SkipChecks:  skipChecks,
+        MinSeverity: minSeverity,
+        Timeout:     timeout,
     }
 
-    audit.RunWindowsAudit(securityVerbose, checks...)
+    // Create and run auditor
+    auditor := audit.NewSecurityAuditor(opts)
+    result, err := auditor.RunAudit(args...)
+    if err != nil {
+        return fmt.Errorf("audit failed: %w", err)
+    }
+
+    return outputResults(result)
 }

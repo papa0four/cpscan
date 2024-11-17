@@ -237,7 +237,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 		}
 	} else {
 		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH Server is not installed", tpyes.SymbolInfo))
+			fmt.Sprintf("%s OpenSSH Server is not installed", types.SymbolInfo))
 	}
 
 	// Check for PuTTY installation
