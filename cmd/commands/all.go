@@ -237,15 +237,45 @@ func outputResults(result *ScanResult) error {
         output = file
     }
 
-	// Convert ScanResult to AuditResult
-	auditResult := convertToAuditResult(result)
-	if auditResult == nil {
-		return fmt.Errorf("no security audit results available")
-	}
+	// // Convert ScanResult to AuditResult
+	// auditResult := convertToAuditResult(result)
+	// if auditResult == nil {
+	// 	return fmt.Errorf("no security audit results available")
+	// }
+
+    // f := formatter.NewFormatter(output, opts)
+    // if err := f.Format(auditResult); err != nil {
+    //     return fmt.Errorf("failed to format results: %w", err)
+    // }
+
+    // // Print summary of critical findings if any
+    // if result.SecurityAudit != nil {
+    //     printCriticalFindings(result.SecurityAudit)
+    // }
+
+    // return nil
 
     f := formatter.NewFormatter(output, opts)
-    if err := f.Format(auditResult); err != nil {
-        return fmt.Errorf("failed to format results: %w", err)
+
+    // Output OS information
+    if result.OSInfo != nil {
+        fmt.Fprintf(output, "OS: %s\nPlatform: %s\nVersion: %s\nKernel: %s\n\n",
+            result.OSInfo.OS, result.OSInfo.Platform, 
+            result.OSInfo.PlatformVersion, result.OSInfo.KernelVersion)
+    }
+
+    // Output software information
+    if result.SoftwareInfo != "" {
+        fmt.Fprintln(output, "Installed Software:")
+        fmt.Fprintln(output, result.SoftwareInfo)
+        fmt.Fprintln(output)
+    }
+
+    // Output security audit results
+    if result.SecurityAudit != nil {
+        if err := f.Format(result.SecurityAudit); err != nil {
+            return fmt.Errorf("failed to format security audit results: %w", err)
+        }
     }
 
     // Print summary of critical findings if any
