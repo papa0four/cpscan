@@ -245,9 +245,14 @@ func (sa *SecurityAuditor) PrintResults(result *AuditResult) {
     fmt.Printf("Architecture: %s\n", result.SystemInfo.Architecture)
     fmt.Printf("Hostname: %s\n", result.SystemInfo.Hostname)
     fmt.Printf("Kernel Version: %s\n\n", result.SystemInfo.KernelVersion)
+    fmt.Printf("Software Count: %d\n", result.SystemInfo.SoftwareCount)
 
     // Print detailed results
     if sa.verbose {
+        // print software information
+        fmt.Printf("\nInstalled Software:\n")
+        fmt.Println(result.SystemInfo.SoftwareInfo)
+        
         for _, checkResult := range result.Results {
             fmt.Printf("\n%s Check Results:\n", checkResult.Name)
             fmt.Printf("%s\n", strings.Repeat("-", len(checkResult.Name)+14))
@@ -289,6 +294,11 @@ func getSystemInfo() SystemInfo {
         info.KernelVersion = kernel
     }
 
+    if softwareInfo, softwareCount, err := getSoftwareInfo(); err == nil {
+        info.SoftwareInfo   = softwareInfo
+        info.SoftwareCount  = softwareCount
+    }
+
     return info
 }
 
@@ -309,6 +319,32 @@ func getKernelVersion() (string, error) {
         }
         return strings.TrimSpace(string(output)), nil
     }
+}
+
+func getSoftwareInfo() (string, int, error) {
+    var cmd *exec.Cmd
+    switch runtime.GOOS {
+    case "windows":
+        cmd = exec.Command("powershell", `
+        Get-ItemProperty HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | 
+        Select-Object DisplayName, DisplayVersion, Publisher, InstallDate |
+        Format-Table -AutoSize
+        `)
+    case "darwin":
+        cmd = exec.Command("sh", "-c", "system_profiler SPApplicationsDataType | grep 'Name:\\|Version:'")
+    default:
+        cmd = exec.Command("sh", "-c", "dpkg-query -W -f='${Package} ${Version}\n'")
+    }
+
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        return "", 0, err
+    }
+
+    softwareInfo := string(output)
+    softwareCount := strings.Count(softwareInfo, "\n") + 1
+
+    return softwareInfo, softwareCount, nil
 }
 
 func containsWarning(details []string) bool {
