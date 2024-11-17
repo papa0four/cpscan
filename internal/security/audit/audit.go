@@ -89,23 +89,38 @@ type AuditSummary struct {
 }
 
 // RunAudit performs the security audit with the specified options
-func (sa *SecurityAuditor) RunAudit(checks ...string) (*AuditResult, error) {
+func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
     result := &AuditResult{
         StartTime:  time.Now(),
         SystemInfo: getSystemInfo(),
         Results:    make([]types.AuditResult, 0),
     }
 
-    // Run only specific checks if specified
+    // Only run specific checks if specified
     if len(sa.options.SpecificChecks) > 0 {
         for _, check := range sa.options.SpecificChecks {
-            if err := sa.runSpecificCheck(check, result); err != nil {
-                fmt.Printf("%s Error running %s check: %v\n",
-                types.SymbolError, check, err)
+            if sa.options.Verbose {
+                fmt.Printf("\nRunning %s configuration check...\n", check)
+            }
+
+            var checkResult types.AuditResult
+            switch check {
+            case "ssh":
+                checkResult = sa.sshChecker.Check()
+                result.Results = append(result.Results, checkResult)
+            case "firewall":
+                checkResult = sa.firewallChecker.Check()
+                result.Results = append(result.Results, checkResult)
+            case "users":
+                checkResult = sa.userChecker.Check()
+                result.Results = append(result.Results, checkResult)
+            case "file-permissions":
+                checkResult = sa.permissionChecker.Check()
+                result.Results = append(result.Results, checkResult)
             }
         }
     } else {
-        // Run all checks
+        // Run all checks only if no specific checks were requested
         return sa.runAllChecks(result)
     }
 
