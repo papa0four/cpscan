@@ -63,7 +63,7 @@ go mod tidy
 
 # Build the exectuable
 echo "Rebuilding the cpscan executable..."
-go build -o cpscan ./cmd/main.go
+go build -o cpscan ./cmd/cpscan/main.go
 if [ $? -ne 0 ]; then
     echo "Build failed. Check for errors in the code or dependencies."
     exit 1
