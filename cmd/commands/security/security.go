@@ -153,6 +153,11 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
         checks = append(checks, "file-permissions")
     }
 
+    if len(checks) == 0 && !verbose {
+        fmt.Println("No checks specified. Use --help to see available options.")
+        return cmd.Help()
+    }
+
     // Validate flags
     if err := validateFlags(); err != nil {
         return err
@@ -160,11 +165,12 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
 
     // Create audit options
     opts := audit.AuditOptions{
-        Verbose:       verbose,
-        CustomPaths:   customPaths,
-        SkipChecks:    skipChecks,
-        MinSeverity:   minSeverity,
-        Timeout:       timeout,
+        Verbose:            verbose,
+        CustomPaths:        customPaths,
+        SkipChecks:         skipChecks,
+        MinSeverity:        minSeverity,
+        Timeout:            timeout,
+        SpecificChecks:     checks,
     }
 
     // Create security auditor

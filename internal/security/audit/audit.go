@@ -23,6 +23,7 @@ type SecurityAuditor struct {
     verbose          	bool
 	outputFormat		string
 	reportFile			string
+    options             AuditOptions
 }
 
 // AuditOptions configures the audit process
@@ -39,6 +40,7 @@ type AuditOptions struct {
 func NewSecurityAuditor(opts AuditOptions) *SecurityAuditor {
     auditor := &SecurityAuditor{
         verbose: opts.Verbose,
+        options: opts,
     }
 
     switch runtime.GOOS {
@@ -94,16 +96,17 @@ func (sa *SecurityAuditor) RunAudit(checks ...string) (*AuditResult, error) {
         Results:    make([]types.AuditResult, 0),
     }
 
-    // If no specific checks are specified, run all checks
-    if len(checks) == 0 {
-        return sa.runAllChecks(result)
-    }
-
-    // Run specific checks
-    for _, check := range checks {
-        if err := sa.runSpecificCheck(check, result); err != nil {
-            fmt.Printf("%s Error running %s check: %v\n", types.SymbolError, check, err)
+    // Run only specific checks if specified
+    if len(sa.options.SpecificChecks) > 0 {
+        for _, check := range sa.options.SpecificChecks {
+            if err := sa.runSpecificCheck(check, result); err != nil {
+                fmt.Printf("%s Error running %s check: %v\n",
+                types.SymbolError, check, err)
+            }
         }
+    } else {
+        // Run all checks
+        return sa.runAllChecks(result)
     }
 
     result.EndTime = time.Now()
@@ -181,6 +184,9 @@ func (sa *SecurityAuditor) runAllChecks(result *AuditResult) (*AuditResult, erro
 }
 
 func (sa *SecurityAuditor) runSpecificCheck(check string, result *AuditResult) error {
+    if sa.verbose {
+        fmt.Printf("\nRunning %s check...\n", check)
+    }
     var checkResult types.AuditResult
 
     switch check {
