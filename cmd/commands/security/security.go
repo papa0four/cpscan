@@ -23,6 +23,12 @@ var (
     skipChecks     []string
     minSeverity    string
     timeout        time.Duration
+
+    // Individual check flags
+    checkSSH        bool
+    checkFirewall   bool
+    checkUsers      bool
+    checkFilePerms  string
 )
 
 // SecurityCmd represents the security audit command
@@ -117,6 +123,48 @@ func init() {
         "Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
     SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
         "Maximum time to run the audit")
+
+    // Individual check flags
+    SecurityCmd.Flags().BoolVar(&checkSSH, "check-ssh", false,
+        "Run SSH configuration check")
+    SecurityCmd.Flags().BoolVar(&checkFirewall, "check-firewall", false,
+        "Run firewall configuration check")
+    SecurityCmd.Flags().BoolVar(&checkUsers, "check-users", false,
+        "Run user accounts check")
+    SecurityCmd.Flags().StringVar(&checkFilePerms, "file-permissions", "",
+        "Check permissions of specified file path")
+
+    // Update RunE to handle individual checks
+    SecurityCmd.RunE = func(cmd *cobra.Command, args []string) error {
+        // Convert individual check flags to checks list
+        var checks []string
+        if checkSSH {
+            checks = append(checks, "ssh")
+        }
+        if checkFirewall {
+            checks = append(checks, "firewall")
+        }
+        if checkUsers {
+            checks = append(checks, "users")
+        }
+        if checkFilePerms != "" {
+            checks = append(checks, "file-permissions")
+        }
+
+        // If no specific checks are requested but verbose is true, run all checks
+        if len(checks) == 0 && verbose {
+            return runSecurityAudit(cmd, args)
+        }
+
+        // If specific checks are requested, run only those
+        if len(checks) > 0 {
+            return runSecurityAudit(cmd, checks)
+        }
+
+        // If no checks specified and not verbose, show help
+        fmt.Println("No checks specified. Use --help to see available options.")
+        return cmd.Help()
+    }
 }
 
 func runSecurityAudit(cmd *cobra.Command, args []string) error {

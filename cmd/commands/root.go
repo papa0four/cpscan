@@ -3,19 +3,27 @@ package cmd
 
 import (
     "fmt"
-    "github.com/spf13/cobra"
     "os"
+
+    "github.com/spf13/cobra"
+    "github.com/papa0four/cpscan/cmd/commands/security"
 )
 
 // RootCmd defines the base command for the CLI
 var RootCmd = &cobra.Command{
     Use: "cpscan",
-    Short: "CPScan is a lightweight scanner for OS and network vulnerabilities",
-    Long: `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and network protocols`,
+    Short: "CPScan is a lightweight scanner for host OS vulnerabilities",
+    Long: `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
     Run: func(cmd *cobra.Command, args []string) {
         // Default action when no subcommands are provided
-        fmt.Println("CPScan requires a subcommand (e.g., osinfo).")
+        fmt.Println("CPScan requires a subcommand (e.g., osinfo, security_audit, software).")
+        cmd.Help()
     },
+}
+
+func init() {
+    // Register the security audit command
+    RootCmd.AddCommand(security.SecurityCmd)
 }
 
 func Execute() {

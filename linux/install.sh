@@ -132,7 +132,7 @@ setup_project() {
     go mod tidy
 
     echo "Building cpscan..."
-    CGO_ENABLED=0 go build -o "$INSTALL/DIRcpscan" ./cmd/cpscan/main.go || {
+    CGO_ENABLED=0 go build -o "$INSTALL_DIR/cpscan" ./cmd/cpscan/main.go || {
         echo "Build failed. Please check the error messages above."
         exit 1
     }
