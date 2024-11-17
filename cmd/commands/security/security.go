@@ -47,19 +47,19 @@ You can run all checks or specify individual checks to run.`,
   cpscan security_audit -v
 
   # Run specific checks
-  cpscan security_audit ssh firewall
+  cpscan security_audit --check-ssh
+  cpscan security_audit --check-firewall
+  cpscan security_audit --check-users
+  cpscan security_audit --file-permissions /path/to/file
 
-  # Run checks and save report to file
-  cpscan security_audit -o json --report-file audit.json
-
-  # Skip certain checks
-  cpscan security_audit --skip-checks ssh,firewall
-
-  # Specify custom paths to check
-  cpscan security_audit --paths /etc/custom,/opt/app
+  # Run checks with verbose output
+  cpscan security_audit --check-ssh -v
 
   # Set minimum severity level
-  cpscan security_audit --min-severity HIGH`,
+  cpscan security_audit --min-severity HIGH
+
+  # Run checks and save report to file
+  cpscan security_audit -v -o json --report-file audit.json`,
     RunE: runSecurityAudit,
 }
 
@@ -78,6 +78,8 @@ type (
         Architecture  string `json:"architecture" yaml:"architecture"`
         Hostname      string `json:"hostname" yaml:"hostname"`
         KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+        SoftwareInfo  string `json:"software_info,omitempty"`
+        SoftwareCount int    `json:"software_count"`
     }
 
     formattedCheck struct {
@@ -133,41 +135,24 @@ func init() {
         "Run user accounts check")
     SecurityCmd.Flags().StringVar(&checkFilePerms, "file-permissions", "",
         "Check permissions of specified file path")
-
-    // Update RunE to handle individual checks
-    SecurityCmd.RunE = func(cmd *cobra.Command, args []string) error {
-        // Convert individual check flags to checks list
-        var checks []string
-        if checkSSH {
-            checks = append(checks, "ssh")
-        }
-        if checkFirewall {
-            checks = append(checks, "firewall")
-        }
-        if checkUsers {
-            checks = append(checks, "users")
-        }
-        if checkFilePerms != "" {
-            checks = append(checks, "file-permissions")
-        }
-
-        // If no specific checks are requested but verbose is true, run all checks
-        if len(checks) == 0 && verbose {
-            return runSecurityAudit(cmd, args)
-        }
-
-        // If specific checks are requested, run only those
-        if len(checks) > 0 {
-            return runSecurityAudit(cmd, checks)
-        }
-
-        // If no checks specified and not verbose, show help
-        fmt.Println("No checks specified. Use --help to see available options.")
-        return cmd.Help()
-    }
 }
 
 func runSecurityAudit(cmd *cobra.Command, args []string) error {
+    // Determine which checks to run
+    var checks []string
+    if checkSSH {
+        checks = append(checks, "ssh")
+    }
+    if checkFirewall {
+        checks = append(checks, "firewall")
+    }
+    if checkUsers {
+        checks = append(checks, "users")
+    }
+    if checkFilePerms != "" {
+        checks = append(checks, "file-permissions")
+    }
+
     // Validate flags
     if err := validateFlags(); err != nil {
         return err
@@ -188,6 +173,12 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
     // Show progress if verbose
     if verbose {
         fmt.Println("Starting security audit...")
+        if len(checks) > 0 {
+            fmt.Printf("Running checks: %s\n", strings.Join(checks, ", "))
+        } else {
+            fmt.Println("Running comprehensive security audit")
+        }
+
         fmt.Printf("Configuration:\n")
         fmt.Printf("- Output format: %s\n", outputFormat)
         if len(customPaths) > 0 {
@@ -271,6 +262,11 @@ func validateFlags() error {
 }
 
 func outputResults(result *audit.AuditResult) error {
+    if result == nil || len(result.Results) == 0 {
+        fmt.Println("No results to display.")
+        return nil
+    }
+
     // Format results based on output format
     var output string
     var err error
@@ -303,8 +299,10 @@ func outputResults(result *audit.AuditResult) error {
         fmt.Println(output)
     }
 
-    // Print summary of critical findings
-    printCriticalFindings(result)
+    if !verbose {
+        // Print summary of critical findings
+        printCriticalFindings(result)
+    }
 
     return nil
 }
@@ -367,6 +365,8 @@ func convertToFormattedResult(result *audit.AuditResult) formattedResult {
             Architecture:  result.SystemInfo.Architecture,
             Hostname:      result.SystemInfo.Hostname,
             KernelVersion: result.SystemInfo.KernelVersion,
+            SoftwareInfo:  result.SystemInfo.SoftwareInfo,
+            SoftwareCount: result.SystemInfo.SoftwareCount,
         },
         Summary: formattedSummary{
             TotalChecks:   result.Summary.TotalChecks,
@@ -406,30 +406,50 @@ func convertToFormattedResult(result *audit.AuditResult) formattedResult {
 
 func formatText(result *audit.AuditResult) (string, error) {
     var builder strings.Builder
+    isComprehensive := len(result.Results) > 1
 
     // Header
-    builder.WriteString("Security Audit Report\n")
-    builder.WriteString("====================\n\n")
+    if isComprehensive {
+        builder.WriteString("Security Audit Report\n")
+        builder.WriteString("====================\n\n")
 
-    // System Information
-    builder.WriteString(fmt.Sprintf("System: %s %s\n", result.SystemInfo.OS, result.SystemInfo.Architecture))
-    builder.WriteString(fmt.Sprintf("Hostname: %s\n", result.SystemInfo.Hostname))
-    builder.WriteString(fmt.Sprintf("Kernel: %s\n\n", result.SystemInfo.KernelVersion))
+        // System Information
+        builder.WriteString(fmt.Sprintf("System: %s %s\n", result.SystemInfo.OS, result.SystemInfo.Architecture))
+        builder.WriteString(fmt.Sprintf("Hostname: %s\n", result.SystemInfo.Hostname))
+        builder.WriteString(fmt.Sprintf("Kernel: %s\n\n", result.SystemInfo.KernelVersion))
+    }
 
     // Results
     for _, checkResult := range result.Results {
         builder.WriteString(fmt.Sprintf("Check: %s\n", checkResult.Name))
         builder.WriteString(fmt.Sprintf("Status: %s\n", checkResult.Status))
-        builder.WriteString(fmt.Sprintf("Duration: %v\n", checkResult.Duration))
+        if verbose {
+            builder.WriteString(fmt.Sprintf("Duration: %v\n", checkResult.Duration))
+
+            // Details are only shown in verbose mode
+            if len(checkResult.Details) > 0 {
+                builder.WriteString("\nDetails:\n")
+                for _, detail := range checkResult.Details {
+                    builder.WriteString(fmt.Sprintf(" %s\n", detail))
+                }
+            }
+        }
+        
         
         if len(checkResult.Findings) > 0 {
             builder.WriteString("\nFindings:\n")
             for _, finding := range checkResult.Findings {
                 builder.WriteString(fmt.Sprintf("- [%s] %s\n", finding.Severity, finding.Title))
                 if verbose {
-                    builder.WriteString(fmt.Sprintf("  Description: %s\n", finding.Description))
-                    builder.WriteString(fmt.Sprintf("  Impact: %s\n", finding.Impact))
-                    builder.WriteString(fmt.Sprintf("  Resolution: %s\n", finding.Resolution))
+                    if finding.Description != "" {
+                        builder.WriteString(fmt.Sprintf("  Description: %s\n", finding.Description))
+                    }
+                    if finding.Impact != "" {
+                        builder.WriteString(fmt.Sprintf("  Impact: %s\n", finding.Impact))
+                    }
+                    if finding.Resolution != "" {
+                        builder.WriteString(fmt.Sprintf("  Resolution: %s\n", finding.Resolution))
+                    }
                 }
             }
         }
@@ -439,12 +459,15 @@ func formatText(result *audit.AuditResult) (string, error) {
 
     // Summary
     builder.WriteString("\nSummary:\n")
-    builder.WriteString(fmt.Sprintf("Total Checks: %d\n", result.Summary.TotalChecks))
+    builder.WriteString(fmt.Sprintf("Checks Run: %d\n", len(result.Results)))
     builder.WriteString(fmt.Sprintf("Passed: %d\n", result.Summary.PassedChecks))
     builder.WriteString(fmt.Sprintf("Warnings: %d\n", result.Summary.WarningChecks))
     builder.WriteString(fmt.Sprintf("Failed: %d\n", result.Summary.FailedChecks))
-    builder.WriteString(fmt.Sprintf("Duration: %v\n", result.Duration))
 
+    if verbose {
+        builder.WriteString(fmt.Sprintf("Duration: %v\n", result.Duration))
+    }
+    
     return builder.String(), nil
 }
 

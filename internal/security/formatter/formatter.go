@@ -110,14 +110,6 @@ func (f *Formatter) prepareOutput(result *audit.AuditResult) map[string]interfac
     // Add system information if requested
     if f.options.IncludeSystem {
         output["system"] = result.SystemInfo
-        // output["system"] = map[string]interface{}{
-        //     "os":               result.SystemInfo.OS,
-        //     "architecture":     result.SystemInfo.Architecture,
-        //     "hostname":         result.SystemInfo.Hostname,
-        //     "kernel_version":   result.SystemInfo.KernelVersion,
-        //     "software_info":    result.SystemInfo.SoftwareInfo,
-        //     "software_count":   result.SystemInfo.SoftwareCount,
-        // }
     }
 
     // Filter and format check results
