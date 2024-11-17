@@ -127,13 +127,13 @@ func init() {
         "Maximum time to run the audit")
 
     // Individual check flags
-    SecurityCmd.Flags().BoolVar(&checkSSH, "--check-ssh", false,
+    SecurityCmd.Flags().BoolVar(&checkSSH, "check-ssh", false,
         "Run SSH configuration check")
-    SecurityCmd.Flags().BoolVar(&checkFirewall, "--check-firewall", false,
+    SecurityCmd.Flags().BoolVar(&checkFirewall, "check-firewall", false,
         "Run firewall configuration check")
-    SecurityCmd.Flags().BoolVar(&checkUsers, "--check-users", false,
+    SecurityCmd.Flags().BoolVar(&checkUsers, "check-users", false,
         "Run user accounts check")
-    SecurityCmd.Flags().StringVar(&checkFilePerms, "--file-permissions", "",
+    SecurityCmd.Flags().StringVar(&checkFilePerms, "file-permissions", "",
         "Check permissions of specified file path")
 }
 
