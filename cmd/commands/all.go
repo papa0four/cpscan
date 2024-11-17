@@ -72,7 +72,8 @@ type ScanResult struct {
     Timestamp     time.Time                 `json:"timestamp"`
     Duration      time.Duration             `json:"duration"`
     OSInfo        *osfingerprint.OSInfo     `json:"os_info,omitempty"`
-    SoftwareCount int                       `json:"software_count,omitempty"`
+    SoftwareInfo  string                    `json:"software_info,omitempty"`
+    SoftwareCount int                       `json:"software_count"`
     SecurityAudit *audit.AuditResult        `json:"security_audit,omitempty"`
     Errors        []string                  `json:"errors,omitempty"`
 }
@@ -106,11 +107,13 @@ func runAllScans(cmd *cobra.Command, args []string) error {
         }
 
         if !isModuleSkipped("software") {
-            if softwareCount, err := runSoftwareInventory(); err != nil {
-                result.Errors = append(result.Errors, 
-                    fmt.Sprintf("Software inventory error: %v", err))
+            softwareInfo, softwareCount, err := runSoftwareInventory()
+            if err != nil {
+            result.Errors = append(result.Errors, 
+                fmt.Sprintf("Software inventory error: %v", err))
             } else {
-                result.SoftwareCount = softwareCount
+                result.SoftwareInfo     = softwareInfo
+                result.SoftwareCount    = softwareCount 
             }
         }
 
@@ -156,26 +159,24 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
     return info, nil
 }
 
-func runSoftwareInventory() (int, error) {
+func runSoftwareInventory() (string, int, error) {
     if allVerbose {
         fmt.Println("\n=== Software Inventory Scan ===")
     }
 
     software, err := softwarelist.GetInstalledSoftware()
     if err != nil {
-        return 0, err
+        return "", 0, err
     }
 
-    count := strings.Count(software, "\n") + 1
+    softwareCount := strings.Count(software, "\n") + 1
 
     if allVerbose {
-        fmt.Printf("Found %d installed packages\n", count)
-        fmt.Println("For a comprehensive list of software, run 'cpscan software'.")
-    } else {
-        fmt.Printf("Found %d installed packages\n", count)
+        fmt.Printf("Found %d installed packages\n", softwareCount)
+        fmt.Println(software)
     }
 
-    return count, nil
+    return software, softwareCount, nil
 }
 
 func runSecurityAudit() (*audit.AuditResult, error) {
@@ -213,6 +214,8 @@ func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
             Architecture: scan.OSInfo.Platform,
             Hostname:     scan.OSInfo.PlatformVersion,
             KernelVersion: scan.OSInfo.KernelVersion,
+            SoftwareInfo: scan.SoftwareInfo,
+            SoftwareCount: scan.SoftwareCount,
         },
         Summary:    scan.SecurityAudit.Summary,
     }
@@ -239,31 +242,15 @@ func outputResults(result *ScanResult) error {
         output = file
     }
 
+	// Convert ScanResult to AuditResult
+	auditResult := convertToAuditResult(result)
+	if auditResult == nil {
+		return fmt.Errorf("no security audit results available")
+	}
+
     f := formatter.NewFormatter(output, opts)
-
-    // Output OS information
-    if result.OSInfo != nil {
-        fmt.Fprintf(output, "OS: %s\nPlatform: %s\nVersion: %s\nKernel: %s\n\n",
-            result.OSInfo.OS, result.OSInfo.Platform, 
-            result.OSInfo.PlatformVersion, result.OSInfo.KernelVersion)
-    }
-
-    // Output software information
-    if allVerbose {
-        if result.SoftwareCount > 0 {
-            fmt.Fprintf(output, "Found %d installed packages\n", result.SoftwareCount)
-        }
-    } else {
-        if result.SoftwareCount > 0 {
-            fmt.Fprintf(output, "Found %d installed package\n", result.SoftwareCount)
-        }
-    }
-
-    // Output security audit results
-    if result.SecurityAudit != nil {
-        if err := f.Format(result.SecurityAudit); err != nil {
-            return fmt.Errorf("failed to format security audit results: %w", err)
-        }
+    if err := f.Format(auditResult); err != nil {
+        return fmt.Errorf("failed to format results: %w", err)
     }
 
     // Print summary of critical findings if any

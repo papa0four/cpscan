@@ -73,6 +73,8 @@ type SystemInfo struct {
     Architecture  string
     Hostname      string
     KernelVersion string
+    SoftwareInfo  string
+    SoftwareCount int
 }
 
 // AuditSummary provides a summary of the audit results
