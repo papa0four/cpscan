@@ -106,7 +106,8 @@ func runAllScans(cmd *cobra.Command, args []string) error {
         }
 
         if !isModuleSkipped("software") {
-            if softwareInfo, err := runSoftwareInventory(); err != nil {
+            softwareInfo, err := runSoftwareInventory()
+                if err != nil {
                 result.Errors = append(result.Errors, 
                     fmt.Sprintf("Software inventory error: %v", err))
             } else {
