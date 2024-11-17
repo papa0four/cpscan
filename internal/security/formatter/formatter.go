@@ -239,10 +239,10 @@ OS: {{.system.OS}}
 Architecture: {{.system.Architecture}}
 Hostname: {{.system.Hostname}}
 Kernel Version: {{.system.KernelVersion}}
-Software Count: {{.system.softwareCount}}
+Software Count: {{.system.SoftwareCount}}
 {{if .verbose}}
 Software Info:
-{{.system.softwareInfo}}
+{{.system.SoftwareInfo}}
 {{end}}
 {{end}}
 
