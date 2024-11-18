@@ -1,8 +1,10 @@
 # Define variables
-$GitHubRepoURL = "https://github.com/papa0four/cpscan.git"
+$GitHubRepoURL = "https://github.com/papa0four/cpscan/archive/refs/heads/main.zip"
 $TempDir = "$env:TEMP\cpscan_update"
 $InstallDir = "$env:ProgramFiles\cpscan"
 $BackupDir = "$env:ProgramFiles\cpscan_backup"
+$ZipFile = "$TempDir\cpscan.zip"
+$GoExe = "$env:ProgramFiles\Go\bin\go.exe"
 
 # Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -10,65 +12,86 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Step 1: Back up current installation
-if (Test-Path $InstallDir) {
-    Write-Output "Backing up current cpscan installation..."
-    if (Test-Path $BackupDir) {
-        Remove-Item -Recurse -Force $BackupDir
+try {
+    # Backup current installation
+    if (Test-Path $InstallDir) {
+        Write-Output "Backing up current installation..."
+        if (Test-Path $BackupDir) {
+            Remove-Item -Recurse -Force $BackupDir
+        }
+        Rename-Item -Path $InstallDir -NewName $BackupDir
     }
-    Rename-Item -Path $InstallDir -NewName $BackupDir
-    Write-Output "Backup completed: $BackupDir"
-} else {
-    Write-Output "No existing cpscan installation found. Proceeding with fresh update..."
-}
 
-# Step 2: Clone the latest version from GitHub
-Write-Output "Cloning the latest version of cpscan from GitHub..."
-if (Test-Path $TempDir) {
-    Remove-Item -Recurse -Force $TempDir
-}
-git clone $GitHubRepoURL $TempDir
-if (-not (Test-Path "$TempDir\cmd\main.go")) {
-    Write-Error "Failed to clone cpscan repository or repository is incomplete."
-    exit 1
-}
+    # Create temp directory
+    Write-Output "Creating temporary directory..."
+    if (Test-Path $TempDir) {
+        Remove-Item -Recurse -Force $TempDir
+    }
+    New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
-# Step 3: Build the updated version
-Write-Output "Building the updated cpscan application..."
-Push-Location $TempDir
-if (!(Test-Path "go.mod")) {
-    Write-Output "Initializing Go modules..."
-    go mod init github.com/papa0four/cpscan
-}
-Write-Output "Tidying Go modules..."
-go mod tidy
-Write-Output "Compiling cpscan..."
-go build -o cpscan.exe ./cmd/main.go
-if (-not (Test-Path ".\cpscan.exe")) {
-    Write-Error "Build failed: cpscan executable not created."
+    # Download and extract
+    Write-Output "Downloading cpscan..."
+    Invoke-WebRequest -Uri $GitHubRepoURL -OutFile $ZipFile
+    
+    Write-Output "Extracting..."
+    Expand-Archive -Path $ZipFile -DestinationPath $TempDir -Force
+    
+    # Verify project structure
+    Write-Output "Verifying project structure..."
+    $mainDir = Get-ChildItem -Path $TempDir -Directory | Where-Object { $_.Name -eq "cpscan-main" } | Select-Object -ExpandProperty FullName
+    Write-Output "Main directory: $mainDir"
+
+    if (-not $mainDir) {
+        throw "Could not find cpscan-main directory"
+    }
+
+    $mainGoPath = Join-Path -Path $mainDir -ChildPath "cmd\cpscan\main.go"
+    Write-Output "Looking for main.go at: $mainGoPath"
+
+    if (-not (Test-Path $mainGoPath)) {
+        throw "Project structure not as expected. Cannot find $mainGoPath"
+    }
+
+    $ProjectRoot = $mainDir 
+    
+    # Build steps
+    Write-Output "Building cpscan..."
+    Push-Location $ProjectRoot
+    if (!(Test-Path "go.mod")) {
+        Start-Process -FilePath $GoExe -ArgumentList "mod", "init", "github.com/papa0four/cpscan" -Wait -NoNewWindow
+    }
+    Start-Process -FilePath $GoExe -ArgumentList "mod", "tidy" -Wait -NoNewWindow
+    Start-Process -FilePath $GoExe -ArgumentList "build", "-o", "cpscan.exe", "./cmd/cpscan" -Wait -NoNewWindow
+    
+    if (-not (Test-Path ".\cpscan.exe")) {
+        Write-Error "Build failed: cpscan executable not created."
+        Pop-Location
+        exit 1
+    }
     Pop-Location
+    
+    # Install
+    Write-Output "Installing cpscan..."
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Move-Item -Path "$ProjectRoot\cpscan.exe" -Destination "$InstallDir\cpscan.exe" -Force
+    
+    # Update PATH
+    if (!(Get-Command "cpscan" -ErrorAction SilentlyContinue)) {
+        $env:Path += ";$InstallDir"
+        [Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
+        Write-Output "Updated PATH environment variable."
+    }
+    
+    # Cleanup
+    Write-Output "Cleaning up..."
+    Remove-Item -Recurse -Force $TempDir
+    
+    Write-Output "Update complete."
+
+} catch {
+    Write-Error "Error during process: $_"
+    if (Test-Path $TempDir) {
+        Remove-Item -Recurse -Force $TempDir
+    }
     exit 1
 }
-Pop-Location
-
-# Step 4: Install the updated version
-Write-Output "Installing the updated cpscan application..."
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Move-Item -Path "$TempDir\cpscan.exe" -Destination "$InstallDir\cpscan.exe" -Force
-
-# Step 5: Update PATH environment variable
-if (!(Get-Command "cpscan" -ErrorAction SilentlyContinue)) {
-    $env:Path += ";$InstallDir"
-    [Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
-    Write-Output "Updated PATH environment variable to include cpscan."
-}
-
-# Step 6: Clean up temporary files
-Write-Output "Cleaning up temporary files..."
-Remove-Item -Recurse -Force $TempDir
-
-# Step 7: Confirm success and allow immediate execution
-Write-Output "cpscan has been successfully updated and installed."
-Write-Output "You can now run the updated cpscan using the 'cpscan' command in this terminal."
-& "$InstallDir\cpscan.exe" version
-

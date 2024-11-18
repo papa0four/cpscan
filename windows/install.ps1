@@ -1,4 +1,4 @@
-# PowerShell Script to Install Dependencies and Create 'cpscan' Executable
+# PowerShell Script to Install cpscan
 
 # Ensure the script runs as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -103,35 +103,19 @@ try {
 
 # Build the executable
 Write-Output "Building cpscan executable..."
-& "$env:ProgramFiles\Go\bin\go.exe" build -o cpscan.exe ./cmd/main.go
-if (!(Test-Path ".\cpscan.exe")) {
+$destinationPath = "$env:ProgramFiles\cpscan"
+if (!(Test-Path $destinationPath)) {
+    New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+}
+& "$env:ProgramFiles\Go\bin\go.exe" build -o "$destinationPath\cpscan.exe" ./cmd/cpscan/main.go
+if (!(Test-Path "$destinationPath\cpscan.exe")) {
     Write-Output "Build failed: cpscan executable not created."
     Pause
     exit
 }
 
-# Move cpscan to Program Files Directory
-$destinationPath = "$env:ProgramFiles\cpscan"
-if (!(Test-Path $destinationPath)) {
-    New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
-}
-Move-Item -Path ".\cpscan.exe" -Destination "$destinationPath\cpscan.exe" -Force
-
-# Add cpscan to Path and set it permanently
-$env:Path += ";$destinationPath"
-[Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
-Write-Output "cpscan installed successfully."
-
-# return to initial directory
-Pop-Location
-
-# Refresh environment variables for current session
-$refreshEnv = @"
-[System.Environment]::SetEnvironmentVariable('Path', [System.Environment]::GetEnvironmentVariable('Path','Machine'), 'Process')
-"@
-Invoke-Expression $refreshEnv
-
 # Confirmation and Exit
-Write-Output "`nInstallation complete! You can now run 'cpscan' from any command prompt or PowerShell session."
+Write-Output "`nInstallation complete! The cpscan executable is located at $destinationPath\cpscan.exe."
+Write-Output "To add cpscan to your system PATH, run the following command in an elevated PowerShell prompt:"
+Write-Output "[Environment]::SetEnvironmentVariable(`"Path`", `"$env:Path;$destinationPath`", `"Machine`")"
 Pause
-

@@ -53,14 +53,29 @@ func getLinuxSoftware() (string, error) {
 // getWindowsSoftware retrieves installed software for Windows systems
 func getWindowsSoftware() (string, error) {
     // Use WMIC to list installed products (may require admin privileges for full list)
-    cmd := exec.Command("wmic", "product", "get", "name,version")
-    output, err := cmd.Output()
-    if err == nil {
+    psCmd := exec.Command("powershell", "-Command",
+        "Get-WmiObject -Class Win32_Product | Select-Object Name, Version | Fortma-Table -Autosize")
+    output, err := psCmd.Output()
+    if err == nil && len(output) > 0 {
         return string(output), nil
     }
 
-    return "", fmt.Errorf("Insufficient permissions to list all software packages.\n" +
-        "Try running the command in an Administrator CMD Prompt or Powershell for a full list.")
+    // Fallback to registry query
+    regCmd := exec.Command("reg", "query",
+        "HKLM\\SOFTWARE\\Microsoft\\CurrentVersion\\Uninstall", "/s", "/v", "DisplayName")
+    output, err = regCmd.Output()
+    if err == nil && len(output) > 0 {
+        return string(output), nil
+    }
+
+    reg32Cmd := exec.Command("reg", "query",
+        "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", "/s", "/v", "DisplayName")
+    output, err = reg32Cmd.Output()
+    if err == nil && len(output) > 0 {
+        return string(output), nil
+    }
+
+    return "", fmt.Errorf("Unable to retrieve software list. Please ensure you have administrator privileges.")
 }
 
 // getMacSoftware retrieves installed software for MacOS
