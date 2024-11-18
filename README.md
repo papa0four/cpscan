@@ -13,18 +13,18 @@ A proof of concept (POC) vulnerability scanner developed for Critical Path Consu
 - [`update.ps1`][win-update]
 - [`uninstall.ps1`][win-uninstall]
 
-[win-install]: https://raw.githubusercontent.com/username/cpscan/main/scripts/windows/install.ps1
-[win-update]: https://raw.githubusercontent.com/username/cpscan/main/scripts/windows/update.ps1
-[win-uninstall]: https://raw.githubusercontent.com/username/cpscan/main/scripts/windows/uninstall.ps1
+[win-install]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/windows/install.ps1
+[win-update]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/windows/update.ps1
+[win-uninstall]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/windows/uninstall.ps1
 
 ### Unix/Linux/MacOS Scripts
 - [`install.sh`][unix-install]
 - [`update.sh`][unix-update]
 - [`uninstall.sh`][unix-uninstall]
 
-[unix-install]: https://raw.githubusercontent.com/username/cpscan/main/scripts/unix/install.sh
-[unix-update]: https://raw.githubusercontent.com/username/cpscan/main/scripts/unix/update.sh
-[unix-uninstall]: https://raw.githubusercontent.com/username/cpscan/main/scripts/unix/uninstall.sh
+[unix-install]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/unix/install.sh
+[unix-update]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/unix/update.sh
+[unix-uninstall]: https://raw.githubusercontent.com/papa0four/cpscan/main/scripts/unix/uninstall.sh
 
 ## System Requirements
 
