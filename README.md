@@ -109,4 +109,4 @@ For issues or questions, please open a [GitHub Issue][issues].
 [issues]: https://github.com/username/cpscan/issues
 
 ## License
-[MIT License](LICENSE)
+[NO LICENSE](LICENSE)
