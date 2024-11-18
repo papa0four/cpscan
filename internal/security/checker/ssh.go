@@ -159,7 +159,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 	}
 
 	// Check OpenSSH installation
-	cmd := exec.Command("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\popwershell.exe", "-Command",
+	cmd := exec.Command("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command",
 		"Get-WindowsCapability -Online | Where-Object {$_.Name -like '*OpenSSH.Server*' }")
 	output, err := cmd.CombinedOutput()
 
