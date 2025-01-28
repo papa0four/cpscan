@@ -106,7 +106,7 @@ chmod +x uninstall.sh
 ## Support
 For issues or questions, please open a [GitHub Issue][issues].
 
-[issues]: https://github.com/username/cpscan/issues
+[issues]: https://github.com/papa0four/cpscan/issues
 
 ## License
 [NO LICENSE](LICENSE)
