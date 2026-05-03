@@ -105,7 +105,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	}
 
 	if err := scanner.Err(); err != nil {
-		result.Status = "Error"
+		result.Status = "ERROR"
 		result.Description = fmt.Sprintf("Error reading SSH configuration: %v", err)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: Failed to read configuration", types.SymbolError))
@@ -137,7 +137,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 				fmt.Sprintf("%s WARNING: Password authentication is enabled", types.SymbolWarning))
 		} else {
 			result.Details = append(result.Details,
-				fmt.Sprintf("% Password authentication is disabled", types.SymbolOK))
+				fmt.Sprintf("%s Password authentication is disabled", types.SymbolOK))
 		}
 	} else {
 		result.Details = append(result.Details,
