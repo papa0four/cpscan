@@ -2,7 +2,6 @@
 package formatter
 
 import (
-    "bytes"
     "encoding/json"
     "fmt"
     "io"
@@ -52,12 +51,12 @@ func NewFormatter(w io.Writer, opts FormatOptions) *Formatter {
 // Format formats the audit result according to the specified options
 func (f *Formatter) Format(result *audit.AuditResult) error {
     switch f.options.Format {
-    case FormatJSON:
-        return f.formatJSON(result)
-    case FormatYAML:
-        return f.formatYAML(result)
-    default:
-        return f.formatText(result)
+		case FormatJSON:
+			return f.formatJSON(result)
+		case FormatYAML:
+			return f.formatYAML(result)
+		default:
+			return f.formatText(result)
     }
 }
 
@@ -196,27 +195,6 @@ func isSeverityRelevant(findingSeverity, minSeverity string) bool {
     return findingLevel >= minLevel
 }
 
-// ColorizeText adds ANSI color codes to text if color output is enabled
-func (f *Formatter) ColorizeText(text, color string) string {
-    if !f.options.ColorOutput {
-        return text
-    }
-
-    colors := map[string]string{
-        "red":    "\033[31m",
-        "green":  "\033[32m",
-        "yellow": "\033[33m",
-        "blue":   "\033[34m",
-        "reset":  "\033[0m",
-    }
-
-    if code, ok := colors[color]; ok {
-        return fmt.Sprintf("%s%s%s", code, text, colors["reset"])
-    }
-
-    return text
-}
-
 // Default text template
 const defaultTemplate = `
 Security Audit Report
@@ -232,10 +210,6 @@ Architecture: {{.system.Architecture}}
 Hostname: {{.system.Hostname}}
 Kernel Version: {{.system.KernelVersion}}
 Software Count: {{.system.SoftwareCount}}
-{{if .verbose}}
-Software Info:
-{{.system.SoftwareInfo}}
-{{end}}
 {{end}}
 
 Check Results
@@ -250,17 +224,6 @@ Duration: {{.duration}}
 Findings:
 {{range .findings}}
   - [{{.severity}}] {{.title}}
-  {{- if $.verbose}}
-    Description: {{.description}}
-    Impact: {{.impact}}
-    Resolution: {{.resolution}}
-    {{if .references}}
-    References:
-    {{range .references}}
-      * {{.title}}: {{.url}}
-    {{end}}
-    {{end}}
-  {{end}}
 {{end}}
 {{end}}
 
@@ -280,19 +243,3 @@ Warnings: {{.summary.warning_checks}}
 Failed: {{.summary.failed_checks}}
 Skipped: {{.summary.skipped_checks}}
 `
-
-// JSON/YAML schema version
-const SchemaVersion = "1.0"
-
-// Custom time format for outputs
-const TimeFormat = "2006-01-02T15:04:05Z07:00"
-
-// Helper function for error formatting
-func FormatError(err error) string {
-    var buf bytes.Buffer
-    fmt.Fprintf(&buf, "Error: %v\n", err)
-    if f, ok := err.(interface{ StackTrace() string }); ok {
-        fmt.Fprintf(&buf, "\nStack Trace:\n%s", f.StackTrace())
-    }
-    return buf.String()
-}
