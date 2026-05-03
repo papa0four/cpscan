@@ -45,7 +45,7 @@ func getLinuxSoftware() (string, error) {
 func getWindowsSoftware() (string, error) {
 	output, err := exec.Command("wmic", "product", "get", "name,version").Output()
 	if err == nil {
-		return (output), nil
+		return string(output), nil
 	}
 }
 
