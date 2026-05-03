@@ -47,6 +47,9 @@ func getWindowsSoftware() (string, error) {
 	if err == nil {
 		return string(output), nil
 	}
+
+	return "", fmt.Errorf("insufficient permissions to list all software packages.\n" +
+        "Try running from an Administrator prompt for a full list.")
 }
 
 // getMacSoftware retrieves installed software for MacOS
