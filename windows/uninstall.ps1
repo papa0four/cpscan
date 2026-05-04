@@ -21,7 +21,7 @@ if (Test-Path $cpscanPath) {
 
 # Remove cpscan from the system Path
 $sysPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-$newPath = ($systemPath -split ';') -notmatch [regex]::Escape($cpscanPath) -join ';'
+$newPath = ($sysPath -split ';') -notmatch [regex]::Escape($cpscanPath) -join ';'
 [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
 Write-Output "cpscan removed from system Path."
 

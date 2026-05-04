@@ -8,11 +8,11 @@ import (
 )
 
 type OSInfo struct {
-    OS        string
-    Platform  string
+    OS				string
+    Platform		string
     PlatformVersion string
-    KernelVersion string
-    AdditionalInfo map[string]string // store any additional OS-Specific details
+    KernelVersion	string
+    AdditionalInfo	map[string]string // store any additional OS-Specific details
 }
 
 // GetOSFingerprint retrieves OS-Specific fingerprinting information
@@ -23,28 +23,28 @@ func GetOSFingerprint() (*OSInfo, error) {
     }
 
     osInfo := &OSInfo{
-        OS:            info.OS,
-        Platform:      info.Platform,
-        PlatformVersion: info.PlatformVersion,
-        KernelVersion: info.KernelVersion,
-        AdditionalInfo: make(map[string]string),
+        OS:					info.OS,
+        Platform:			info.Platform,
+        PlatformVersion:	info.PlatformVersion,
+        KernelVersion:		info.KernelVersion,
+        AdditionalInfo:		make(map[string]string),
     }
 
     // Check the platform (Windows, Unix, MacOS, etc.)
     switch runtime.GOOS {
-    case "windows":
-        osInfo.AdditionalInfo["ProductName"] = "Windows"
-        osInfo.AdditionalInfo["EditionID"] = info.PlatformFamily // Windows-specific details
-    case "darwin":
-        osInfo.AdditionalInfo["ProductName"] = "MacOS"
-        osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
-    case "linux":
-        osInfo.AdditionalInfo["DistroFamily"] = info.PlatformFamily // Linux/Unix distribution
-        osInfo.AdditionalInfo["Hostname"] = info.Hostname
-    case "freebsd":
-        osInfo.AdditionalInfo["ProductName"] = "FreeBSD"
-    default:
-        osInfo.AdditionalInfo["ProductName"] = "Unknown"
+		case "windows":
+			osInfo.AdditionalInfo["ProductName"] = "Windows"
+			osInfo.AdditionalInfo["EditionID"] = info.PlatformFamily // Windows-specific details
+		case "darwin":
+			osInfo.AdditionalInfo["ProductName"] = "MacOS"
+			osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
+		case "linux":
+			osInfo.AdditionalInfo["DistroFamily"] = info.PlatformFamily // Linux/Unix distribution
+			osInfo.AdditionalInfo["Hostname"] = info.Hostname
+		case "freebsd":
+			osInfo.AdditionalInfo["ProductName"] = "FreeBSD"
+		default:
+			osInfo.AdditionalInfo["ProductName"] = "Unknown"
     }
 
     return osInfo, nil
