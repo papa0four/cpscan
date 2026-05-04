@@ -8,7 +8,7 @@ import (
     "path/filepath"
     "runtime"
     "strings"
-    // "syscall"
+
     "github.com/papa0four/cpscan/internal/security/types"
 )
 
@@ -19,7 +19,7 @@ type PermissionChecker interface {
 
 // UnixPermissionChecker implements PermissionChecker for Unix-like systems
 type UnixPermissionChecker struct {
-    Paths []string
+    paths  []criticalPath
     osType string
 }
 
@@ -43,7 +43,7 @@ func NewUnixPermissionChecker() *UnixPermissionChecker {
     }
     
     // Set default critical paths based on OS
-    checker.Paths = getDefaultCriticalPaths(checker.osType)
+    checker.paths = checker.getCriticalPathConfigs()
     return checker
 }
 
@@ -60,52 +60,6 @@ func NewWindowsPermissionChecker() *WindowsPermissionChecker {
     }
 }
 
-func getDefaultCriticalPaths(osType string) []string {
-    commonPaths := []string{
-        "/etc/passwd",
-        "/etc/shadow",
-        "/etc/group",
-        "/etc/sudoers",
-        "/etc/ssh",
-        "/var/log",
-        "/var/run",
-        "/var/tmp",
-        "/tmp",
-        "/home",
-    }
-
-    switch osType {
-    case "darwin":
-        return append(commonPaths,
-            "/System",
-            "/Library/Preferences",
-            "/private/etc",
-            "/private/var",
-            "/usr/local/bin",
-            "/Applications",
-        )
-    case "freebsd", "openbsd":
-        return append(commonPaths,
-            "/boot",
-            "/root",
-            "/usr/local/etc",
-            "/usr/local/sbin",
-            "/var/db/pkg",
-        )
-    default: // Linux
-        return append(commonPaths,
-            "/boot",
-            "/root",
-            "/usr/bin",
-            "/usr/sbin",
-            "/var/spool/cron",
-            "/proc",
-            "/sys",
-            "/dev",
-        )
-    }
-}
-
 // Check implements PermissionChecker interface for Unix systems
 func (p *UnixPermissionChecker) Check() types.AuditResult {
     result := types.AuditResult{
@@ -115,28 +69,20 @@ func (p *UnixPermissionChecker) Check() types.AuditResult {
         Details:     make([]string, 0),
     }
 
-    // Get critical paths with expected permissions
-    criticalPaths := p.getCriticalPathConfigs()
+    for _, cpath := range p.paths {
+		if err := p.checkPathPermissions(cpath, &result); err != nil {
+			result.Details = append(result.Details,
+			fmt.Sprintf("%s Error checking %s: %v", 
+				types.SymbolError, cpath.path, err))
+		}
+	}
 
-    for _, cp := range criticalPaths {
-        if err := p.checkPathPermissions(cp, &result); err != nil {
-            result.Details = append(result.Details,
-                fmt.Sprintf("%s Error checking %s: %v", 
-                    types.SymbolError, cp.path, err))
-        }
-    }
+	p.checkSUIDFiles(&result)
+	p.checkWorldWritableFiles(&result)
+	p.checkUnownedFiles(&result)
 
-    // Check SUID/SGID files
-    p.checkSUIDFiles(&result)
-
-    // Check world-writable files
-    p.checkWorldWritableFiles(&result)
-
-    // Check unowned files
-    p.checkUnownedFiles(&result)
-
-    result.Status = "COMPLETED"
-    return result
+	result.Status = "COMPLETED"
+	return result
 }
 
 func (p *UnixPermissionChecker) getCriticalPathConfigs() []criticalPath {
