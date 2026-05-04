@@ -15,14 +15,12 @@ var RootCmd = &cobra.Command{
     Short: "CPScan is a lightweight scanner for host OS vulnerabilities",
     Long: `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
     Run: func(cmd *cobra.Command, args []string) {
-        // Default action when no subcommands are provided
         fmt.Println("CPScan requires a subcommand (e.g., osinfo, security_audit, software).")
         cmd.Help()
     },
 }
 
 func init() {
-    // Register the security audit command
     RootCmd.AddCommand(security.SecurityCmd)
 }
 
