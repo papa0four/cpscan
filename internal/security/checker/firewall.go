@@ -9,7 +9,7 @@ import (
 	"github.com/papa0four/cpscan/internal/security/types"
 )
 
-// SSHChecker defines interface for SSH configuration checking
+// FirewallChecker defines interface for Firewall configuration checking
 type FirewallChecker interface {
 	Check() types.AuditResult
 }
@@ -84,7 +84,7 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 			parsedRules := fw.parser(output)
 			for _, rule := range parsedRules {
 				result.Details = append(result.Details,
-					fmt.Sprintf( "%s", rule))
+					fmt.Sprintf(rule))
 			}
 		}
 	}
@@ -161,7 +161,7 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 		result.Status = "WARNING"
 		result.Description = "Windows Firewall is disabled for all profiles"
 		result.Details = append(result.Details,
-			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolWarning))
+			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Windows Firewall is active on %d profile(s)", activeProfiles)
