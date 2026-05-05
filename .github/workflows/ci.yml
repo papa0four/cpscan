@@ -24,7 +24,7 @@ jobs:
           go-version ${{ matrix.version }}
           cache: true
 
-      - name: Verify dependencies:
+      - name: Verify dependencies
         run: go mod verify
 
       - name: Check formatting
