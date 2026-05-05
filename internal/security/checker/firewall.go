@@ -15,10 +15,10 @@ type FirewallChecker interface {
 }
 
 // UnixFirewallChecker implements FirewallChecker for Unix-like systems
-type UnixFirewallChecker struct {}
+type UnixFirewallChecker struct{}
 
 // WindowsFirewallChecker implements FirewallChecker for Windows systems
-type WindowsFirewallChecker struct {}
+type WindowsFirewallChecker struct{}
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
 func NewUnixFirewallChecker() *UnixFirewallChecker {
@@ -32,41 +32,41 @@ func NewWindowsFirewallChecker() *WindowsFirewallChecker {
 
 // firewallTool represents a firewall management tool
 type firewallTool struct {
-	name		string
-	command		[]string
-	parser		func([]byte) []string
+	name    string
+	command []string
+	parser  func([]byte) []string
 }
 
 // Check implements FirewallChecker interface for Unix systems
 func (f *UnixFirewallChecker) Check() types.AuditResult {
 	result := types.AuditResult{
-		Name:			"Firewall Configuration",
-		Status:			"CHECKING",
-		Description:	"Analyzing firewall configuration and rules",
-		Details:		make([]string, 0),
+		Name:        "Firewall Configuration",
+		Status:      "CHECKING",
+		Description: "Analyzing firewall configuration and rules",
+		Details:     make([]string, 0),
 	}
 
 	// Define supported firewall tools
 	firewalls := []firewallTool{
 		{
-			name:		"iptables",
-			command:	[]string{"iptables", "-L", "-n", "-v"},
-			parser:		parseIptablesOutput,
+			name:    "iptables",
+			command: []string{"iptables", "-L", "-n", "-v"},
+			parser:  parseIptablesOutput,
 		},
 		{
-			name:		"ufw",
-			command:	[]string{"ufw", "status", "verbose"},
-			parser:		parseUfwOutput,
+			name:    "ufw",
+			command: []string{"ufw", "status", "verbose"},
+			parser:  parseUfwOutput,
 		},
 		{
-			name:		"firewalld",
-			command:	[]string{"firewall-cmd", "--list-all"},
-			parser:		parseFirewalldOutput,
+			name:    "firewalld",
+			command: []string{"firewall-cmd", "--list-all"},
+			parser:  parseFirewalldOutput,
 		},
 		{
-			name:		"pfctl",
-			command:	[]string{"pfctl", "-sr"},
-			parser:		parsePfctlOutput,
+			name:    "pfctl",
+			command: []string{"pfctl", "-sr"},
+			parser:  parsePfctlOutput,
 		},
 	}
 
@@ -111,10 +111,10 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 // Check implements FirewallChecker interface for Windows systems
 func (f *WindowsFirewallChecker) Check() types.AuditResult {
 	result := types.AuditResult{
-		Name:			"Windows Firewall Configuration",
-		Status:			"CHECKING",
-		Description:	"Analyzing Windows Firewall Configuration",
-		Details:		make([]string, 0),
+		Name:        "Windows Firewall Configuration",
+		Status:      "CHECKING",
+		Description: "Analyzing Windows Firewall Configuration",
+		Details:     make([]string, 0),
 	}
 
 	// Check firewall status for all profiles
@@ -257,7 +257,7 @@ func parseWindowsFirewallRules(output string) []string {
 		if strings.HasPrefix(line, "Rule Name:") ||
 			strings.HasPrefix(line, "Enabled:") ||
 			strings.HasPrefix(line, "Direction:") {
-				rules = append(rules, line)
+			rules = append(rules, line)
 		}
 	}
 

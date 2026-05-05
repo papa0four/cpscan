@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/papa0four/cpscan/internal/security/audit"
+	"github.com/spf13/cobra"
 )
 
 func init() {

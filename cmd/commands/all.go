@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/papa0four/cpscan/internal/osfingerprint"
 	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/papa0four/cpscan/internal/security/formatter"
 	"github.com/papa0four/cpscan/internal/security/types"
 	"github.com/papa0four/cpscan/internal/softwarelist"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -66,13 +66,13 @@ func init() {
 
 // ScanResult represents the combined results of all scans
 type ScanResult struct {
-	Timestamp     time.Time              `json:"timestamp"`
-	Duration      time.Duration          `json:"duration"`
-	OSInfo        *osfingerprint.OSInfo  `json:"os_info,omitempty"`
-	SoftwareInfo  string                 `json:"software_info,omitempty"`
-	SoftwareCount int                    `json:"software_count"`
-	SecurityAudit *audit.AuditResult     `json:"security_audit,omitempty"`
-	Errors        []string               `json:"errors,omitempty"`
+	Timestamp     time.Time             `json:"timestamp"`
+	Duration      time.Duration         `json:"duration"`
+	OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
+	SoftwareInfo  string                `json:"software_info,omitempty"`
+	SoftwareCount int                   `json:"software_count"`
+	SecurityAudit *audit.AuditResult    `json:"security_audit,omitempty"`
+	Errors        []string              `json:"errors,omitempty"`
 }
 
 func runAllScans(cmd *cobra.Command, args []string) error {
@@ -105,7 +105,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Software inventory error: %v", err))
 			} else {
-				result.SoftwareInfo  = softwareInfo
+				result.SoftwareInfo = softwareInfo
 				result.SoftwareCount = softwareCount
 			}
 		}
@@ -124,10 +124,10 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	}()
 
 	select {
-		case result := <-results:
-			return outputResults(result)
-		case <-time.After(allTimeout):
-			return fmt.Errorf("scan timed out after %v", allTimeout)
+	case result := <-results:
+		return outputResults(result)
+	case <-time.After(allTimeout):
+		return fmt.Errorf("scan timed out after %v", allTimeout)
 	}
 }
 
@@ -195,9 +195,9 @@ func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
 	}
 
 	if scan.OSInfo != nil {
-		sysInfo.OS            = scan.OSInfo.OS
-		sysInfo.Architecture  = scan.OSInfo.Platform
-		sysInfo.Hostname      = scan.OSInfo.PlatformVersion
+		sysInfo.OS = scan.OSInfo.OS
+		sysInfo.Architecture = scan.OSInfo.Platform
+		sysInfo.Hostname = scan.OSInfo.PlatformVersion
 		sysInfo.KernelVersion = scan.OSInfo.KernelVersion
 	}
 
@@ -266,10 +266,10 @@ func printCriticalFindings(auditResult *audit.AuditResult) {
 	for _, result := range auditResult.Results {
 		for _, finding := range result.Findings {
 			switch finding.Severity {
-				case types.SeverityCritical:
-					criticalCount++
-				case types.SeverityHigh:
-					highCount++
+			case types.SeverityCritical:
+				criticalCount++
+			case types.SeverityHigh:
+				highCount++
 			}
 		}
 	}

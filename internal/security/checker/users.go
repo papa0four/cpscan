@@ -50,35 +50,35 @@ type userAccount struct {
 // getPlatformConfig returns the appropriate configuration for the current OS
 func getPlatformConfig() platformConfig {
 	switch runtime.GOOS {
-		case "darwin":
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/var/db/dslocal/nodes/Default/users",
-				},
-				minUID: 500,
-			}
-		case "freebsd", "openbsd":
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/etc/master.passwd",
-					"/etc/pwd.db",
-					"/etc/spwd.db",
-				},
-				minUID: 1000,
-			}
-		default: // Linux
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/etc/shadow",
-					"/etc/security/passwd",
-					"/etc/security/opasswd",
-					"/etc/gshadow",
-				},
-				minUID: 1000,
-			}
+	case "darwin":
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/var/db/dslocal/nodes/Default/users",
+			},
+			minUID: 500,
+		}
+	case "freebsd", "openbsd":
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/etc/master.passwd",
+				"/etc/pwd.db",
+				"/etc/spwd.db",
+			},
+			minUID: 1000,
+		}
+	default: // Linux
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/etc/shadow",
+				"/etc/security/passwd",
+				"/etc/security/opasswd",
+				"/etc/gshadow",
+			},
+			minUID: 1000,
+		}
 	}
 }
 
@@ -123,12 +123,12 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 // getUsers retrieves user accounts based on OS type
 func (u *UnixUserChecker) getUsers() ([]userAccount, error) {
 	switch u.osType {
-		case "darwin":
-			return u.getMacOSUsers()
-		case "freebsd", "openbsd":
-			return u.getBSDUsers()
-		default:
-			return u.getLinuxUsers()
+	case "darwin":
+		return u.getMacOSUsers()
+	case "freebsd", "openbsd":
+		return u.getBSDUsers()
+	default:
+		return u.getLinuxUsers()
 	}
 }
 
@@ -176,14 +176,14 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 			}
 
 			switch fields[0] {
-				case "UniqueID:":
-					account.uid, _ = strconv.Atoi(fields[1])
-				case "PrimaryGroupID:":
-					account.gid, _ = strconv.Atoi(fields[1])
-				case "NFSHomeDirectory:":
-					account.homeDir = fields[1]
-				case "UserShell:":
-					account.shell = fields[1]
+			case "UniqueID:":
+				account.uid, _ = strconv.Atoi(fields[1])
+			case "PrimaryGroupID:":
+				account.gid, _ = strconv.Atoi(fields[1])
+			case "NFSHomeDirectory:":
+				account.homeDir = fields[1]
+			case "UserShell:":
+				account.shell = fields[1]
 			}
 		}
 

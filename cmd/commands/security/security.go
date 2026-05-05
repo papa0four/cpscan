@@ -8,21 +8,21 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-	"github.com/spf13/cobra"
 	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var (
 	// Command flags
-	verbose        bool
-	outputFormat   string
-	reportFile     string
-	customPaths    []string
-	skipChecks     []string
-	minSeverity    string
-	timeout        time.Duration
+	verbose      bool
+	outputFormat string
+	reportFile   string
+	customPaths  []string
+	skipChecks   []string
+	minSeverity  string
+	timeout      time.Duration
 
 	// Individual check flags
 	checkSSH       bool
@@ -201,12 +201,12 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
 	}()
 
 	select {
-		case result := <-resultChan:
-			return outputResults(result)
-		case err := <-errorChan:
-			return fmt.Errorf("audit failed: %w", err)
-		case <-time.After(timeout):
-			return fmt.Errorf("audit timed out after %v", timeout)
+	case result := <-resultChan:
+		return outputResults(result)
+	case err := <-errorChan:
+		return fmt.Errorf("audit failed: %w", err)
+	case <-time.After(timeout):
+		return fmt.Errorf("audit timed out after %v", timeout)
 	}
 }
 
@@ -261,12 +261,12 @@ func outputResults(result *audit.AuditResult) error {
 	var err error
 
 	switch outputFormat {
-		case "json":
-			output, err = formatJSON(result)
-		case "yaml":
-			output, err = formatYAML(result)
-		default:
-			output, err = formatText(result)
+	case "json":
+		output, err = formatJSON(result)
+	case "yaml":
+		output, err = formatYAML(result)
+	default:
+		output, err = formatText(result)
 	}
 
 	if err != nil {
@@ -299,10 +299,10 @@ func printCriticalFindings(result *audit.AuditResult) {
 	for _, checkResult := range result.Results {
 		for _, finding := range checkResult.Findings {
 			switch finding.Severity {
-				case types.SeverityCritical:
-					criticalCount++
-				case types.SeverityHigh:
-					highCount++
+			case types.SeverityCritical:
+				criticalCount++
+			case types.SeverityHigh:
+				highCount++
 			}
 		}
 	}
