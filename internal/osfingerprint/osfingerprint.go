@@ -3,8 +3,9 @@ package osfingerprint
 
 import (
 	"fmt"
-	"github.com/shirou/gopsutil/host"
 	"runtime"
+
+	"github.com/shirou/gopsutil/host"
 )
 
 type OSInfo struct {

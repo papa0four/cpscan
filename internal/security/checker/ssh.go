@@ -4,10 +4,11 @@ package checker
 import (
 	"bufio"
 	"fmt"
-	"github.com/papa0four/cpscan/internal/security/types"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/papa0four/cpscan/internal/security/types"
 )
 
 // SSHChecker defines interface for SSH configuration checking
