@@ -17,7 +17,9 @@ var RootCmd = &cobra.Command{
 	Long:  `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("CPScan requires a subcommand (e.g., osinfo, security_audit, software).")
-		cmd.Help()
+		if err := cmd.Help(); err != nil {
+			fmt.Fprintf(os.Stderr, "error displaying help: %v\n", err)
+		}
 	},
 }
 
