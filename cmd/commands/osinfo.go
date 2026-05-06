@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
 	"github.com/papa0four/cpscan/internal/osfingerprint"
 )
 

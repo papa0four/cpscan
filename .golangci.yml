@@ -1,0 +1,43 @@
+# .golangci.yml
+run:
+  timeout: 5m
+  go: '1.23'
+
+linters:
+  disable-all: true
+
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - errcheck
+    - misspell
+    - revive
+    - whitespace
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/papa0four/cpscan
+
+  errcheck:
+    check-blank: true
+
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+
+      - name: var-naming
+        severity: warning
+        disabled: false
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  

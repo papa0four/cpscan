@@ -50,35 +50,35 @@ type userAccount struct {
 // getPlatformConfig returns the appropriate configuration for the current OS
 func getPlatformConfig() platformConfig {
 	switch runtime.GOOS {
-		case "darwin":
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/var/db/dslocal/nodes/Default/users",
-				},
-				minUID: 500,
-			}
-		case "freebsd", "openbsd":
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/etc/master.passwd",
-					"/etc/pwd.db",
-					"/etc/spwd.db",
-				},
-				minUID: 1000,
-			}
-		default: // Linux
-			return platformConfig{
-				userSources: []string{
-					"/etc/passwd",
-					"/etc/shadow",
-					"/etc/security/passwd",
-					"/etc/security/opasswd",
-					"/etc/gshadow",
-				},
-				minUID: 1000,
-			}
+	case "darwin":
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/var/db/dslocal/nodes/Default/users",
+			},
+			minUID: 500,
+		}
+	case "freebsd", "openbsd":
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/etc/master.passwd",
+				"/etc/pwd.db",
+				"/etc/spwd.db",
+			},
+			minUID: 1000,
+		}
+	default: // Linux
+		return platformConfig{
+			userSources: []string{
+				"/etc/passwd",
+				"/etc/shadow",
+				"/etc/security/passwd",
+				"/etc/security/opasswd",
+				"/etc/gshadow",
+			},
+			minUID: 1000,
+		}
 	}
 }
 
@@ -123,12 +123,12 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 // getUsers retrieves user accounts based on OS type
 func (u *UnixUserChecker) getUsers() ([]userAccount, error) {
 	switch u.osType {
-		case "darwin":
-			return u.getMacOSUsers()
-		case "freebsd", "openbsd":
-			return u.getBSDUsers()
-		default:
-			return u.getLinuxUsers()
+	case "darwin":
+		return u.getMacOSUsers()
+	case "freebsd", "openbsd":
+		return u.getBSDUsers()
+	default:
+		return u.getLinuxUsers()
 	}
 }
 
@@ -176,14 +176,18 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 			}
 
 			switch fields[0] {
-				case "UniqueID:":
-					account.uid, _ = strconv.Atoi(fields[1])
-				case "PrimaryGroupID:":
-					account.gid, _ = strconv.Atoi(fields[1])
-				case "NFSHomeDirectory:":
-					account.homeDir = fields[1]
-				case "UserShell:":
-					account.shell = fields[1]
+			case "UniqueID:":
+				if uid, err := strconv.Atoi(fields[1]); err == nil {
+					account.uid = uid
+				}
+			case "PrimaryGroupID:":
+				if gid, err := strconv.Atoi(fields[1]); err == nil {
+					account.gid = gid
+				}
+			case "NFSHomeDirectory:":
+				account.homeDir = fields[1]
+			case "UserShell:":
+				account.shell = fields[1]
 			}
 		}
 
@@ -191,7 +195,10 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 		account.isAdmin = adminUsers[username]
 
 		authCmd := exec.Command("dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority")
-		authOutput, _ := authCmd.CombinedOutput()
+		authOutput, err := authCmd.CombinedOutput()
+		if err != nil {
+			account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
+		}
 		account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
 
 		users = append(users, account)
@@ -204,14 +211,14 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	var users []userAccount
 
 	if u.osType == "openbsd" {
-		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run()
+		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run() //nolint:errcheck // BSD passwd db consistency check; failure is non-fatal, read proceeds regardless
 	}
 
 	file, err := os.Open("/etc/passwd")
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer file.Close() // nolint:errcheck // read-only passwd file; close error does not affect scan results
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -225,8 +232,14 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 			continue
 		}
 
-		uid, _ := strconv.Atoi(fields[2])
-		gid, _ := strconv.Atoi(fields[3])
+		uid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			continue
+		}
 
 		account := userAccount{
 			username: fields[0],
@@ -260,11 +273,11 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer passwdFile.Close()
+	defer passwdFile.Close() // nolint:errcheck // read-only passwd file; close error does not affect scan results
 
 	shadowEntries := make(map[string]string)
 	if shadow, err := os.Open("/etc/shadow"); err == nil {
-		defer shadow.Close()
+		defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
 		scanner := bufio.NewScanner(shadow)
 		for scanner.Scan() {
 			fields := strings.Split(scanner.Text(), ":")
@@ -298,8 +311,14 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 			continue
 		}
 
-		uid, _ := strconv.Atoi(fields[2])
-		gid, _ := strconv.Atoi(fields[3])
+		uid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			continue
+		}
 
 		account := userAccount{
 			username: fields[0],
@@ -387,8 +406,11 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 
 		for _, module := range []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"} {
 			found := false
-			filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() {
+			if err := filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if info.IsDir() {
 					return nil
 				}
 				if data, err := os.ReadFile(path); err == nil {
@@ -398,7 +420,11 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				details = append(details,
+					fmt.Sprintf("%s Could not scan PAM configuration: %v",
+						types.SymbolInfo, err))
+			}
 			if found {
 				details = append(details,
 					fmt.Sprintf("%s Found authentication module: %s",
@@ -428,7 +454,7 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 	if u.osType != "darwin" {
 		if shadow, err := os.Open("/etc/shadow"); err == nil {
-			defer shadow.Close()
+			defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
 			scanner := bufio.NewScanner(shadow)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
@@ -454,7 +480,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 
 	for _, source := range u.config.userSources {
 		if file, err := os.Open(source); err == nil {
-			defer file.Close()
+			defer file.Close() // nolint:errcheck // read-only passwd source file; close error does not affect scan results
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
@@ -505,7 +531,10 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 
 	adminCmd := exec.Command("powershell", "-Command",
 		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-Csv -NoTypeInformation`)
-	adminOutput, _ := adminCmd.CombinedOutput()
+	adminOutput, err := adminCmd.CombinedOutput()
+	if err != nil {
+		adminOutput = []byte{}
+	}
 	adminUsers := make(map[string]bool)
 	for _, line := range strings.Split(string(adminOutput), "\n") {
 		if strings.Contains(line, "\\") {

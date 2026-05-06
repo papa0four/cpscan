@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
 	"github.com/papa0four/cpscan/internal/osfingerprint"
 	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/papa0four/cpscan/internal/security/formatter"
@@ -66,13 +67,13 @@ func init() {
 
 // ScanResult represents the combined results of all scans
 type ScanResult struct {
-	Timestamp     time.Time              `json:"timestamp"`
-	Duration      time.Duration          `json:"duration"`
-	OSInfo        *osfingerprint.OSInfo  `json:"os_info,omitempty"`
-	SoftwareInfo  string                 `json:"software_info,omitempty"`
-	SoftwareCount int                    `json:"software_count"`
-	SecurityAudit *audit.AuditResult     `json:"security_audit,omitempty"`
-	Errors        []string               `json:"errors,omitempty"`
+	Timestamp     time.Time             `json:"timestamp"`
+	Duration      time.Duration         `json:"duration"`
+	OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
+	SoftwareInfo  string                `json:"software_info,omitempty"`
+	SoftwareCount int                   `json:"software_count"`
+	SecurityAudit *audit.Result         `json:"security_audit,omitempty"`
+	Errors        []string              `json:"errors,omitempty"`
 }
 
 func runAllScans(cmd *cobra.Command, args []string) error {
@@ -105,7 +106,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Software inventory error: %v", err))
 			} else {
-				result.SoftwareInfo  = softwareInfo
+				result.SoftwareInfo = softwareInfo
 				result.SoftwareCount = softwareCount
 			}
 		}
@@ -124,10 +125,10 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	}()
 
 	select {
-		case result := <-results:
-			return outputResults(result)
-		case <-time.After(allTimeout):
-			return fmt.Errorf("scan timed out after %v", allTimeout)
+	case result := <-results:
+		return outputResults(result)
+	case <-time.After(allTimeout):
+		return fmt.Errorf("scan timed out after %v", allTimeout)
 	}
 }
 
@@ -169,12 +170,12 @@ func runSoftwareInventory() (string, int, error) {
 	return software, softwareCount, nil
 }
 
-func runSecurityAuditModule() (*audit.AuditResult, error) {
+func runSecurityAuditModule() (*audit.Result, error) {
 	if allVerbose {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
-	opts := audit.AuditOptions{
+	opts := audit.Options{
 		Verbose:     allVerbose,
 		MinSeverity: "LOW",
 		Timeout:     allTimeout / 3,
@@ -184,7 +185,7 @@ func runSecurityAuditModule() (*audit.AuditResult, error) {
 	return auditor.RunAudit()
 }
 
-func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
+func convertToAuditResult(scan *ScanResult) *audit.Result {
 	if scan.SecurityAudit == nil {
 		return nil
 	}
@@ -195,13 +196,13 @@ func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
 	}
 
 	if scan.OSInfo != nil {
-		sysInfo.OS            = scan.OSInfo.OS
-		sysInfo.Architecture  = scan.OSInfo.Platform
-		sysInfo.Hostname      = scan.OSInfo.PlatformVersion
+		sysInfo.OS = scan.OSInfo.OS
+		sysInfo.Architecture = scan.OSInfo.Platform
+		sysInfo.Hostname = scan.OSInfo.PlatformVersion
 		sysInfo.KernelVersion = scan.OSInfo.KernelVersion
 	}
 
-	return &audit.AuditResult{
+	return &audit.Result{
 		StartTime:  scan.Timestamp,
 		EndTime:    scan.Timestamp.Add(scan.Duration),
 		Duration:   scan.Duration,
@@ -226,7 +227,7 @@ func outputResults(result *ScanResult) error {
 		if err != nil {
 			return fmt.Errorf("failed to create report file: %w", err)
 		}
-		defer file.Close()
+		defer file.Close() //nolint:errcheck // report file written successfully before close; close error does not affect output
 		output = file
 	}
 
@@ -260,16 +261,16 @@ func isModuleSkipped(module string) bool {
 	return false
 }
 
-func printCriticalFindings(auditResult *audit.AuditResult) {
+func printCriticalFindings(auditResult *audit.Result) {
 	var criticalCount, highCount int
 
 	for _, result := range auditResult.Results {
 		for _, finding := range result.Findings {
 			switch finding.Severity {
-				case types.SeverityCritical:
-					criticalCount++
-				case types.SeverityHigh:
-					highCount++
+			case types.SeverityCritical:
+				criticalCount++
+			case types.SeverityHigh:
+				highCount++
 			}
 		}
 	}
@@ -288,6 +289,9 @@ func printCriticalFindings(auditResult *audit.AuditResult) {
 
 // isTerminal checks if the output is going to a terminal
 func isTerminal() bool {
-	fileInfo, _ := os.Stdout.Stat()
+	fileInfo, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }

@@ -16,16 +16,16 @@ import (
 
 // SecurityAuditor handles the orchestration of security checks
 type SecurityAuditor struct {
-	sshChecker       checker.SSHChecker
-	firewallChecker  checker.FirewallChecker
-	userChecker      checker.UserChecker
+	sshChecker        checker.SSHChecker
+	firewallChecker   checker.FirewallChecker
+	userChecker       checker.UserChecker
 	permissionChecker checker.PermissionChecker
-	verbose          bool
-	options          AuditOptions
+	verbose           bool
+	options           Options
 }
 
-// AuditOptions configures the audit process
-type AuditOptions struct {
+// Options configures the audit process
+type Options struct {
 	Verbose        bool
 	SpecificChecks []string
 	CustomPaths    []string
@@ -34,14 +34,14 @@ type AuditOptions struct {
 	Timeout        time.Duration
 }
 
-// AuditResult represents the complete audit results
-type AuditResult struct {
+// Result represents the complete audit results
+type Result struct {
 	StartTime  time.Time
 	EndTime    time.Time
 	Duration   time.Duration
 	Results    []types.AuditResult
 	SystemInfo SystemInfo
-	Summary    AuditSummary
+	Summary    Summary
 }
 
 // SystemInfo contains basic system information
@@ -54,8 +54,8 @@ type SystemInfo struct {
 	SoftwareCount int
 }
 
-// AuditSummary provides a summary of the audit results
-type AuditSummary struct {
+// Summary provides a summary of the audit results
+type Summary struct {
 	TotalChecks   int
 	PassedChecks  int
 	WarningChecks int
@@ -64,31 +64,31 @@ type AuditSummary struct {
 }
 
 // NewSecurityAuditor creates a new security auditor based on the OS
-func NewSecurityAuditor(opts AuditOptions) *SecurityAuditor {
+func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	auditor := &SecurityAuditor{
 		verbose: opts.Verbose,
 		options: opts,
 	}
 
 	switch runtime.GOOS {
-		case "windows":
-			auditor.sshChecker = checker.NewWindowsSSHChecker()
-			auditor.firewallChecker = checker.NewWindowsFirewallChecker()
-			auditor.userChecker = checker.NewWindowsUserChecker()
-			auditor.permissionChecker = checker.NewWindowsPermissionChecker()
-		default:
-			auditor.sshChecker = checker.NewUnixSSHChecker()
-			auditor.firewallChecker = checker.NewUnixFirewallChecker()
-			auditor.userChecker = checker.NewUnixUserChecker()
-			auditor.permissionChecker = checker.NewUnixPermissionChecker()
+	case "windows":
+		auditor.sshChecker = checker.NewWindowsSSHChecker()
+		auditor.firewallChecker = checker.NewWindowsFirewallChecker()
+		auditor.userChecker = checker.NewWindowsUserChecker()
+		auditor.permissionChecker = checker.NewWindowsPermissionChecker()
+	default:
+		auditor.sshChecker = checker.NewUnixSSHChecker()
+		auditor.firewallChecker = checker.NewUnixFirewallChecker()
+		auditor.userChecker = checker.NewUnixUserChecker()
+		auditor.permissionChecker = checker.NewUnixPermissionChecker()
 	}
 
 	return auditor
 }
 
 // RunAudit performs the security audit with the specified options
-func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
-	result := &AuditResult{
+func (sa *SecurityAuditor) RunAudit() (*Result, error) {
+	result := &Result{
 		StartTime:  time.Now(),
 		SystemInfo: getSystemInfo(),
 		Results:    make([]types.AuditResult, 0),
@@ -102,18 +102,18 @@ func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
 
 			var checkResult types.AuditResult
 			switch check {
-				case "ssh":
-					checkResult = sa.sshChecker.Check()
-					result.Results = append(result.Results, checkResult)
-				case "firewall":
-					checkResult = sa.firewallChecker.Check()
-					result.Results = append(result.Results, checkResult)
-				case "users":
-					checkResult = sa.userChecker.Check()
-					result.Results = append(result.Results, checkResult)
-				case "file-permissions":
-					checkResult = sa.permissionChecker.Check()
-					result.Results = append(result.Results, checkResult)
+			case "ssh":
+				checkResult = sa.sshChecker.Check()
+				result.Results = append(result.Results, checkResult)
+			case "firewall":
+				checkResult = sa.firewallChecker.Check()
+				result.Results = append(result.Results, checkResult)
+			case "users":
+				checkResult = sa.userChecker.Check()
+				result.Results = append(result.Results, checkResult)
+			case "file-permissions":
+				checkResult = sa.permissionChecker.Check()
+				result.Results = append(result.Results, checkResult)
 			}
 		}
 	} else {
@@ -127,7 +127,7 @@ func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
 	return result, nil
 }
 
-func (sa *SecurityAuditor) runAllChecks(result *AuditResult) (*AuditResult, error) {
+func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 	if sa.verbose {
 		fmt.Println("[*] Starting comprehensive security audit...")
 	}
@@ -187,21 +187,21 @@ func (sa *SecurityAuditor) runAllChecks(result *AuditResult) (*AuditResult, erro
 	return result, nil
 }
 
-func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) AuditSummary {
-	summary := AuditSummary{
+func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {
+	summary := Summary{
 		TotalChecks: len(results),
 	}
 
 	for _, result := range results {
 		switch {
-			case result.Status == "COMPLETED" && !containsWarning(result.Details):
-				summary.PassedChecks++
-			case result.Status == "WARNING" || containsWarning(result.Details):
-				summary.WarningChecks++
-			case result.Status == "ERROR":
-				summary.FailedChecks++
-			default:
-				summary.SkippedChecks++
+		case result.Status == "COMPLETED" && !containsWarning(result.Details):
+			summary.PassedChecks++
+		case result.Status == "WARNING" || containsWarning(result.Details):
+			summary.WarningChecks++
+		case result.Status == "ERROR":
+			summary.FailedChecks++
+		default:
+			summary.SkippedChecks++
 		}
 	}
 
@@ -223,7 +223,7 @@ func getSystemInfo() SystemInfo {
 	}
 
 	if softwareInfo, softwareCount, err := getSoftwareInfo(); err == nil {
-		info.SoftwareInfo  = softwareInfo
+		info.SoftwareInfo = softwareInfo
 		info.SoftwareCount = softwareCount
 	}
 
@@ -232,33 +232,33 @@ func getSystemInfo() SystemInfo {
 
 func getKernelVersion() (string, error) {
 	switch runtime.GOOS {
-		case "windows":
-			output, err := exec.Command("ver").CombinedOutput()
-			if err != nil {
-				return "", err
-			}
-			return strings.TrimSpace(string(output)), nil
-		default:
-			output, err := exec.Command("uname", "-r").CombinedOutput()
-			if err != nil {
-				return "", err
-			}
-			return strings.TrimSpace(string(output)), nil
+	case "windows":
+		output, err := exec.Command("ver").CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	default:
+		output, err := exec.Command("uname", "-r").CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
 	}
 }
 
 func getSoftwareInfo() (string, int, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-		case "windows":
-			cmd = exec.Command("powershell",
-				`Get-ItemProperty HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | `+
-					`Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | `+
-					`Format-Table -AutoSize`)
-		case "darwin":
-			cmd = exec.Command("sh", "-c", "system_profiler SPApplicationsDataType | grep 'Name:\\|Version:'")
-		default:
-			cmd = exec.Command("sh", "-c", "dpkg-query -W -f='${Package} ${Version}\n'")
+	case "windows":
+		cmd = exec.Command("powershell",
+			`Get-ItemProperty HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | `+
+				`Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | `+
+				`Format-Table -AutoSize`)
+	case "darwin":
+		cmd = exec.Command("sh", "-c", "system_profiler SPApplicationsDataType | grep 'Name:\\|Version:'")
+	default:
+		cmd = exec.Command("sh", "-c", "dpkg-query -W -f='${Package} ${Version}\n'")
 	}
 
 	output, err := cmd.CombinedOutput()

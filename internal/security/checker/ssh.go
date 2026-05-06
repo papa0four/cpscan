@@ -2,12 +2,13 @@
 package checker
 
 import (
-    "bufio"
-    "fmt"
-    "os"
-    "os/exec"
-    "strings"
-    "github.com/papa0four/cpscan/internal/security/types"
+	"bufio"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/papa0four/cpscan/internal/security/types"
 )
 
 // SSHChecker defines interface for SSH configuration checking
@@ -44,19 +45,19 @@ func NewWindowsSSHChecker() *WindowsSSHChecker {
 
 // sshConfig holds parsed SSH configuration settings
 type sshConfig struct {
-	rootLogin			bool
-	passwordAuth		bool
-	permRootFound		bool
-	permPasswordFound	bool
+	rootLogin         bool
+	passwordAuth      bool
+	permRootFound     bool
+	permPasswordFound bool
 }
 
 // Check implements SSHChecker interface for Unix systems
 func (s *UnixSSHChecker) Check() types.AuditResult {
 	result := types.AuditResult{
-		Name:			"SSH Configuration",
-		Status:			"CHECKING",
-		Description:	"Analyzing SSH Configuration settings",
-		Details:		make([]string, 0),
+		Name:        "SSH Configuration",
+		Status:      "CHECKING",
+		Description: "Analyzing SSH Configuration settings",
+		Details:     make([]string, 0),
 	}
 
 	var file *os.File
@@ -67,7 +68,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	for _, path := range s.ConfigPaths {
 		if file, err = os.Open(path); err == nil {
 			configPath = path
-			defer file.Close()
+			defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
 			break
 		}
 	}
@@ -115,7 +116,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	// Build detailed results
 	result.Details = append(result.Details,
 		fmt.Sprintf("%s Configuration file: %s", types.SymbolInfo, configPath))
-	
+
 	// Check root Login configuration
 	if config.permRootFound {
 		if config.rootLogin {
@@ -125,7 +126,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Root login is disabled", types.SymbolOK))
 		}
- 	} else {
+	} else {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: PermitRootLogin setting not found (defaults may apply)", types.SymbolWarning))
 	}
@@ -152,10 +153,10 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 // Check implements SSHChecker interface for Windows systems
 func (s *WindowsSSHChecker) Check() types.AuditResult {
 	result := types.AuditResult{
-		Name:			"Windows SSH Configuration",
-		Status:			"CHECKING",
-		Description:	"Analyzing Windows SSH configuration",
-		Details:		make([]string, 0),
+		Name:        "Windows SSH Configuration",
+		Status:      "CHECKING",
+		Description: "Analyzing Windows SSH configuration",
+		Details:     make([]string, 0),
 	}
 
 	// Check OpenSSH installation
@@ -183,7 +184,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s ERROR: Cannot read OpenSSH configuration: %v", types.SymbolError, err))
 			} else {
-				defer file.Close()
+				defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s Analyzing OpenSSH configuration...", types.SymbolInfo))
 

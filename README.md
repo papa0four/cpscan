@@ -30,7 +30,7 @@ A proof of concept (POC) vulnerability scanner developed for Critical Path Consu
 
 ### Windows
 - PowerShell 5.1 or higher
-- Go 1.20+
+- Go 1.23+
 - Administrator privileges
 
 ### Unix/Linux/MacOS
