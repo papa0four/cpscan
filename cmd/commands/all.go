@@ -72,7 +72,7 @@ type ScanResult struct {
 	OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
 	SoftwareInfo  string                `json:"software_info,omitempty"`
 	SoftwareCount int                   `json:"software_count"`
-	SecurityAudit *audit.Result    `json:"security_audit,omitempty"`
+	SecurityAudit *audit.Result         `json:"security_audit,omitempty"`
 	Errors        []string              `json:"errors,omitempty"`
 }
 
