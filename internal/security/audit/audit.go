@@ -24,7 +24,7 @@ type SecurityAuditor struct {
 	options           Options
 }
 
-// AuditOptions configures the audit process
+// Options configures the audit process
 type Options struct {
 	Verbose        bool
 	SpecificChecks []string
@@ -34,7 +34,7 @@ type Options struct {
 	Timeout        time.Duration
 }
 
-// AuditResult represents the complete audit results
+// Result represents the complete audit results
 type Result struct {
 	StartTime  time.Time
 	EndTime    time.Time
@@ -54,7 +54,7 @@ type SystemInfo struct {
 	SoftwareCount int
 }
 
-// AuditSummary provides a summary of the audit results
+// Summary provides a summary of the audit results
 type Summary struct {
 	TotalChecks   int
 	PassedChecks  int
