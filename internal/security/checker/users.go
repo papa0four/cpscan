@@ -177,9 +177,13 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 
 			switch fields[0] {
 			case "UniqueID:":
-				account.uid, _ = strconv.Atoi(fields[1])
+				if uid, err := strconv.Atoi(fields[1]); err == nil {
+					account.uid = uid
+				}
 			case "PrimaryGroupID:":
-				account.gid, _ = strconv.Atoi(fields[1])
+				if gid, err := strconv.Atoi(fields[1]); err == nil {
+					account.gid = gid
+				}
 			case "NFSHomeDirectory:":
 				account.homeDir = fields[1]
 			case "UserShell:":
@@ -225,8 +229,14 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 			continue
 		}
 
-		uid, _ := strconv.Atoi(fields[2])
-		gid, _ := strconv.Atoi(fields[3])
+		uid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			continue
+		}
 
 		account := userAccount{
 			username: fields[0],
@@ -298,8 +308,14 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 			continue
 		}
 
-		uid, _ := strconv.Atoi(fields[2])
-		gid, _ := strconv.Atoi(fields[3])
+		uid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			continue
+		}
 
 		account := userAccount{
 			username: fields[0],
