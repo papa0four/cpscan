@@ -1,4 +1,4 @@
-// cmd/root.go
+// cmd/commands/root.go
 package cmd
 
 import (
@@ -13,6 +13,7 @@ import (
 // RootCmd defines the base command for the CLI
 var RootCmd = &cobra.Command{
 	Use:   "cpscan",
+	Version: Version,
 	Short: "CPScan is a lightweight scanner for host OS vulnerabilities",
 	Long:  `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
 	Run: func(cmd *cobra.Command, args []string) {
