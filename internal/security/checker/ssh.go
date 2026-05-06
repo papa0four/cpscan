@@ -68,7 +68,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	for _, path := range s.ConfigPaths {
 		if file, err = os.Open(path); err == nil {
 			configPath = path
-			defer file.Close()
+			defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
 			break
 		}
 	}
@@ -184,7 +184,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s ERROR: Cannot read OpenSSH configuration: %v", types.SymbolError, err))
 			} else {
-				defer file.Close()
+				defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s Analyzing OpenSSH configuration...", types.SymbolInfo))
 

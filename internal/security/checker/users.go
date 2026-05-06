@@ -211,7 +211,7 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer file.Close() // nolint:errcheck // read-only passwd file; close error does not affect scan results
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -260,11 +260,11 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer passwdFile.Close()
+	defer passwdFile.Close() // nolint:errcheck // read-only passwd file; close error does not affect scan results
 
 	shadowEntries := make(map[string]string)
 	if shadow, err := os.Open("/etc/shadow"); err == nil {
-		defer shadow.Close()
+		defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
 		scanner := bufio.NewScanner(shadow)
 		for scanner.Scan() {
 			fields := strings.Split(scanner.Text(), ":")
@@ -428,7 +428,7 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 	if u.osType != "darwin" {
 		if shadow, err := os.Open("/etc/shadow"); err == nil {
-			defer shadow.Close()
+			defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
 			scanner := bufio.NewScanner(shadow)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
@@ -454,7 +454,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 
 	for _, source := range u.config.userSources {
 		if file, err := os.Open(source); err == nil {
-			defer file.Close()
+			defer file.Close() // nolint:errcheck // read-only passwd source file; close error does not affect scan results
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")

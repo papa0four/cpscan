@@ -227,7 +227,7 @@ func outputResults(result *ScanResult) error {
 		if err != nil {
 			return fmt.Errorf("failed to create report file: %w", err)
 		}
-		defer file.Close()
+		defer file.Close() //nolint:errcheck // report file written successfully before close; close error does not affect output
 		output = file
 	}
 
