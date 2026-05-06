@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/papa0four/cpscan/internal/osfingerprint"
 	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/papa0four/cpscan/internal/security/formatter"
 	"github.com/papa0four/cpscan/internal/security/types"
 	"github.com/papa0four/cpscan/internal/softwarelist"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -71,7 +72,7 @@ type ScanResult struct {
 	OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
 	SoftwareInfo  string                `json:"software_info,omitempty"`
 	SoftwareCount int                   `json:"software_count"`
-	SecurityAudit *audit.AuditResult    `json:"security_audit,omitempty"`
+	SecurityAudit *audit.Result    `json:"security_audit,omitempty"`
 	Errors        []string              `json:"errors,omitempty"`
 }
 
@@ -169,12 +170,12 @@ func runSoftwareInventory() (string, int, error) {
 	return software, softwareCount, nil
 }
 
-func runSecurityAuditModule() (*audit.AuditResult, error) {
+func runSecurityAuditModule() (*audit.Result, error) {
 	if allVerbose {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
-	opts := audit.AuditOptions{
+	opts := audit.Options{
 		Verbose:     allVerbose,
 		MinSeverity: "LOW",
 		Timeout:     allTimeout / 3,
@@ -184,7 +185,7 @@ func runSecurityAuditModule() (*audit.AuditResult, error) {
 	return auditor.RunAudit()
 }
 
-func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
+func convertToAuditResult(scan *ScanResult) *audit.Result {
 	if scan.SecurityAudit == nil {
 		return nil
 	}
@@ -201,7 +202,7 @@ func convertToAuditResult(scan *ScanResult) *audit.AuditResult {
 		sysInfo.KernelVersion = scan.OSInfo.KernelVersion
 	}
 
-	return &audit.AuditResult{
+	return &audit.Result{
 		StartTime:  scan.Timestamp,
 		EndTime:    scan.Timestamp.Add(scan.Duration),
 		Duration:   scan.Duration,
@@ -260,7 +261,7 @@ func isModuleSkipped(module string) bool {
 	return false
 }
 
-func printCriticalFindings(auditResult *audit.AuditResult) {
+func printCriticalFindings(auditResult *audit.Result) {
 	var criticalCount, highCount int
 
 	for _, result := range auditResult.Results {

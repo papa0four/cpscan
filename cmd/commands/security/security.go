@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/papa0four/cpscan/internal/security/audit"
-	"github.com/papa0four/cpscan/internal/security/types"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/papa0four/cpscan/internal/security/audit"
+	"github.com/papa0four/cpscan/internal/security/types"
 )
 
 var (
@@ -158,7 +159,7 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	opts := audit.AuditOptions{
+	opts := audit.Options{
 		Verbose:        verbose,
 		CustomPaths:    customPaths,
 		SkipChecks:     skipChecks,
@@ -188,7 +189,7 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	resultChan := make(chan *audit.AuditResult, 1)
+	resultChan := make(chan *audit.Result, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
@@ -251,7 +252,7 @@ func validateFlags() error {
 	return nil
 }
 
-func outputResults(result *audit.AuditResult) error {
+func outputResults(result *audit.Result) error {
 	if result == nil || len(result.Results) == 0 {
 		fmt.Println("No results to display.")
 		return nil
@@ -293,7 +294,7 @@ func outputResults(result *audit.AuditResult) error {
 	return nil
 }
 
-func printCriticalFindings(result *audit.AuditResult) {
+func printCriticalFindings(result *audit.Result) {
 	var criticalCount, highCount int
 
 	for _, checkResult := range result.Results {
@@ -319,7 +320,7 @@ func printCriticalFindings(result *audit.AuditResult) {
 	}
 }
 
-func formatJSON(result *audit.AuditResult) (string, error) {
+func formatJSON(result *audit.Result) (string, error) {
 	formatted := convertToFormattedResult(result)
 	jsonBytes, err := json.MarshalIndent(formatted, "", "  ")
 	if err != nil {
@@ -328,7 +329,7 @@ func formatJSON(result *audit.AuditResult) (string, error) {
 	return string(jsonBytes), nil
 }
 
-func formatYAML(result *audit.AuditResult) (string, error) {
+func formatYAML(result *audit.Result) (string, error) {
 	formatted := convertToFormattedResult(result)
 	yamlBytes, err := yaml.Marshal(formatted)
 	if err != nil {
@@ -337,7 +338,7 @@ func formatYAML(result *audit.AuditResult) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func convertToFormattedResult(result *audit.AuditResult) formattedResult {
+func convertToFormattedResult(result *audit.Result) formattedResult {
 	formatted := formattedResult{
 		Timestamp: result.StartTime.Format(time.RFC3339),
 		Duration:  result.Duration.String(),
@@ -384,7 +385,7 @@ func convertToFormattedResult(result *audit.AuditResult) formattedResult {
 	return formatted
 }
 
-func formatText(result *audit.AuditResult) (string, error) {
+func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 	isComprehensive := len(result.Results) > 1
 

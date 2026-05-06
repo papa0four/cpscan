@@ -8,6 +8,7 @@ import (
 	"github.com/shirou/gopsutil/host"
 )
 
+// POSInfo holds operating system fingerprint details retrieved from the host.
 type OSInfo struct {
 	OS              string
 	Platform        string

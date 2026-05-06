@@ -9,14 +9,16 @@ import (
 	"text/template"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/papa0four/cpscan/internal/security/types"
-	"gopkg.in/yaml.v3"
 )
 
 // OutputFormat represents supported output formats
 type OutputFormat string
 
+// Output format constants define the supported report output formats
 const (
 	FormatText OutputFormat = "text"
 	FormatJSON OutputFormat = "json"
@@ -49,7 +51,7 @@ func NewFormatter(w io.Writer, opts FormatOptions) *Formatter {
 }
 
 // Format formats the audit result according to the specified options
-func (f *Formatter) Format(result *audit.AuditResult) error {
+func (f *Formatter) Format(result *audit.Result) error {
 	switch f.options.Format {
 	case FormatJSON:
 		return f.formatJSON(result)
@@ -61,7 +63,7 @@ func (f *Formatter) Format(result *audit.AuditResult) error {
 }
 
 // formatJSON handles JSON output formatting
-func (f *Formatter) formatJSON(result *audit.AuditResult) error {
+func (f *Formatter) formatJSON(result *audit.Result) error {
 	// Convert result to map for customization
 	data := f.prepareOutput(result)
 
@@ -74,13 +76,13 @@ func (f *Formatter) formatJSON(result *audit.AuditResult) error {
 }
 
 // formatYAML handles YAML output formatting
-func (f *Formatter) formatYAML(result *audit.AuditResult) error {
+func (f *Formatter) formatYAML(result *audit.Result) error {
 	data := f.prepareOutput(result)
 	return yaml.NewEncoder(f.writer).Encode(data)
 }
 
 // formatText handles text output formatting
-func (f *Formatter) formatText(result *audit.AuditResult) error {
+func (f *Formatter) formatText(result *audit.Result) error {
 	var tmpl *template.Template
 	var err error
 
@@ -99,7 +101,7 @@ func (f *Formatter) formatText(result *audit.AuditResult) error {
 }
 
 // prepareOutput prepares the audit result for output
-func (f *Formatter) prepareOutput(result *audit.AuditResult) map[string]interface{} {
+func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 	output := make(map[string]interface{})
 
 	// Add metadata

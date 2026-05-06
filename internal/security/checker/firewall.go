@@ -83,8 +83,7 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 			// Parse and add the firewall rules
 			parsedRules := fw.parser(output)
 			for _, rule := range parsedRules {
-				result.Details = append(result.Details,
-					fmt.Sprintf(rule))
+				result.Details = append(result.Details, rule)
 			}
 		}
 	}

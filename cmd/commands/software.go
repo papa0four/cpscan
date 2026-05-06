@@ -4,8 +4,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/papa0four/cpscan/internal/softwarelist"
 	"github.com/spf13/cobra"
+
+	"github.com/papa0four/cpscan/internal/softwarelist"
 )
 
 // softwareCmd represents the software command

@@ -21,11 +21,11 @@ type SecurityAuditor struct {
 	userChecker       checker.UserChecker
 	permissionChecker checker.PermissionChecker
 	verbose           bool
-	options           AuditOptions
+	options           Options
 }
 
 // AuditOptions configures the audit process
-type AuditOptions struct {
+type Options struct {
 	Verbose        bool
 	SpecificChecks []string
 	CustomPaths    []string
@@ -35,13 +35,13 @@ type AuditOptions struct {
 }
 
 // AuditResult represents the complete audit results
-type AuditResult struct {
+type Result struct {
 	StartTime  time.Time
 	EndTime    time.Time
 	Duration   time.Duration
 	Results    []types.AuditResult
 	SystemInfo SystemInfo
-	Summary    AuditSummary
+	Summary    Summary
 }
 
 // SystemInfo contains basic system information
@@ -55,7 +55,7 @@ type SystemInfo struct {
 }
 
 // AuditSummary provides a summary of the audit results
-type AuditSummary struct {
+type Summary struct {
 	TotalChecks   int
 	PassedChecks  int
 	WarningChecks int
@@ -64,7 +64,7 @@ type AuditSummary struct {
 }
 
 // NewSecurityAuditor creates a new security auditor based on the OS
-func NewSecurityAuditor(opts AuditOptions) *SecurityAuditor {
+func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	auditor := &SecurityAuditor{
 		verbose: opts.Verbose,
 		options: opts,
@@ -87,8 +87,8 @@ func NewSecurityAuditor(opts AuditOptions) *SecurityAuditor {
 }
 
 // RunAudit performs the security audit with the specified options
-func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
-	result := &AuditResult{
+func (sa *SecurityAuditor) RunAudit() (*Result, error) {
+	result := &Result{
 		StartTime:  time.Now(),
 		SystemInfo: getSystemInfo(),
 		Results:    make([]types.AuditResult, 0),
@@ -127,7 +127,7 @@ func (sa *SecurityAuditor) RunAudit() (*AuditResult, error) {
 	return result, nil
 }
 
-func (sa *SecurityAuditor) runAllChecks(result *AuditResult) (*AuditResult, error) {
+func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 	if sa.verbose {
 		fmt.Println("[*] Starting comprehensive security audit...")
 	}
@@ -187,8 +187,8 @@ func (sa *SecurityAuditor) runAllChecks(result *AuditResult) (*AuditResult, erro
 	return result, nil
 }
 
-func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) AuditSummary {
-	summary := AuditSummary{
+func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {
+	summary := Summary{
 		TotalChecks: len(results),
 	}
 

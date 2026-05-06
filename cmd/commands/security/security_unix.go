@@ -9,8 +9,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/papa0four/cpscan/internal/security/audit"
 	"github.com/spf13/cobra"
+
+	"github.com/papa0four/cpscan/internal/security/audit"
 )
 
 func init() {
@@ -39,7 +40,7 @@ func runUnixAudit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	opts := audit.AuditOptions{
+	opts := audit.Options{
 		Verbose:        verbose,
 		CustomPaths:    customPaths,
 		SkipChecks:     skipChecks,

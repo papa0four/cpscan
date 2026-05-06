@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/papa0four/cpscan/cmd/commands/security"
 	"github.com/spf13/cobra"
+
+	"github.com/papa0four/cpscan/cmd/commands/security"
 )
 
 // RootCmd defines the base command for the CLI
@@ -24,6 +25,7 @@ func init() {
 	RootCmd.AddCommand(security.SecurityCmd)
 }
 
+// Execute runs the root command and exits with a non-zero status on error
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Println(err)
