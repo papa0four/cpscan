@@ -195,7 +195,10 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 		account.isAdmin = adminUsers[username]
 
 		authCmd := exec.Command("dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority")
-		authOutput, _ := authCmd.CombinedOutput()
+		authOutput, err := authCmd.CombinedOutput()
+		if err != nil {
+			account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
+		}
 		account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
 
 		users = append(users, account)
@@ -208,7 +211,7 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	var users []userAccount
 
 	if u.osType == "openbsd" {
-		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run()
+		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run() //nolint:errcheck // BSD passwd db consistency check; failure is non-fatal, read proceeds regardless
 	}
 
 	file, err := os.Open("/etc/passwd")
@@ -403,8 +406,11 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 
 		for _, module := range []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"} {
 			found := false
-			filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() {
+			if err := filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if info.IsDir() {
 					return nil
 				}
 				if data, err := os.ReadFile(path); err == nil {
@@ -414,7 +420,11 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 					}
 				}
 				return nil
-			})
+			}); err != nil {
+				details = append(details,
+					fmt.Sprintf("%s Could not scan PAM configuration: %v",
+						types.SymbolInfo, err))
+			}
 			if found {
 				details = append(details,
 					fmt.Sprintf("%s Found authentication module: %s",
@@ -521,7 +531,10 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 
 	adminCmd := exec.Command("powershell", "-Command",
 		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-Csv -NoTypeInformation`)
-	adminOutput, _ := adminCmd.CombinedOutput()
+	adminOutput, err := adminCmd.CombinedOutput()
+	if err != nil {
+		adminOutput = []byte{}
+	}
 	adminUsers := make(map[string]bool)
 	for _, line := range strings.Split(string(adminOutput), "\n") {
 		if strings.Contains(line, "\\") {
