@@ -1,6 +1,7 @@
 # =============================================================================
 # cpscan Makefile
-# Developer-facing build, install, and cleanup targets.
+# Dev build/install helpers.
+#    - End-user install scripts live under linux/ and windows/.
 # Intended for use on Linux, macOS, and WSL.
 #
 # install/uninstall are Unix-oriented and target /usr/local/bin.
@@ -12,23 +13,21 @@ BUILD_DIR   := bin
 MAIN_PKG    := ./cmd/cpscan/main.go
 INSTALL_DIR := /usr/local/bin
 
-# Detect current platform for binary naming and install behavior
+# Current Go target
 GOOS    := $(shell go env GOOS)
 GOARCH  := $(shell go env GOARCH)
 
-# Append .exe on Windows
+# Windows builds need .exe
 ifeq ($(GOOS), windows)
 	BINARY := $(BUILD_DIR)/$(BINARY_NAME).exe
 else
 	BINARY := $(BUILD_DIR)/$(BINARY_NAME)
 endif
 
-# Use sudo only when not already in running as root
+# Use sudo unless already root
 SUDO := $(shell [ "$$(id -u)" -eq 0 ] && echo "" || echo "sudo")
 
-# ================================================================================
 # Targets
-# ================================================================================
 
 .PHONY: build install uninstall clean help
 
@@ -60,7 +59,7 @@ ifeq ($(GOOS), windows)
 	@exit 1
 else
 	@echo "[*] Removing $(BINARY_NAME) from $(INSTALL_DIR)..."
-	$(SUDO) rm -f $(INSTALL_DIR)$(BINARY_NAME)
+	$(SUDO) rm -f $(INSTALL_DIR)/$(BINARY_NAME)
 	@echo "[+] $(BINARY_NAME) removed."
 endif
 

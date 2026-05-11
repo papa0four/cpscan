@@ -1,170 +1,263 @@
 #!/bin/bash
+set -euo pipefail
 
-# Define installation directories
-PROJECT_REPO="https://github.com/papa0four/cpscan/archive/refs/heads/main.zip"
-PROJECT_ROOT="$HOME/cpscan"
-INSTALL_DIR="$HOME/.local/bin"
-GO_VERSION="1.23.2"
-REQUIRED_PACKAGES=(
-    "wget"
-    "unzip"
-    "git"
-    "build-essential"
-)
+# =============================================================================
+# cpscan install script
+# Downloads the latest pre-built release binary from GitHub Releases.
+# Supported distros: Ubuntu, Debian, Fedora, RHEL/CentOS/Rocky, Arch,
+#                    openSUSE, Alpine
+# =============================================================================
 
-# Function to check Go version compatibility
-check_go_version() {
-    local current_version=""
-    if command -v go >/dev/null 2>&1; then
-        current_version=$(go version | awk '{print$3}' | sed 's/go//')
-        echo "Detected Go version: $current_version"
+GITHUB_REPO="papa0four/cpscan"
+INSTALL_DIR="/usr/local/bin"
+BINARY_NAME="cpscan"
 
-        # Parse version numbers
-        local required_major=$(echo $GO_VERSION | cut -d. -f1)
-        local required_minor=$(echo $GO_VERSION | cut -d. -f2)
-        local required_patch=$(echo $GO_VERSION | cut -d. -f3)
-        
-        local current_major=$(echo $current_version | cut -d. -f1)
-        local current_minor=$(echo $current_version | cut -d. -f2)
-        local current_patch=$(echo $current_version | cut -d. -f3)
+# Check for root user in current session
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
 
-        if [ "$current_version" != "$GO_VERSION" ]; then
-            echo "Warning: Current Go version ($current_version) differs from recommended version ($GO_VERSION)"
-            read -p  "Continue with installation? (y/n)" -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
-        fi
+# =============================================================================
+# Package Manager Detection
+# Used to install curl/wget if neither is present
+# =============================================================================
+
+PKG_MANAGER=""
+
+detect_package_manager() {
+    if command -v apt-get >/dev/null 2>&1; then
+        PKG_MANAGER="apt"
+    elif command -v dnf >/dev/null 2>&1; then
+        PKG_MANAGER="dnf"
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+    elif command -v pacman >/dev/null 2>&1; then
+        PKG_MANAGER="pacman"
+    elif command -v zypper >/dev/null 2>&1; then
+        PKG_MANAGER="zypper"
+    elif command -v apk >/dev/null 2>&1; then
+        PKG_MANAGER="apk"
+    else
+        echo "[-] No supported package manager found."
+        echo "    Please install curl or wget manually and re-run this script."
+        exit 1
     fi
 }
 
- #Function to check and install required system packages
- install_required_packages() {
-    echo "Checking required system packages..."
-    for package in "${REQUIRED_PACKAGES[@]}"; do
-        if ! command -v "$package" >/dev/null 2>&1; then
-            echo "Installing $package..."
-            sudo apt-get install -y "$package" || sudo yum install -y "$package" || {
-                echo "Failed to install $package. Please install it manually."
-                exit 1
-            }
-        fi
-    done
- }
+install_package() {
+    local pkg="$1"
+    echo "[*] Installing $pkg..."
+    case "$PKG_MANAGER" in
+        apt)    $SUDO apt-get update -y && $SUDO apt-get install -y "$pkg" ;;
+        dnf)    $SUDO dnf install -y "$pkg" ;;
+        yum)    $SUDO yum install -y "$pkg" ;;
+        pacman) $SUDO pacman -Sy --noconfirm "$pkg" ;;
+        zypper) $SUDO zypper install -y "$pkg" ;;
+        apk)    $SUDO apk update && $SUDO apk add "$pkg" ;;
+    esac
+}
 
-# Function to add a path to PATH persistently
-add_to_path() {
-    local path_entry="$1"
-    local shell_rc="$HOME/.$(basename $SHELL)rc"
-    local profile="$HOME/.profile"
+# =============================================================================
+# Downloader:
+#      - tries curl
+#      - falls back to wget
+#      - installs curl if neither is present
+# =============================================================================
 
-    if [ -f "$shell_rc" ]; then
-        if ! grep -q "export PATH=.*$path_entry" "$shell_rc"; then
-            echo "export PATH=\$PATH:$path_entry" >> "$shell_rc"
-        fi
+DOWNLOADER=""
+
+ensure_downloader() {
+    if command -v curl >/dev/null 2>&1; then
+        DOWNLOADER="curl"
+    elif command -v wget >/dev/null 2>&1; then
+        DOWNLOADER="wget"
+    else
+        echo "[!] Neither curl nor wget found. Attempting to install curl..."
+        detect_package_manager
+        install_package "curl"
+        DOWNLOADER="curl"
     fi
+    echo "[*] Using $DOWNLOADER for downloads."
+}
 
-    if [ -f "$profile" ] && ! grep -q "export PATH=.*$path_entry" "$profile"; then
-        echo "export PATH=\$PATH:$path_entry" >> "$profile"
+download() {
+    local url="$1"
+    local dest="$2"
+
+    if [ "$DOWNLOADER" = "curl" ]; then
+        curl -fsSL "$url" -o "$dest"
+    else
+        wget -q "$url" -O "$dest"
     fi
 }
 
-# Install Go if not installed
-install_go() {
-    if ! command -v go >/dev/null 2>&1; then
-        echo "Go is not installed. Installing Go version $GO_VERSION..."
-        local os_arch="linux-amd64"
-        local go_url="https://go.dev/dl/go${GO_VERSION}.${os_arch}.tar.gz"
+fetch_text() {
+    local url="$1"
 
-        wget "$go_url" -O "/tmp/go.tar.gz" || {
-            echo "Failed to download Go. Please check your internet connection."
+    if [ "$DOWNLOADER" = "curl" ]; then
+        curl -fsSL "$url"
+    else
+        wget -qO- "$url"
+    fi
+}
+
+# =============================================================================
+# Architecture Detection
+# Maps uname -m output to Go's architecture naming convention
+# =============================================================================
+
+detect_arch() {
+    case "$(uname -m)" in
+        x86_64)    echo "amd64" ;;
+        aarch64)   echo "arm64" ;;
+        armv7l)    echo "armv6l" ;;
+        i386|i686) echo "386" ;;
+        *)
+            echo "[-] Unsupported architecture: $(uname -m)" >&2
             exit 1
-        }
+            ;;
+    esac
+}
 
-        sudo rm -rf /usr/local/go
-        sudo tar -C /usr/local -xzf "/tmp/go.tar.gz"
-        rm "/tmp/go.tar.gz"
+# =============================================================================
+# Version Resolution
+# Resolves the latest release tag from the GitHub API or dev for local dev testing.
+# Version stamping is handled by GoReleaser at release time via ldflags.
+# =============================================================================
 
-        add_to_path "/usr/local/go/bin"
-        export PATH=$PATH:/usr/local/go/bin
+resolve_version() {
+    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local version
 
-        echo "Go $GO_VERSION installed_successfully."
+    version=$(fetch_text "$api_url" | grep '"$tag_name"' | cut -d '"' -f4)
+
+    if [ -z "$version" ]; then
+        echo "[-] No releases found for ${GITHUB_REPO}." >&2
+        echo "    This project may not have a stable release yet." >&2
+        echo "    Visit https://github.com/${GITHUB_REPO}/releases for status." >&2
+        exit 1
+    fi
+
+    echo "$version"
+}
+
+# =============================================================================
+# Checksum Verification
+# GoReleaser produces a checksums.txt alongside each release.
+# Verifying it ensures the downloaded binary has not been tampered with.
+# =============================================================================
+
+verify_checksum() {
+    local version="$1"
+    local binary_filename="$2"
+    local binary_path="$3"
+ 
+    local checksum_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/checksums.txt"
+    local tmp_checksums
+    tmp_checksums=$(mktemp)
+ 
+    echo "[*] Downloading checksums..."
+    download "$checksum_url" "$tmp_checksums" || {
+        echo "[!] Checksum file not available for this release — skipping verification."
+        rm -f "$tmp_checksums"
+        return 0
+    }
+ 
+    echo "[*] Verifying checksum..."
+    local expected
+    expected=$(grep "${binary_filename}$" "$tmp_checksums" | awk '{print $1}')
+    rm -f "$tmp_checksums"
+ 
+    if [ -z "$expected" ]; then
+        echo "[!] No checksum entry found for $binary_filename — skipping verification."
+        return 0
+    fi
+ 
+    local actual
+    actual=$(sha256sum "$binary_path" | awk '{print $1}')
+ 
+    if [ "$actual" != "$expected" ]; then
+        echo "[-] Checksum mismatch for $binary_filename"
+        echo "    Expected: $expected"
+        echo "    Actual:   $actual"
+        rm -f "$binary_path"
+        exit 1
+    fi
+ 
+    echo "[+] Checksum verified."
+}
+
+# =============================================================================
+# Binary Download and Install
+# =============================================================================
+ 
+install_binary() {
+    local arch
+    arch=$(detect_arch)
+ 
+    local version
+    version=$(resolve_version)
+ 
+    # GoReleaser default naming convention: cpscan_linux_amd64
+    local binary_filename="${BINARY_NAME}_linux_${arch}"
+    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${binary_filename}"
+ 
+    echo "[*] Downloading cpscan $version (linux/$arch)..."
+ 
+    local tmp_binary
+    tmp_binary=$(mktemp)
+ 
+    download "$download_url" "$tmp_binary" || {
+        echo "[-] Failed to download binary."
+        echo "    URL: $download_url"
+        echo "    Check your internet connection or verify the release exists."
+        rm -f "$tmp_binary"
+        exit 1
+    }
+ 
+    verify_checksum "$version" "$binary_filename" "$tmp_binary"
+ 
+    $SUDO mv "$tmp_binary" "$INSTALL_DIR/$BINARY_NAME"
+    $SUDO chmod +x "$INSTALL_DIR/$BINARY_NAME"
+ 
+    echo "[+] cpscan $version installed to $INSTALL_DIR/$BINARY_NAME"
+}
+ 
+# =============================================================================
+# Installation Verification
+# =============================================================================
+ 
+verify_install() {
+    echo "Verifying cpscan installation..."
+    echo ""
+    if command -v "$BINARY_NAME" >/dev/null 2>&1; then
+        echo ""
+        echo "[+] Verification successful."
+        "$BINARY_NAME" --version
+        echo "    Run 'cpscan --help' to see available commands."
     else
-        check_go_version
+        echo "[-] Verification failed: $BINARY_NAME not found in PATH."
+        echo "    The binary is at $INSTALL_DIR/$BINARY_NAME"
+        echo "    Try opening a new terminal or running: source /etc/profile"
+        exit 1
     fi
 }
-
-# Function to setup the project
-setup_project() {
-    echo "Setting up cpscan project..."
-
-    mkdir -p "$INSTALL_DIR"
-
-    local temp_dir=$(mktemp -d)
-    wget -q -O "$temp_dir/cpscan.zip" "$PROJECT_REPO" || {
-        echo "Failed to download project."
-        rm -rf "$temp_dir"
-        exit 1
-    }
-
-    unzip -q "$temp_dir/cpscan.zip" -d "$temp_dir" || {
-        echo "Failed to extract project files."
-        rm -rf "$temp_dir"
-        exit 1
-    }
-
-    rm -rf "$PROJECT_ROOT"
-    mv "$temp_dir/cpscan-main" "$PROJECT_ROOT"
-    rm -rf "$temp_dir"
-
-    cd "$PROJECT_ROOT" || {
-        echo "Failed to enter project directory."
-        exit 1
-    }
-
-    echo "Initializing Go modules..."
-    go mod init github.com/papa0four/cpscan
-
-    # Install required dependencies
-    go get gopkg.in/yaml.v3
-    go get github.com/spf13/cobra
-    go mod tidy
-
-    echo "Building cpscan..."
-    CGO_ENABLED=0 go build -o "$INSTALL_DIR/cpscan" ./cmd/cpscan/main.go || {
-        echo "Build failed. Please check the error messages above."
-        exit 1
-    }
-
-    chmod +x "$INSTALL_DIR/cpscan"
-    add_to_path "$INSTALL_DIR"
-}
-
-# Main installation process
+ 
+# =============================================================================
+# Entry Point
+# =============================================================================
+ 
 main() {
-    echo "Starting cpscan installation..."
-
-    install_required_packages
-    install_go
-    setup_project
-
-    if [ -n "$BASH_VERSION" ]; then
-        source "$HOME/.bashrc"
-    elif [ -n "$ZSH_VERSION" ]; then
-        source "$HOME/.zshrc"
-    else
-        source "$HOME/.profile"
-    fi
-
-    if command -v cpscan >/dev/null 2>&1; then
-        echo "Installation successful! Try running 'cpscan --help' for usage information."
-        cpscan --version
-    else
-        echo "Installation seems to have failed. Please check the error message above."
-        exit 1
-    fi
+    echo "============================================="
+    echo "  cpscan Installer"
+    echo "============================================="
+    echo ""
+ 
+    ensure_downloader
+    install_binary
+    verify_install
 }
-
-# Run the installation
+ 
 main
