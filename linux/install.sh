@@ -6,6 +6,7 @@ set -euo pipefail
 # Downloads the latest pre-built release binary from GitHub Releases.
 # Supported distros: Ubuntu, Debian, Fedora, RHEL/CentOS/Rocky, Arch,
 #                    openSUSE, Alpine
+# Supported package managers: apt, dnf/yum, pacman, zypper, and apk-based distros.
 # =============================================================================
 
 GITHUB_REPO="papa0four/cpscan"
@@ -20,8 +21,7 @@ else
 fi
 
 # =============================================================================
-# Package Manager Detection
-# Used to install curl/wget if neither is present
+# Needed only if the host lacks both curl and wget
 # =============================================================================
 
 PKG_MANAGER=""
@@ -122,16 +122,16 @@ detect_arch() {
 }
 
 # =============================================================================
-# Version Resolution
-# Resolves the latest release tag from the GitHub API or dev for local dev testing.
-# Version stamping is handled by GoReleaser at release time via ldflags.
+# Resolve the latest GitHub release tag.
+# GoReleaser injects version metadata into release binaries, or
+# Version == 'dev' during updates and development.
 # =============================================================================
 
 resolve_version() {
     local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
     local version
 
-    version=$(fetch_text "$api_url" | grep '"$tag_name"' | cut -d '"' -f4)
+    version=$(fetch_text "$api_url" | grep '"tag_name"' | cut -d '"' -f4)
 
     if [ -z "$version" ]; then
         echo "[-] No releases found for ${GITHUB_REPO}." >&2
@@ -144,9 +144,7 @@ resolve_version() {
 }
 
 # =============================================================================
-# Checksum Verification
-# GoReleaser produces a checksums.txt alongside each release.
-# Verifying it ensures the downloaded binary has not been tampered with.
+# Verify the release asset against GoReleaser checksums.txt when available
 # =============================================================================
 
 verify_checksum() {
@@ -190,7 +188,7 @@ verify_checksum() {
 }
 
 # =============================================================================
-# Binary Download and Install
+# Download the mathcing release asset and install into INSTALL_DIR
 # =============================================================================
  
 install_binary() {
@@ -226,7 +224,7 @@ install_binary() {
 }
  
 # =============================================================================
-# Installation Verification
+# Confirm the installed binary is on PATH
 # =============================================================================
  
 verify_install() {
@@ -246,7 +244,7 @@ verify_install() {
 }
  
 # =============================================================================
-# Entry Point
+# GoReleaser default naming convention: 'cpscan_linux_amd64'
 # =============================================================================
  
 main() {
