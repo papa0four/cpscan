@@ -45,16 +45,20 @@ jobs:
             echo "run_pslint=false"    >> $GITHUB_OUTPUT
 
           elif [[ "$BRANCH" == infrastructure/* || "$BRANCH" == *infrastructure* ]]; then
-            echo "run_vet=true"    >> $GITHUB_OUTPUT
-            echo "run_lint=true"   >> $GITHUB_OUTPUT
-            echo "run_tests=false" >> $GITHUB_OUTPUT
-            echo "run_cross=false" >> $GITHUB_OUTPUT
+            echo "run_vet=true"        >> $GITHUB_OUTPUT
+            echo "run_lint=true"       >> $GITHUB_OUTPUT
+            echo "run_tests=false"     >> $GITHUB_OUTPUT
+            echo "run_cross=false"     >> $GITHUB_OUTPUT
+            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
+            echo "run_pslint=true"     >> $GITHUB_OUTPUT
 
           elif [[ "$BRANCH" == test/* ]]; then
-            echo "run_vet=true"    >> $GITHUB_OUTPUT
-            echo "run_lint=true"   >> $GITHUB_OUTPUT
-            echo "run_tests=true"  >> $GITHUB_OUTPUT
-            echo "run_cross=false" >> $GITHUB_OUTPUT
+            echo "run_vet=true"        >> $GITHUB_OUTPUT
+            echo "run_lint=true"       >> $GITHUB_OUTPUT
+            echo "run_tests=true"      >> $GITHUB_OUTPUT
+            echo "run_cross=false"     >> $GITHUB_OUTPUT
+            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
+            echo "run_pslint=true"     >> $GITHUB_OUTPUT
 
           else
             echo "run_vet=true"        >> $GITHUB_OUTPUT
@@ -131,10 +135,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install shfmt
-        run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+        run: |
+          curl -fsSL \
+            "https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64" \
+            -o /usr/local/bin/shfmt
+          chmod +x /usr/local/bin/shfmt
 
-      - name: Check shell formatting
-        run: shfmt -d linux/*.sh
+      - name: Run ShellCheck
+        run: |
+          shellcheck --severity=warning --format=tty linux/*.sh
 
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
@@ -160,24 +169,42 @@ jobs:
       - name: Check PowerShell formatting
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $files    = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $hasErrors = $false
           foreach ($file in $files) {
-            $formatted = Invoke-Formatter -ScriptDefinition (Get-Content $file -Raw)
-            $original  = Get-Content $file -Raw
+            $original  = Get-Content $file.FullName -Raw
+            $formatted = Invoke-Formatter -ScriptDefinition $original
             if ($formatted -ne $original) {
-              Write-Error "Formatting issue in $($file.Name). Run Invoke-Formatter locally."
-              exit 1
+              Write-Host "[-] Formatting issue: $($file.Name)" -ForegroundColor Red
+              $origLines = $original  -split "`n"
+              $fmtLines  = $formatted -split "`n"
+              $diff = Compare-Object $origLines $fmtLines
+              foreach ($line in $diff) {
+                if ($line.SideIndicator -eq '<=') {
+                  Write-Host "  - $($line.InputObject)" -ForegroundColor Red
+                } else {
+                  Write-Host "  + $($line.InputObject)" -ForegroundColor Green
+                }
+              }
+              $hasErrors = $true
             }
           }
+          if ($hasErrors) {
+            Write-Error "Formatting issues found. Run Invoke-Formatter locally to fix."
+            exit 1
+          }
+          Write-Host "[+] All PowerShell files are correctly formatted."
 
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
           $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning
           if ($results) {
-            $results | Format-Table -AutoSize
+            $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
+            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
             exit 1
           }
+          Write-Host "[+] PSScriptAnalyzer passed."
 
   test:
     name: Test

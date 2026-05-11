@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # =============================================================================
-# cpscan install script
+# 'cpscan' install script
 # Downloads the latest pre-built release binary from GitHub Releases.
 # Supported distros: Ubuntu, Debian, Fedora, RHEL/CentOS/Rocky, Arch,
 #                    openSUSE, Alpine
