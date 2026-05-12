@@ -1,0 +1,11 @@
+@{
+    ExcludeRules = @(
+        # Write-Host is appropriate for installer scripts to intentionally 
+        # write colored output directly to the console host.
+        'PSAvoidUsingWriteHost',
+
+        # SupportsShouldProcess is a module/cmdlet convention. These are
+        # standalone installer scripts not intended for programmatic use.
+        'PSUseShouldProcessForStateChangingFunctions'
+    )
+}

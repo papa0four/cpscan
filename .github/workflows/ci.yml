@@ -169,7 +169,7 @@ jobs:
       - name: Check PowerShell formatting
         shell: pwsh
         run: |
-          $files    = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $files = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
           $hasErrors = $false
           foreach ($file in $files) {
             $original  = Get-Content $file.FullName -Raw
@@ -177,7 +177,7 @@ jobs:
             if ($formatted -ne $original) {
               Write-Host "[-] Formatting issue: $($file.Name)" -ForegroundColor Red
               $origLines = $original  -split "`n"
-              $fmtLines  = $formatted -split "`n"
+              $fmtLines = $formatted -split "`n"
               $diff = Compare-Object $origLines $fmtLines
               foreach ($line in $diff) {
                 if ($line.SideIndicator -eq '<=') {
@@ -198,7 +198,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning
+          $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning -Settings ./windows/.psscriptanalyzerconfig
           if ($results) {
             $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
             Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
