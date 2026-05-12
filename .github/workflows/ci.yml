@@ -198,7 +198,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning -Settings ./scripts/windows/.psscriptanalyzerconfig
+          $results = Invoke-ScriptAnalyzer -Path ./scripts/windows -Recurse -Severity Error,Warning -Settings ./scripts/windows/.psscriptanalyzerconfig
           if ($results) {
             $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
             Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
