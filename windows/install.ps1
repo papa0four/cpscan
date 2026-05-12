@@ -1,121 +1,166 @@
-# PowerShell Script to Install cpscan
+#Requires -RunAsAdministrator
 
-# Ensure the script runs as Administrator
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Pause
-    exit
-}
+# cpscan install script (Windows)
+# Downloads the latest pre-built release binary from GitHub Releases.
+# Requires: PowerShell 5.1+, Administrator privileges
 
-# Capture the initial directory
-$initialDir = Get-Location
+$GitHubRepo = "papa0four/cpscan"
+$BinaryName = "cpscan.exe"
+$InstallDir = "$env:ProgramFiles\cpscan"
+$BinaryPath = "$InstallDir\$BinaryName"
 
-# Check if Go is installed
-$goExecutable = "$env:ProgramFiles\Go\bin\go.exe"
-if (Test-Path $goExecutable) {
-    Write-Output "Go is already installed."
-} else {
-    Write-Output "Go not found. Installing the latest version of Go..."
-    
-    # Download and install Go
-    $url = "https://go.dev/dl/go1.23.2.windows-amd64.msi"
-    $installerPath = "$env:TEMP\go-installer.msi"
-    
+# Suppress Invoke-WebRequest progress bar — omitting this causes severe
+# performance degradation on large downloads in PowerShell 5.1
+$ProgressPreference = "SilentlyContinue"
+
+# =============================================================================
+
+function Get-RemoteFile {
+    param(
+        [string]$Url,
+        [string]$Destination
+    )
     try {
-        # Download installer
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFile($url, $installerPath)
-
-        # Install Go
-        Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
-
-        # Remove Installer
-        Remove-Item -Path $installerPath -ErrorAction SilentlyContinue
-
-        # Set Go environment variables
-        $env:Path += ";$env:ProgramFiles\Go\bin"
-        [Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
-        Write-Output "Go installation completed. Added Go to system Path."
-    } catch {
-        Write-Error "An error occurred during Go installation: $_"
-        Pause
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    }
+    catch {
+        Write-Host "[-] Failed to download from: $Url" -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
         exit 1
     }
 }
 
-# Reload environment variables for the current session
-if (Test-Path "$env:ProgramFiles\Go\bin\go.exe") {
-    & "$env:ProgramFiles\Go\bin\go.exe" version
-} else {
-    Write-Output "Go executable not found in expected path."
-    Pause
-    exit
+function Get-RemoteText {
+    param([string]$Url)
+    try {
+        return Invoke-WebRequest -Uri $Url -UseBasicParsing |
+            Select-Object -ExpandProperty Content
+    }
+    catch {
+        return ""
+    }
 }
 
-# Prepare to build cpscan executable
-Write-Output "Building 'cpscan' executable from project root directory."
-
-# Set up a temporary directory to download and extract the cpscan project
-$tempDir = "$env:TEMP\cpscan"
-$zipURL = "https://github.com/papa0four/cpscan/archive/refs/heads/main.zip"
-$zipPath = "$tempDir\cpscan.zip"
-$projectRoot = "$tempDir\cpscan-main"
-
-if (!(Test-Path $tempDir)) {
-    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+function Get-Arch {
+    switch ($env:PROCESSOR_ARCHITECTURE) {
+        "AMD64" { return "amd64" }
+        "ARM64" { return "arm64" }
+        "x86"   { return "386"   }
+        default {
+            Write-Host "[-] Unsupported architecture: $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 
-try {
-    # Download and extract the latest cpscan release
-    Invoke-WebRequest -Uri $zipURL -OutFile $zipPath
-    Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
-} catch {
-    Write-Error "Failed to download and extract the cpscan project: $_"
-    Pause
-    exit 1
+function Get-LatestVersion {
+    $response = Get-RemoteText -Url "https://api.github.com/repos/$GitHubRepo/releases/latest"
+
+    if (-not $response) {
+        Write-Host "[-] No releases found for $GitHubRepo." -ForegroundColor Red
+        Write-Host "    This project may not have a stable release yet." -ForegroundColor Red
+        Write-Host "    Visit https://github.com/$GitHubRepo/releases for status." -ForegroundColor Yellow
+        exit 0
+    }
+
+    $version = ($response | ConvertFrom-Json).tag_name
+
+    if (-not $version) {
+        Write-Host "[-] Failed to resolve latest release version." -ForegroundColor Red
+        Write-Host "    Check your internet connection and try again." -ForegroundColor Red
+        exit 1
+    }
+
+    return $version
 }
 
-# Change to the extracted project root
-Push-Location $projectRoot
+function Install-Binary {
+    $arch    = Get-Arch
+    $version = Get-LatestVersion
 
-# Initialize go.mod if not present
-if (!(Test-Path "go.mod")) {
-    Write-Output "Initializing Go modules..."
-    & "$env:ProgramFiles\Go\bin\go.exe" mod init cpscan
+    # GoReleaser default naming convention: cpscan_windows_amd64.exe
+    $BinaryFilename = "cpscan_windows_$arch.exe"
+    $DownloadUrl    = "https://github.com/$GitHubRepo/releases/download/$version/$BinaryFilename"
+
+    # Use GetRandomFileName to avoid orphaning a file the way GetTempFileName would
+    $TempFile = [System.IO.Path]::Combine(
+        [System.IO.Path]::GetTempPath(),
+        [System.IO.Path]::GetRandomFileName() + ".exe"
+    )
+
+    Write-Host "[*] Downloading cpscan $version (windows/$arch)..." -ForegroundColor Cyan
+
+    Get-RemoteFile -Url $DownloadUrl -Destination $TempFile
+
+    if (-not (Test-Path $InstallDir)) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    }
+
+    try {
+        Move-Item -Path $TempFile -Destination $BinaryPath -Force
+    }
+    catch {
+        Write-Host "[-] Failed to install binary to $BinaryPath" -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
+        Remove-Item -Path $TempFile -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    Write-Host "[+] cpscan $version installed to $BinaryPath" -ForegroundColor Green
 }
 
-# Add missing dependencies explicitly
-Write-Output "Fetching necessary dependencies..."
-try {
-    & "$env:ProgramFiles\Go\bin\go.exe" get -u github.com/shirou/gopsutil/host
-    & "$env:ProgramFiles\Go\bin\go.exe" get -u github.com/spf13/cobra
-} catch {
-    Write-Warning "Failed to fetch dependencies: $_"
+function Register-Path {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $entries     = $machinePath -split ";"
+
+    if ($InstallDir -notin $entries) {
+        [Environment]::SetEnvironmentVariable(
+            "Path",
+            ($entries + $InstallDir) -join ";",
+            "Machine"
+        )
+        $env:Path += ";$InstallDir"
+        Write-Host "[+] Added $InstallDir to system PATH." -ForegroundColor Green
+    }
 }
 
-# Tidy Go modules to finalize dependencies
-Write-Output "Tidying Go modules..."
-try {
-    & "$env:ProgramFiles\Go\bin\go.exe" mod tidy
-} catch {
-    Write-Warning "Failed to tidy Go modules: $_"
+function Confirm-Install {
+    if (-not (Test-Path $BinaryPath)) {
+        Write-Host "[-] Verification failed: binary not found at $BinaryPath" -ForegroundColor Red
+        exit 1
+    }
+
+    $version = & $BinaryPath --version 2>&1
+
+    Write-Host ""
+    Write-Host "[+] Verification successful." -ForegroundColor Green
+    Write-Host "    $version" -ForegroundColor White
+    Write-Host "    Run 'cpscan --help' to see available commands." -ForegroundColor Yellow
 }
 
-# Build the executable
-Write-Output "Building cpscan executable..."
-$destinationPath = "$env:ProgramFiles\cpscan"
-if (!(Test-Path $destinationPath)) {
-    New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
-}
-& "$env:ProgramFiles\Go\bin\go.exe" build -o "$destinationPath\cpscan.exe" ./cmd/cpscan/main.go
-if (!(Test-Path "$destinationPath\cpscan.exe")) {
-    Write-Output "Build failed: cpscan executable not created."
-    Pause
-    exit
+function Main {
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "  cpscan Installer" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Exit cleanly if cpscan is already installed — do not attempt to overwrite
+    if (Test-Path $BinaryPath) {
+        Write-Host "[!] cpscan is already installed at $BinaryPath" -ForegroundColor Yellow
+        Write-Host "    Run uninstall.ps1 to remove it or update.ps1 to check for a newer version." -ForegroundColor Yellow
+        exit 0
+    }
+
+    try {
+        Install-Binary
+        Register-Path
+        Confirm-Install
+    }
+    catch {
+        Write-Host ""
+        Write-Host "[-] Installation failed: $_" -ForegroundColor Red
+        exit 1
+    }
 }
 
-# Confirmation and Exit
-Write-Output "`nInstallation complete! The cpscan executable is located at $destinationPath\cpscan.exe."
-Write-Output "To add cpscan to your system PATH, run the following command in an elevated PowerShell prompt:"
-Write-Output "[Environment]::SetEnvironmentVariable(`"Path`", `"$env:Path;$destinationPath`", `"Machine`")"
-Pause
+Main

@@ -12,6 +12,7 @@ set -euo pipefail
 GITHUB_REPO="papa0four/cpscan"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="cpscan"
+BINARY_PATH="$INSTALL_DIR/$BINARY_NAME"
 
 # Check for root user in current session
 if [ "$(id -u)" -eq 0 ]; then
@@ -129,7 +130,15 @@ detect_arch() {
 
 resolve_version() {
     local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local response
     local version
+
+    response=$(fetch_text "$api_url")
+
+    if [ -z "$response" ]; then
+        echo "[-] Failed to reach GitHub API." >&2
+        echo "    Check your internet connection and try again." >&2
+        ecit 1
 
     version=$(fetch_text "$api_url" | grep '"tag_name"' | cut -d '"' -f4)
 
@@ -217,10 +226,10 @@ install_binary() {
  
     verify_checksum "$version" "$binary_filename" "$tmp_binary"
  
-    $SUDO mv "$tmp_binary" "$INSTALL_DIR/$BINARY_NAME"
-    $SUDO chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    $SUDO mv "$tmp_binary" "$BINARY_PATH"
+    $SUDO chmod +x "$BINARY_PATH"
  
-    echo "[+] cpscan $version installed to $INSTALL_DIR/$BINARY_NAME"
+    echo "[+] cpscan $version installed to $BINARY_PATH"
 }
  
 # =============================================================================
@@ -237,7 +246,7 @@ verify_install() {
         echo "    Run 'cpscan --help' to see available commands."
     else
         echo "[-] Verification failed: $BINARY_NAME not found in PATH."
-        echo "    The binary is at $INSTALL_DIR/$BINARY_NAME"
+        echo "    The binary is at $BINARY_PATH"
         echo "    Try opening a new terminal or running: source /etc/profile"
         exit 1
     fi
@@ -252,6 +261,12 @@ main() {
     echo "  cpscan Installer"
     echo "============================================="
     echo ""
+
+    if [ -f "$BINARY_PATH" ]; then
+        echo "[!] cpscan is already installed at $BINARY_PATH"
+        echo "    Run uninstall.sh to remove it or update.sh to check for a newer version."
+        exit 0
+    fi
  
     ensure_downloader
     install_binary

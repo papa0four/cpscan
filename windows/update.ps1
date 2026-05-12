@@ -1,97 +1,228 @@
-# Define variables
-$GitHubRepoURL = "https://github.com/papa0four/cpscan/archive/refs/heads/main.zip"
-$TempDir = "$env:TEMP\cpscan_update"
+#Requires -RunAsAdministrator
+
+# cpscan update script (Windows)
+# For end-users only. Checks for a newer release and updates if one exists.
+# Developers and contributors should use: git pull && make install
+# Requires: PowerShell 5.1+, Administrator privileges
+
+$GitHubRepo = "papa0four/cpscan"
+$BinaryName = "cpscan.exe"
 $InstallDir = "$env:ProgramFiles\cpscan"
-$BackupDir = "$env:ProgramFiles\cpscan_backup"
-$ZipFile = "$TempDir\cpscan.zip"
-$GoExe = "$env:ProgramFiles\Go\bin\go.exe"
+$BinaryPath = "$InstallDir\$BinaryName"
+$BackupPath = "$InstallDir\$BinaryName.bak"
 
-# Ensure running as Administrator
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Error "Please run this script as Administrator."
-    exit 1
-}
+# Suppress progress bars
+$ProgressPreference = "SilentlyContinue"
 
-try {
-    # Backup current installation
-    if (Test-Path $InstallDir) {
-        Write-Output "Backing up current installation..."
-        if (Test-Path $BackupDir) {
-            Remove-Item -Recurse -Force $BackupDir
-        }
-        Rename-Item -Path $InstallDir -NewName $BackupDir
+# =============================================================================
+
+function Get-RemoteFile {
+    param(
+        [string]$Url,
+        [string]$Destination
+    )
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
     }
-
-    # Create temp directory
-    Write-Output "Creating temporary directory..."
-    if (Test-Path $TempDir) {
-        Remove-Item -Recurse -Force $TempDir
-    }
-    New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
-
-    # Download and extract
-    Write-Output "Downloading cpscan..."
-    Invoke-WebRequest -Uri $GitHubRepoURL -OutFile $ZipFile
-    
-    Write-Output "Extracting..."
-    Expand-Archive -Path $ZipFile -DestinationPath $TempDir -Force
-    
-    # Verify project structure
-    Write-Output "Verifying project structure..."
-    $mainDir = Get-ChildItem -Path $TempDir -Directory | Where-Object { $_.Name -eq "cpscan-main" } | Select-Object -ExpandProperty FullName
-    Write-Output "Main directory: $mainDir"
-
-    if (-not $mainDir) {
-        throw "Could not find cpscan-main directory"
-    }
-
-    $mainGoPath = Join-Path -Path $mainDir -ChildPath "cmd\cpscan\main.go"
-    Write-Output "Looking for main.go at: $mainGoPath"
-
-    if (-not (Test-Path $mainGoPath)) {
-        throw "Project structure not as expected. Cannot find $mainGoPath"
-    }
-
-    $ProjectRoot = $mainDir 
-    
-    # Build steps
-    Write-Output "Building cpscan..."
-    Push-Location $ProjectRoot
-    if (!(Test-Path "go.mod")) {
-        Start-Process -FilePath $GoExe -ArgumentList "mod", "init", "github.com/papa0four/cpscan" -Wait -NoNewWindow
-    }
-    Start-Process -FilePath $GoExe -ArgumentList "mod", "tidy" -Wait -NoNewWindow
-    Start-Process -FilePath $GoExe -ArgumentList "build", "-o", "cpscan.exe", "./cmd/cpscan" -Wait -NoNewWindow
-    
-    if (-not (Test-Path ".\cpscan.exe")) {
-        Write-Error "Build failed: cpscan executable not created."
-        Pop-Location
+    catch {
+        Write-Host "[-] Failed to download from: $Url" -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
         exit 1
     }
-    Pop-Location
-    
-    # Install
-    Write-Output "Installing cpscan..."
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Move-Item -Path "$ProjectRoot\cpscan.exe" -Destination "$InstallDir\cpscan.exe" -Force
-    
-    # Update PATH
-    if (!(Get-Command "cpscan" -ErrorAction SilentlyContinue)) {
-        $env:Path += ";$InstallDir"
-        [Environment]::SetEnvironmentVariable("Path", $env:Path, "Machine")
-        Write-Output "Updated PATH environment variable."
-    }
-    
-    # Cleanup
-    Write-Output "Cleaning up..."
-    Remove-Item -Recurse -Force $TempDir
-    
-    Write-Output "Update complete."
-
-} catch {
-    Write-Error "Error during process: $_"
-    if (Test-Path $TempDir) {
-        Remove-Item -Recurse -Force $TempDir
-    }
-    exit 1
 }
+
+function Get-RemoteText {
+    param([string]$Url)
+    try {
+        return Invoke-WebRequest -Uri $Url -UseBasicParsing |
+            Select-Object -ExpandProperty Content
+    }
+    catch {
+        return ""
+    }
+}
+
+function Get-Arch {
+    switch ($env:PROCESSOR_ARCHITECTURE) {
+        "AMD64" { return "amd64" }
+        "ARM64" { return "arm64" }
+        "x86"   { return "386"   }
+        default {
+            Write-Host "[-] Unsupported architecture: $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Red
+            exit 1
+        }
+    }
+}
+
+# Returns the version string of the currently installed binary
+function Get-InstalledVersion {
+    $output = & $BinaryPath --version 2>&1
+    return ($output -split "\s+")[-1]
+}
+
+# Resolves the latest release tag from the GitHub API
+function Get-LatestVersion {
+    $response = Get-RemoteText -Url "https://api.github.com/repos/$GitHubRepo/releases/latest"
+
+    if (-not $response) {
+        Write-Host "[-] Failed to reach GitHub API." -ForegroundColor Red
+        Write-Host "    Check your internet connection and try again." -ForegroundColor Red
+        exit 1
+    }
+
+    $version = ($response | ConvertFrom-Json).tag_name
+
+    if (-not $version) {
+        Write-Host "[-] No releases found for $GitHubRepo." -ForegroundColor Red
+        Write-Host "    This project may not have a stable release yet." -ForegroundColor Red
+        Write-Host "    Visit https://github.com/$GitHubRepo/releases for status." -ForegroundColor Yellow
+        exit 0
+    }
+
+    return $version
+}
+
+# Backs up the current binary before attempting replacement
+function Backup-Binary {
+    try {
+        Copy-Item -Path $BinaryPath -Destination $BackupPath -Force
+    }
+    catch {
+        Write-Host "[-] Failed to create backup of current binary." -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# Restores the backed up binary — called on any failure after backup is taken
+function Restore-Binary {
+    if (Test-Path $BackupPath) {
+        Write-Host "[!] Restoring previous version..." -ForegroundColor Yellow
+        try {
+            Move-Item -Path $BackupPath -Destination $BinaryPath -Force
+            Write-Host "[+] Previous version restored." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "[-] Failed to restore backup. Manual recovery may be required." -ForegroundColor Red
+            Write-Host "    Backup located at: $BackupPath" -ForegroundColor Yellow
+        }
+    }
+}
+
+# Downloads the specified release and replaces the installed binary
+function Update-Binary {
+    param([string]$Version)
+
+    $arch           = Get-Arch
+    $BinaryFilename = "cpscan_windows_$arch.exe"
+    $DownloadUrl    = "https://github.com/$GitHubRepo/releases/download/$Version/$BinaryFilename"
+
+    $TempFile = [System.IO.Path]::Combine(
+        [System.IO.Path]::GetTempPath(),
+        [System.IO.Path]::GetRandomFileName() + ".exe"
+    )
+
+    Write-Host "[*] Downloading cpscan $Version (windows/$arch)..." -ForegroundColor Cyan
+
+    Get-RemoteFile -Url $DownloadUrl -Destination $TempFile
+
+    try {
+        Move-Item -Path $TempFile -Destination $BinaryPath -Force
+    }
+    catch {
+        Write-Host "[-] Failed to replace binary." -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
+        Remove-Item -Path $TempFile -ErrorAction SilentlyContinue
+        Restore-Binary
+        exit 1
+    }
+}
+
+# Confirms the installed binary reports the expected version after update
+function Confirm-Update {
+    param([string]$ExpectedVersion)
+
+    $actual = Get-InstalledVersion
+
+    if ($actual -ne $ExpectedVersion) {
+        Write-Host "[-] Update verification failed." -ForegroundColor Red
+        Write-Host "    Expected: $ExpectedVersion" -ForegroundColor Red
+        Write-Host "    Got:      $actual" -ForegroundColor Red
+        Restore-Binary
+        exit 1
+    }
+
+    # Backup no longer needed once update is confirmed
+    Remove-Item -Path $BackupPath -ErrorAction SilentlyContinue
+
+    Write-Host "[+] cpscan updated to $actual" -ForegroundColor Green
+    Write-Host "    Run 'cpscan --help' to see available commands." -ForegroundColor Yellow
+}
+
+function Main {
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "  cpscan Updater" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    try {
+        # Confirm cpscan is installed before proceeding
+        if (-not (Test-Path $BinaryPath)) {
+            Write-Host "[-] cpscan is not installed." -ForegroundColor Red
+            Write-Host "    Run install.ps1 to install cpscan first." -ForegroundColor Yellow
+            exit 1
+        }
+
+        $installedVersion = Get-InstalledVersion
+
+        # Dev builds are not managed by this script
+        if ($installedVersion -notlike "v*") {
+            Write-Host "[!] cpscan $installedVersion appears to be a developer build." -ForegroundColor Yellow
+            Write-Host "    This script manages release versions only." -ForegroundColor Yellow
+            Write-Host "    To update a developer build: git pull && make install" -ForegroundColor Yellow
+            exit 0
+        }
+
+        Write-Host "[*] Installed version: $installedVersion" -ForegroundColor White
+
+        $latestVersion = Get-LatestVersion
+
+        Write-Host "[*] Latest version:    $latestVersion" -ForegroundColor White
+
+        # Already on latest
+        if ($installedVersion -eq $latestVersion) {
+            Write-Host "[+] cpscan is already up to date." -ForegroundColor Green
+            exit 0
+        }
+
+        # Offer the update
+        Write-Host ""
+        Write-Host "[!] A new version is available: $latestVersion" -ForegroundColor Yellow
+        $response = Read-Host "    Update cpscan from $installedVersion to $latestVersion? (y/n)"
+
+        if ($response -notmatch "^[Yy]$") {
+            Write-Host "[*] Update declined. Staying on $installedVersion." -ForegroundColor White
+            exit 0
+        }
+
+        # Windows locks running executables — check before attempting replacement
+        $running = Get-Process -Name "cpscan" -ErrorAction SilentlyContinue
+        if ($running) {
+            Write-Host "[-] cpscan is currently running." -ForegroundColor Red
+            Write-Host "    Please close all instances of cpscan and run this script again." -ForegroundColor Yellow
+            exit 1
+        }
+
+        Backup-Binary
+        Update-Binary -Version $latestVersion
+        Confirm-Update -ExpectedVersion $latestVersion
+    }
+    catch {
+        Write-Host ""
+        Write-Host "[-] Update failed: $_" -ForegroundColor Red
+        Restore-Binary
+        exit 1
+    }
+}
+
+Main
