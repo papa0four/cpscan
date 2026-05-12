@@ -169,7 +169,7 @@ jobs:
       - name: Check PowerShell formatting
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $files = Get-ChildItem -Path ./scripts/windows -Filter *.ps1 -Recurse
           $hasErrors = $false
           foreach ($file in $files) {
             $original  = Get-Content $file.FullName -Raw
