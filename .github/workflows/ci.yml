@@ -25,7 +25,9 @@ jobs:
       run_vet:   ${{ steps.classify.outputs.run_vet }}
       run_lint:  ${{ steps.classify.outputs.run_lint }}
       run_tests: ${{ steps.classify.outputs.run_tests }}
-      run_cross: ${{ steps.classify.outputs.run_cross }} 
+      run_cross: ${{ steps.classify.outputs.run_cross }}
+      run_shelllint: ${{ steps.classify.outputs.run_shelllint }}
+      run_pslint:   ${{ steps.classify.outputs.run_pslint }}
 
     steps:
       - name: Determine branch type and set pipeline flags
@@ -35,28 +37,36 @@ jobs:
           echo "Detected branch: $BRANCH"
 
           if [[ "$BRANCH" == docs/* ]]; then
-            echo "run_vet=false"   >> $GITHUB_OUTPUT
-            echo "run_lint=false"  >> $GITHUB_OUTPUT
-            echo "run_tests=false" >> $GITHUB_OUTPUT
-            echo "run_cross=false" >> $GITHUB_OUTPUT
+            echo "run_vet=false"       >> $GITHUB_OUTPUT
+            echo "run_lint=false"      >> $GITHUB_OUTPUT
+            echo "run_tests=false"     >> $GITHUB_OUTPUT
+            echo "run_cross=false"     >> $GITHUB_OUTPUT
+            echo "run_shelllint=false" >> $GITHUB_OUTPUT
+            echo "run_pslint=false"    >> $GITHUB_OUTPUT
 
           elif [[ "$BRANCH" == infrastructure/* || "$BRANCH" == *infrastructure* ]]; then
-            echo "run_vet=true"    >> $GITHUB_OUTPUT
-            echo "run_lint=true"   >> $GITHUB_OUTPUT
-            echo "run_tests=false" >> $GITHUB_OUTPUT
-            echo "run_cross=false" >> $GITHUB_OUTPUT
+            echo "run_vet=true"        >> $GITHUB_OUTPUT
+            echo "run_lint=true"       >> $GITHUB_OUTPUT
+            echo "run_tests=false"     >> $GITHUB_OUTPUT
+            echo "run_cross=false"     >> $GITHUB_OUTPUT
+            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
+            echo "run_pslint=true"     >> $GITHUB_OUTPUT
 
           elif [[ "$BRANCH" == test/* ]]; then
-            echo "run_vet=true"    >> $GITHUB_OUTPUT
-            echo "run_lint=true"   >> $GITHUB_OUTPUT
-            echo "run_tests=true"  >> $GITHUB_OUTPUT
-            echo "run_cross=false" >> $GITHUB_OUTPUT
+            echo "run_vet=true"        >> $GITHUB_OUTPUT
+            echo "run_lint=true"       >> $GITHUB_OUTPUT
+            echo "run_tests=true"      >> $GITHUB_OUTPUT
+            echo "run_cross=false"     >> $GITHUB_OUTPUT
+            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
+            echo "run_pslint=true"     >> $GITHUB_OUTPUT
 
           else
-            echo "run_vet=true"    >> $GITHUB_OUTPUT
-            echo "run_lint=true"   >> $GITHUB_OUTPUT
-            echo "run_tests=true"  >> $GITHUB_OUTPUT
-            echo "run_cross=true"  >> $GITHUB_OUTPUT
+            echo "run_vet=true"        >> $GITHUB_OUTPUT
+            echo "run_lint=true"       >> $GITHUB_OUTPUT
+            echo "run_tests=true"      >> $GITHUB_OUTPUT
+            echo "run_cross=true"      >> $GITHUB_OUTPUT
+            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
+            echo "run_pslint=true"     >> $GITHUB_OUTPUT
           fi
 
   baseline:
@@ -113,6 +123,88 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
+
+  shell-lint:
+    name: Shell Lint and Format
+    runs-on: ubuntu-latest
+    needs: [classify, baseline]
+    if: needs.classify.outputs.run_shelllint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shfmt
+        run: |
+          curl -fsSL \
+            "https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64" \
+            -o /usr/local/bin/shfmt
+          chmod +x /usr/local/bin/shfmt
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck --severity=warning --format=tty linux/*.sh
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './linux'
+          severity: warning
+
+  ps-lint:
+    name: PowerShell Lint and Format
+    runs-on: windows-latest
+    needs: [classify, baseline]
+    if: needs.classify.outputs.run_pslint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Check PowerShell formatting
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $hasErrors = $false
+          foreach ($file in $files) {
+            $original  = Get-Content $file.FullName -Raw
+            $formatted = Invoke-Formatter -ScriptDefinition $original
+            if ($formatted -ne $original) {
+              Write-Host "[-] Formatting issue: $($file.Name)" -ForegroundColor Red
+              $origLines = $original  -split "`n"
+              $fmtLines = $formatted -split "`n"
+              $diff = Compare-Object $origLines $fmtLines
+              foreach ($line in $diff) {
+                if ($line.SideIndicator -eq '<=') {
+                  Write-Host "  - $($line.InputObject)" -ForegroundColor Red
+                } else {
+                  Write-Host "  + $($line.InputObject)" -ForegroundColor Green
+                }
+              }
+              $hasErrors = $true
+            }
+          }
+          if ($hasErrors) {
+            Write-Error "Formatting issues found. Run Invoke-Formatter locally to fix."
+            exit 1
+          }
+          Write-Host "[+] All PowerShell files are correctly formatted."
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning -Settings ./windows/.psscriptanalyzerconfig
+          if ($results) {
+            $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
+            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
+            exit 1
+          }
+          Write-Host "[+] PSScriptAnalyzer passed."
 
   test:
     name: Test

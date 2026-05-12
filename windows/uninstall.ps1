@@ -1,50 +1,114 @@
-# PowerShell Script to Uninstall cpscan and Associated Artifacts
+#Requires -RunAsAdministrator
 
-# Ensure the script runs as administrator
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Pause
-    exit
-}
+# cpscan uninstall script (Windows)
+# Completely removes cpscan and all associated artifacts from the target machine.
+# Requires: PowerShell 5.1+, Administrator privileges
 
-# Define the cpscan installation path
-$cpscanPath = "$env:ProgramFiles\cpscan"
+$BinaryName = "cpscan.exe"
+$InstallDir = "$env:ProgramFiles\cpscan"
+$BinaryPath = "$InstallDir\$BinaryName"
 
-# Remove cpscan executable and directory
-if (Test-Path $cpscanPath) {
-    Write-Output "Removing cpscan directory and executable..."
-    Remove-Item -Path $cpscanPath -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Output "cpscan directory removed."
-} else {
-    Write-Output "No cpscan directory found. Skipping..."
-}
+# Suppress progress bars
+$ProgressPreference = "SilentlyContinue"
 
-# Remove cpscan from the system Path
-$sysPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-$newPath = ($sysPath -split ';') -notmatch [regex]::Escape($cpscanPath) -join ';'
-[Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
-Write-Output "cpscan removed from system Path."
+# =============================================================================
 
-# Prompt to remove go installation
-$goPath = "$env:ProgramFiles\Go"
-$removeGo = Read-Host "Do you want to remove Go? NOTE: this is not required from cpscan removal (Y/n)"
-if ($removeGo -eq 'Y' -or $removeGo -eq 'y') {
-    if (Test-Path $goPath) {
-        Write-Output "Removing Go installation..."
-        Remove-Item -Path $goPath -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Output "Go removed successfully."
-    } else {
-        Write-Output "No Go installation found. Skipping..."
+# Confirms cpscan is installed and no instance is currently running.
+# A running instance locks the executable on Windows preventing deletion.
+function Assert-Removable {
+    if (-not (Test-Path $BinaryPath)) {
+        Write-Host "[!] cpscan is not installed at $BinaryPath" -ForegroundColor Yellow
+        Write-Host "    Nothing to uninstall." -ForegroundColor Yellow
+        exit 0
     }
-} else {
-    Write-Output "Go installation retained."
+
+    $running = Get-Process -Name "cpscan" -ErrorAction SilentlyContinue
+    if ($running) {
+        Write-Host "[-] cpscan is currently running." -ForegroundColor Red
+        Write-Host "    Please close all instances of cpscan and run this script again." -ForegroundColor Yellow
+        exit 1
+    }
 }
 
-# Refresh environment variables for the current session
-$refreshEnv = @"
-[System.Environment]::SetEnvironmentVariable('Path', [System.Environment]::GetEnvironmentVariable('Path', 'Machine'), 'Process')
-"@
-Invoke-Expression $refreshEnv
+# Removes the binary and the install directory created by install.ps1
+function Remove-Binary {
+    Write-Host "[*] Removing cpscan from $InstallDir..." -ForegroundColor Cyan
 
-Write-Output "`ncpscan and selected components removed success. Restart your terminal or session to fully reflect changes."
-Pause
+    try {
+        Remove-Item -Path $InstallDir -Recurse -Force
+    }
+    catch {
+        Write-Host "[-] Failed to remove $InstallDir" -ForegroundColor Red
+        Write-Host "    $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# Removes only the cpscan install directory entry from the Machine PATH.
+# Splits on semicolon, filters the exact entry, and rejoins.
+function Remove-FromPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $entries = $machinePath -split ";"
+    $filtered = $entries | Where-Object { $_ -ne $InstallDir }
+
+    if ($filtered.Count -eq $entries.Count) {
+        Write-Host "[*] cpscan was not found in system PATH — skipping PATH update." -ForegroundColor Yellow
+        return
+    }
+
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        ($filtered -join ";"),
+        "Machine"
+    )
+
+    # Refresh PATH in the current session to reflect the removal immediately
+    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine")
+
+    Write-Host "[+] Removed cpscan from system PATH." -ForegroundColor Green
+}
+
+# Confirms the binary and install directory are gone and cpscan
+# is no longer resolvable anywhere in PATH
+function Confirm-Removal {
+    if (Test-Path $BinaryPath) {
+        Write-Host "[-] Uninstall failed: binary still present at $BinaryPath" -ForegroundColor Red
+        exit 1
+    }
+
+    if (Test-Path $InstallDir) {
+        Write-Host "[-] Uninstall failed: install directory still present at $InstallDir" -ForegroundColor Red
+        exit 1
+    }
+
+    $resolved = Get-Command "cpscan" -ErrorAction SilentlyContinue
+    if ($resolved) {
+        Write-Host "[-] Uninstall failed: cpscan is still resolvable in PATH at:" -ForegroundColor Red
+        Write-Host "    $($resolved.Source)" -ForegroundColor Red
+        Write-Host "    A second installation may exist at this location." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "[+] cpscan has been completely removed." -ForegroundColor Green
+}
+
+function Main {
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "  cpscan Uninstaller" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    try {
+        Assert-Removable
+        Remove-Binary
+        Remove-FromPath
+        Confirm-Removal
+    }
+    catch {
+        Write-Host ""
+        Write-Host "[-] Uninstall failed: $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+Main
