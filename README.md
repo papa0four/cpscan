@@ -1,10 +1,10 @@
-# Critical Path Vulnerability Scanner (CPSCAN)
+# Orko Watch Vulnerability Scanner (orkowatch)
 
-![Critical Path][logo]
+![Orko Watch][logo]
 
-[logo]: /images/critical_path.jpg "Critical Path Logo"
+[logo]: /images/orkowatch.png "Orko Watch Logo"
 
-A proof of concept (POC) vulnerability scanner developed for Critical Path Consulting leadership.
+A proof of concept (POC) vulnerability scanner developed for Purple Packet Eaters' Project Orko.
 
 ## Downloads
 
