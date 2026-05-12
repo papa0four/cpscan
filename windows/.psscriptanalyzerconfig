@@ -6,6 +6,11 @@
 
         # SupportsShouldProcess is a module/cmdlet convention. These are
         # standalone installer scripts not intended for programmatic use.
-        'PSUseShouldProcessForStateChangingFunctions'
+        'PSUseShouldProcessForStateChangingFunctions',
+
+        # BOM encoding is a best practice for PowerShell 5.1 compatibility
+        # but poses no active risk in this context. Files should be saved
+        # as UTF-8.
+        'PSUseBOMForUnicodeEncodedFile'
     )
 }
