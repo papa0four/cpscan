@@ -45,7 +45,7 @@ function Get-Arch {
     switch ($env:PROCESSOR_ARCHITECTURE) {
         "AMD64" { return "amd64" }
         "ARM64" { return "arm64" }
-        "x86"   { return "386"   }
+        "x86" { return "386" }
         default {
             Write-Host "[-] Unsupported architecture: $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Red
             exit 1
@@ -75,12 +75,12 @@ function Get-LatestVersion {
 }
 
 function Install-Binary {
-    $arch    = Get-Arch
+    $arch = Get-Arch
     $version = Get-LatestVersion
 
     # GoReleaser default naming convention: cpscan_windows_amd64.exe
     $BinaryFilename = "cpscan_windows_$arch.exe"
-    $DownloadUrl    = "https://github.com/$GitHubRepo/releases/download/$version/$BinaryFilename"
+    $DownloadUrl = "https://github.com/$GitHubRepo/releases/download/$version/$BinaryFilename"
 
     # Use GetRandomFileName to avoid orphaning a file the way GetTempFileName would
     $TempFile = [System.IO.Path]::Combine(
@@ -111,7 +111,7 @@ function Install-Binary {
 
 function Register-Path {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    $entries     = $machinePath -split ";"
+    $entries = $machinePath -split ";"
 
     if ($InstallDir -notin $entries) {
         [Environment]::SetEnvironmentVariable(

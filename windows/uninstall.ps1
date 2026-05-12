@@ -48,8 +48,8 @@ function Remove-Binary {
 # Splits on semicolon, filters the exact entry, and rejoins.
 function Remove-FromPath {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    $entries     = $machinePath -split ";"
-    $filtered    = $entries | Where-Object { $_ -ne $InstallDir }
+    $entries = $machinePath -split ";"
+    $filtered = $entries | Where-Object { $_ -ne $InstallDir }
 
     if ($filtered.Count -eq $entries.Count) {
         Write-Host "[*] cpscan was not found in system PATH — skipping PATH update." -ForegroundColor Yellow

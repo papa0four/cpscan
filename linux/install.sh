@@ -138,7 +138,8 @@ resolve_version() {
     if [ -z "$response" ]; then
         echo "[-] Failed to reach GitHub API." >&2
         echo "    Check your internet connection and try again." >&2
-        ecit 1
+        exit 1
+    fi
 
     version=$(fetch_text "$api_url" | grep '"tag_name"' | cut -d '"' -f4)
 

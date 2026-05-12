@@ -46,7 +46,7 @@ function Get-Arch {
     switch ($env:PROCESSOR_ARCHITECTURE) {
         "AMD64" { return "amd64" }
         "ARM64" { return "arm64" }
-        "x86"   { return "386"   }
+        "x86" { return "386" }
         default {
             Write-Host "[-] Unsupported architecture: $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Red
             exit 1
@@ -113,9 +113,9 @@ function Restore-Binary {
 function Update-Binary {
     param([string]$Version)
 
-    $arch           = Get-Arch
+    $arch = Get-Arch
     $BinaryFilename = "cpscan_windows_$arch.exe"
-    $DownloadUrl    = "https://github.com/$GitHubRepo/releases/download/$Version/$BinaryFilename"
+    $DownloadUrl = "https://github.com/$GitHubRepo/releases/download/$Version/$BinaryFilename"
 
     $TempFile = [System.IO.Path]::Combine(
         [System.IO.Path]::GetTempPath(),
