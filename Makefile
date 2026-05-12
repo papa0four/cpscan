@@ -27,15 +27,25 @@ endif
 # Use sudo unless already root
 SUDO := $(shell [ "$$(id -u)" -eq 0 ] && echo "" || echo "sudo")
 
+# Resolves the current version from git:
+#   - Exactly at a tag:               v1.0.0
+#   - N commits ahead of last tag:    v1.0.0-N-g<hash>
+#   - No tags exist yet:              g<hash>
+#   - Uncommitted changes present:    <above>-dirty
+# Falls back to "dev" if git is unavailable
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 # Targets
 
 .PHONY: build install uninstall clean help
 
 ## build: compile the binary for the current platform into bin/
 build:
-	@echo "[*] Building $(BINARY_NAME) ($(GOOS)/$(GOARCH))..."
+	@echo "[*] Building $(BINARY_NAME) ($(GOOS)/$(GOARCH)) version $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build -o $(BINARY) $(MAIN_PKG)
+	CGO_ENABLED=0 go build \
+		-ldflags "-X github.com/papa0four/cpscan/cmd/commands.Version=$(VERSION)" \
+		-o $(BINARY) $(MAIN_PKG)
 	@echo "[+] Binary written to $(BINARY)"
 
 ## install: build and install the binary to $(INSTALL_DIR) - Unix/WSL only
