@@ -143,12 +143,12 @@ jobs:
 
       - name: Run ShellCheck
         run: |
-          shellcheck --severity=warning --format=tty linux/*.sh
+          shellcheck --severity=warning --format=tty scripts/linux/*.sh
 
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
         with:
-          scandir: './linux'
+          scandir: './scripts/linux'
           severity: warning
 
   ps-lint:
@@ -169,7 +169,7 @@ jobs:
       - name: Check PowerShell formatting
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Path ./windows -Filter *.ps1 -Recurse
+          $files = Get-ChildItem -Path ./scripts/windows -Filter *.ps1 -Recurse
           $hasErrors = $false
           foreach ($file in $files) {
             $original  = Get-Content $file.FullName -Raw
@@ -198,7 +198,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = Invoke-ScriptAnalyzer -Path ./windows -Recurse -Severity Error,Warning -Settings ./windows/.psscriptanalyzerconfig
+          $results = Invoke-ScriptAnalyzer -Path ./scripts/windows -Recurse -Severity Error,Warning -Settings ./scripts/windows/.psscriptanalyzerconfig
           if ($results) {
             $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
             Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
