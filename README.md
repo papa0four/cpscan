@@ -1,8 +1,8 @@
-# Orko Watch Vulnerability Scanner (orkowatch)
+# Orko Watch Host and Network Vulnerability Scanner (orkowatch)
 
 ![Orko Watch][logo]
 
-[logo]: /images/orkowatch.png "Orko Watch Logo"
+[logo]: /images/orkowatchv2.png "Orko Watch Logo"
 
 A proof of concept (POC) vulnerability scanner developed for Purple Packet Eaters' Project Orko.
 
