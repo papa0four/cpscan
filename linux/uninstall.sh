@@ -1,60 +1,72 @@
 #!/bin/bash
+set -euo pipefail
 
-# Define directories and paths
-INSTALL_DIR="$HOME/.local/bin"
-PROJECT_ROOT="$HOME/cpscan"
-GO_PATH="/usr/local/go"
+# =============================================================================
+# cpscan uninstall script
+# Completely removes cpscan from the target machine.
+# =============================================================================
 
-# Helper function to remove a path from profile files
-remove_from_path() {
-    local path_entry="$1"
-    local profile_files=("$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc")
+INSTALL_DIR="/usr/local/bin"
+BINARY_NAME="cpscan"
+BINARY_PATH="$INSTALL_DIR/$BINARY_NAME"
 
-    for profile in "${profile_files[@]}"; do
-        if grep -q "export PATH=\$PATH:$path_entry" "$profile"; then
-            sed -i "\|export PATH=\$PATH:$path_entry|d" "$profile"
-        fi
-    done
+# Check for root user in current session
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+
+# =============================================================================
+# Verify Target
+# Confirm cpscan is actually installed before attempting removal
+# =============================================================================
+
+verify_and_remove() {
+    if [ ! -f "$BINARY_PATH" ]; then
+        echo "[!] cpscan is not installed at $BINARY_PATH"
+        echo "    Nothing to uninstall."
+        exit 0
+    fi
+
+    echo "[*] Removing cpscan from $BINARY_PATH..."
+    $SUDO rm -f "$BINARY_PATH"
 }
 
-# Remove cpscan project directory
-if [ -d "$PROJECT_ROOT" ]; then
-    echo "Removing cpscan executable from $INSTALL_DIR..."
-    rm "$INSTALL_DIR/cpscan"
-    echo "cpscan executable removed."
-else
-    echo "cpscan executable not found in $INSTALL_DIR."
-fi
+# =============================================================================
+# Verify Removal
+# Confirms no trace of the binary remains and cpscan is no longer resolvable
+# =============================================================================
 
-# Remove cpscan project directory
-if [ -d "$PROJECT_ROOT" ]; then
-    echo "Removing cpscan project directory at $PROJECT_ROOT..."
-    rm -rf "$PROJECT_ROOT"
-    echo "cpscan project directory removed."
-else
-    echo "cpscan project directory not found."
-fi
+confirm_removal() {
+    echo "[*] Verifying removal..."
 
-# Remove cpscan from PATH in profile files
-echo "Remove cpscan from path from environment variables..."
-remove_from_path "$INSTALL_DIR"
-echo "Environment variable cleanup complete."
-
-# Prompt to remove Go installation
-read -p "Would you like to remove Go from your system as well? NOTE: This is not required to remove 'cpscan'. (y/N): " remove_go
-if [[ "$remove_go" =~ ^[Yy]$ ]]; then
-    if [ -d "$GO_PATH" ]; then
-        echo "Removing Go from $GO_PATH..."
-        sudo rm -rf "$GO_PATH"
-        remove_from_path "$GO_PATH/bin"
-        echo "Go has been removed from the system."
-    else
-        echo "Go not found in $GO_PATH."
+    if [ -f "$BINARY_PATH" ]; then
+        echo "[-] Uninstall failed: binary still present at $BINARY_PATH"
+        exit 1
     fi
-else
-    echo "Skipping Go removal."
-fi
 
-# Final cleanup message
-echo "cpscan has been successfully removed. Restart your shell session for changes to take effect."
+    if command -v "$BINARY_NAME" >/dev/null 2>&1; then
+        echo "[-] Uninstall failed: cpscan is still resolvable in PATH at:"
+        echo "    $(command -v "$BINARY_NAME")"
+        echo "    A second installation may exist at this location."
+        exit 1
+    fi
 
+    echo "[+] Verification successful. cpscan has been completely removed."
+}
+
+main() {
+    echo "============================================="
+    echo "  cpscan Uninstaller"
+    echo "============================================="
+    echo ""
+ 
+    verify_and_remove
+    confirm_removal
+ 
+    echo ""
+    echo "[+] Uninstall complete."
+}
+
+main
