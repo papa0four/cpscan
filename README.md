@@ -4,7 +4,7 @@
 
 [logo]: /images/orkowatchv2.png "Orko Watch Logo"
 
-A proof of concept (POC) vulnerability scanner developed for Purple Packet Eaters' Project Orko.
+A proof of concept (POC) vulnerability scanner developed for Project Orko.
 
 ## Downloads
 
