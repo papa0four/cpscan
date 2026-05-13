@@ -103,7 +103,7 @@ jobs:
         run: go vet ./...
 
   makefile-lint:
-    name: Makefile Lint
+    name: Makefile Lint and Format
     runs-on: ubuntu-latest
     needs: [classify, baseline]
     if: needs.classify.outputs.run_lint == 'true'
@@ -116,7 +116,7 @@ jobs:
         run: go install github.com/checkmake/checkmake/cmd/checkmake@latest
 
       - name: Validate Makefile syntax
-        run: make -f /dev/null
+        run: make -f Makefile help > /dev/null
 
       - name: Validate Makefile execution graph
         run: make -n build

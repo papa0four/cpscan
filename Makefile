@@ -161,13 +161,12 @@ test:
 	@go test -race -count=1 ./...
 	@echo "[+] All tests passed."
 
-# makefile-check: validate Makefile syntax and style
+## makefile-check: validate Makefile syntax and style
 makefile-check:
 	@echo "[*] Validating Makefile syntax..."
-	@make -f /dev/null 2>&1 | grep -v "Nothing to be done" || true
-	@echo "[+] Makefile syntax OK."
+	@$(MAKE) -f Makefile help > /dev/null && echo "[+] Makefile syntax OK." || (echo "[-] Makefile syntax error." && exit 1)
 	@echo "[*] Validating Makefile execution graph..."
-	@$(MAKE) -n build > /dev/null 2>&1 && echo "[+] Makefile dry run OK." || (echo "[-] Makefile dry run failed." && exit 1)
+	@$(MAKE) -n build > /dev/null && echo "[+] Makefile dry run OK." || (echo "[-] Makefile dry run failed." && exit 1)
 	@echo "[*] Running checkmake..."
 	@checkmake Makefile
 	@echo "[+] checkmake passed."
