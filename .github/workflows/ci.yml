@@ -102,6 +102,30 @@ jobs:
         if: needs.classify.outputs.run_vet == 'true'
         run: go vet ./...
 
+  makefile-lint:
+    name: Makefile Lint and Format
+    runs-on: ubuntu-latest
+    needs: [classify, baseline]
+    if: needs.classify.outputs.run_lint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install checkmake
+        run: |
+          go install github.com/checkmake/checkmake/cmd/checkmake@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Validate Makefile syntax
+        run: make -f Makefile help > /dev/null
+
+      - name: Validate Makefile execution graph
+        run: make -n build
+
+      - name: Run checkmake
+        run: checkmake Makefile
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
