@@ -109,4 +109,10 @@ For issues or questions, please open a [GitHub Issue][issues].
 [issues]: https://github.com/papa0four/cpscan/issues
 
 ## License
-[NO LICENSE](LICENSE)
+This project is licensed under the Apache License 2.0 with Commons Clause.
+
+You are free to use, modify, and distribute this software for
+non-commercial purposes. Commercial use, resale, or offering this
+software as a paid service requires explicit written permission.
+
+See [LICENSE](LICENSE) for full terms.
