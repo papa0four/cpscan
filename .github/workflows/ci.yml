@@ -113,7 +113,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install checkmake
-        run: go install github.com/checkmake/checkmake/cmd/checkmake@latest
+        run: |
+          go install github.com/checkmake/checkmake/cmd/checkmake@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Validate Makefile syntax
         run: make -f Makefile help > /dev/null
