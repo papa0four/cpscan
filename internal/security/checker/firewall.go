@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // FirewallChecker defines interface for Firewall configuration checking

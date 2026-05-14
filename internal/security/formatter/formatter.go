@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/cpscan/internal/security/audit"
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // OutputFormat represents supported output formats

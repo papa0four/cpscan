@@ -13,18 +13,18 @@ A proof of concept (POC) vulnerability scanner developed for Project Orko.
 - [`update.ps1`][win-update]
 - [`uninstall.ps1`][win-uninstall]
 
-[win-install]: https://raw.githubusercontent.com/papa0four/cpscan/main/windows/install.ps1
-[win-update]: https://raw.githubusercontent.com/papa0four/cpscan/main/windows/update.ps1
-[win-uninstall]: https://raw.githubusercontent.com/papa0four/cpscan/main/windows/uninstall.ps1
+[win-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/install.ps1
+[win-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/update.ps1
+[win-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/uninstall.ps1
 
 ### Unix/Linux/MacOS Scripts
 - [`install.sh`][unix-install]
 - [`update.sh`][unix-update]
 - [`uninstall.sh`][unix-uninstall]
 
-[unix-install]: https://raw.githubusercontent.com/papa0four/cpscan/main/linux/install.sh
-[unix-update]: https://raw.githubusercontent.com/papa0four/cpscan/main/linux/update.sh
-[unix-uninstall]: https://raw.githubusercontent.com/papa0four/cpscan/main/linux/uninstall.sh
+[unix-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/install.sh
+[unix-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/update.sh
+[unix-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/uninstall.sh
 
 ## System Requirements
 
@@ -43,7 +43,7 @@ A proof of concept (POC) vulnerability scanner developed for Project Orko.
 ### Windows
 ```powershell
 # Download installation script
-curl -o install.ps1 https://raw.githubusercontent.com/papa0four/cpscan/main/windows/install.ps1
+curl -o install.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/install.ps1
 
 # Open PowerShell as Administrator and run:
 Set-ExecutionPolicy RemoteSigned -Scope Process
@@ -53,7 +53,7 @@ Set-ExecutionPolicy RemoteSigned -Scope Process
 ### Unix/Linux/MacOS
 ```bash
 # Download installation script
-curl -O https://raw.githubusercontent.com/papa0four/cpscan/main/linux/install.sh 
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/install.sh 
 chmod +x install.sh
 ./install.sh
 ```
@@ -62,13 +62,13 @@ chmod +x install.sh
 
 ### Windows
 ```powershell
-curl -o update.ps1 https://raw.githubusercontent.com/papa0four/cpscan/main/windows/update.ps1 
+curl -o update.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/update.ps1 
 .\update.ps1
 ```
 
 ### Unix/Linux/MacOS
 ```bash
-curl -O https://raw.githubusercontent.com/papa0four/cpscan/main/linux/update.sh
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/update.sh
 chmod +x update.sh
 ./update.sh
 ```
@@ -77,13 +77,13 @@ chmod +x update.sh
 
 ### Windows
 ```powershell
-curl -o uninstall.ps1 https://raw.githubusercontent.com/papa0four/cpscan/main/windows/uninstall.ps1
+curl -o uninstall.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/uninstall.ps1
 .\uninstall.ps1
 ```
 
 ### Unix/Linux/MacOS
 ```bash
-curl -O https://raw.githubusercontent.com/papa0four/cpscan/main/linux/uninstall.sh
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/uninstall.sh
 chmod +x uninstall.sh
 ./uninstall.sh
 ```
@@ -106,7 +106,7 @@ chmod +x uninstall.sh
 ## Support
 For issues or questions, please open a [GitHub Issue][issues].
 
-[issues]: https://github.com/papa0four/cpscan/issues
+[issues]: https://github.com/papa0four/orkowatch/issues
 
 ## License
 This project is licensed under the Apache License 2.0 with Commons Clause.

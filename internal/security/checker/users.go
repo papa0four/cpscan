@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // UserChecker defines interface for user account checking

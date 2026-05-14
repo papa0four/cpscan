@@ -7,17 +7,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/papa0four/cpscan/cmd/commands/security"
+	"github.com/papa0four/orkowatch/cmd/commands/security"
 )
 
 // RootCmd defines the base command for the CLI
 var RootCmd = &cobra.Command{
-	Use:     "cpscan",
+	Use:     "orkowatch",
 	Version: Version,
-	Short:   "CPScan is a lightweight scanner for host OS vulnerabilities",
-	Long:    `CPScan helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
+	Short:   "orkowatch is a lightweight scanner for host OS vulnerabilities",
+	Long:    `orkowatch helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("CPScan requires a subcommand (e.g., osinfo, security_audit, software).")
+		fmt.Println("orkowatch requires a subcommand (e.g., osinfo, security_audit, software).")
 		if err := cmd.Help(); err != nil {
 			fmt.Fprintf(os.Stderr, "error displaying help: %v\n", err)
 		}

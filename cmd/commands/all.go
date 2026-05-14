@@ -10,11 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/papa0four/cpscan/internal/osfingerprint"
-	"github.com/papa0four/cpscan/internal/security/audit"
-	"github.com/papa0four/cpscan/internal/security/formatter"
-	"github.com/papa0four/cpscan/internal/security/types"
-	"github.com/papa0four/cpscan/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/formatter"
+	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 var (
@@ -37,16 +37,16 @@ var allCmd = &cobra.Command{
 
 Results can be output in various formats and saved to a file.`,
 	Example: `  # Run all scans with default settings
-  cpscan all
+  orkowatch all
 
   # Run all scans with verbose output
-  cpscan all -v
+  orkowatch all -v
 
   # Skip specific modules
-  cpscan all --skip-modules security,software
+  orkowatch all --skip-modules security,software
 
   # Save report to file in JSON format
-  cpscan all -o json --report-file system-scan.json`,
+  orkowatch all -o json --report-file system-scan.json`,
 	RunE: runAllScans,
 }
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/papa0four/cpscan/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/audit"
 )
 
 func init() {

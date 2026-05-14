@@ -1,5 +1,5 @@
 # =============================================================================
-# cpscan Makefile
+# orkowatch Makefile
 # Dev build/install helpers.
 #    - End-user install scripts live under scripts/linux/ and scripts/windows/.
 # Intended for use on Linux, macOS, and WSL.
@@ -25,9 +25,9 @@
 # pipeline should pass on push.
 # =============================================================================
 
-BINARY_NAME := cpscan
+BINARY_NAME := owatch
 BUILD_DIR   := bin
-MAIN_PKG    := ./cmd/cpscan/main.go
+MAIN_PKG    := ./cmd/owatch/main.go
 INSTALL_DIR := /usr/local/bin
 
 # Current Go target
@@ -74,7 +74,7 @@ build:
 	@echo "[*] Building $(BINARY_NAME) ($(GOOS)/$(GOARCH)) version $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build \
-		-ldflags "-X github.com/papa0four/cpscan/cmd/commands.Version=$(VERSION)" \
+		-ldflags "-X github.com/papa0four/orkowatch/cmd/commands.Version=$(VERSION)" \
 		-o $(BINARY) $(MAIN_PKG)
 	@echo "[+] Binary written to $(BINARY)"
 
@@ -88,7 +88,7 @@ build-all:
 		$(eval EXT      := $(if $(filter windows,$(GOOS_T)),.exe,)) \
 		echo "[*] Building $(GOOS_T)/$(GOARCH_T)..."; \
 		CGO_ENABLED=0 GOOS=$(GOOS_T) GOARCH=$(GOARCH_T) go build \
-			-ldflags "-X github.com/papa0four/cpscan/cmd/commands.Version=$(VERSION)" \
+			-ldflags "-X github.com/papa0four/orkowatch/cmd/commands.Version=$(VERSION)" \
 			-o $(BUILD_DIR)/$(BINARY_NAME)_$(GOOS_T)_$(GOARCH_T)$(EXT) \
 			$(MAIN_PKG) && echo "[+] Done: $(BINARY_NAME)_$(GOOS_T)_$(GOARCH_T)$(EXT)"; \
 	)

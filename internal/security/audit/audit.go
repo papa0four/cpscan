@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/papa0four/cpscan/internal/security/checker"
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/checker"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // SecurityAuditor handles the orchestration of security checks

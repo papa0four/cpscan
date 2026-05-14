@@ -1,13 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# cpscan update script
+# orkowatch update script
 # For end-users only. Checks for a newer release and updates if one exists.
 # Developers and contributors should use: git pull && make install
 
-GITHUB_REPO="papa0four/cpscan"
+GITHUB_REPO="papa0four/orkowatch"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="cpscan"
+BINARY_NAME="owatch"
 BINARY_PATH="$INSTALL_DIR/$BINARY_NAME"
 BACKUP_PATH="${BINARY_PATH}.bak"
 
@@ -20,7 +20,7 @@ fi
 
 DOWNLOADER=""
 
-# Assumes that if cpscan is installed, a downloader
+# Assumes that if orkowatch is installed, a downloader
 # almost certainly exists already. If not, prompt user to
 # manually install after exit.
 ensure_downloader() {
@@ -110,7 +110,7 @@ update_binary() {
     local tmp_binary
     tmp_binary=$(mktemp)
 
-    echo "[*] Downloading cpscan $version (linux/$arch)..."
+    echo "[*] Downloading orkowatch $version (linux/$arch)..."
 
     download "$download_url" "$tmp_binary" || {
         echo "[-] Failed to download update."
@@ -148,22 +148,22 @@ confirm_update() {
     # Backup is no longer needed once update is confirmed
     $SUDO rm -f "$BACKUP_PATH"
 
-    echo "[+] cpscan updated to $actual"
-    echo "    Run 'cpscan --help' to see available commands."
+    echo "[+] orkowatch updated to $actual"
+    echo "    Run 'orkowatch --help' to see available commands."
 }
 
 main() {
     echo "============================================="
-    echo "  cpscan Updater"
+    echo "  orkowatch Updater"
     echo "============================================="
     echo ""
 
     ensure_downloader
 
-    # Confirm cpscan is installed before proceeding
+    # Confirm orkowatch is installed before proceeding
     if [ ! -f "$BINARY_PATH" ]; then
-        echo "[-] cpscan is not installed."
-        echo "    Run install.sh to install cpscan first."
+        echo "[-] orkowatch is not installed."
+        echo "    Run install.sh to install orkowatch first."
         exit 1
     fi
 
@@ -172,7 +172,7 @@ main() {
 
     # Dev builds are not managed by this script
     if [[ "$installed_version" != v* ]]; then
-        echo "[!] cpscan $installed_version appears to be a developer build."
+        echo "[!] orkowatch $installed_version appears to be a developer build."
         echo "    This script manages release versions only."
         echo "    To update a developer build: git pull && make install"
         exit 0
@@ -194,14 +194,14 @@ main() {
 
     # Already on latest
     if [ "$installed_version" = "$latest_version" ]; then
-        echo "[+] cpscan is already up to date."
+        echo "[+] orkowatch is already up to date."
         exit 0
     fi
 
     # Offer the update
     echo ""
     echo "[!] A new version is available: $latest_version"
-    read -rp "    Update cpscan from $installed_version to $latest_version? (y/n) " -n 1
+    read -rp "    Update orkowatch from $installed_version to $latest_version? (y/n) " -n 1
     echo ""
 
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
