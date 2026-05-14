@@ -1,12 +1,12 @@
 #Requires -RunAsAdministrator
 
-# cpscan install script (Windows)
+# orkowatch install script (Windows)
 # Downloads the latest pre-built release binary from GitHub Releases.
 # Requires: PowerShell 5.1+, Administrator privileges
 
-$GitHubRepo = "papa0four/cpscan"
-$BinaryName = "cpscan.exe"
-$InstallDir = "$env:ProgramFiles\cpscan"
+$GitHubRepo = "papa0four/orkowatch"
+$BinaryName = "owatch.exe"
+$InstallDir = "$env:ProgramFiles\orkowatch"
 $BinaryPath = "$InstallDir\$BinaryName"
 
 # Suppress Invoke-WebRequest progress bar — omitting this causes severe
@@ -78,8 +78,8 @@ function Install-Binary {
     $arch = Get-Arch
     $version = Get-LatestVersion
 
-    # GoReleaser default naming convention: cpscan_windows_amd64.exe
-    $BinaryFilename = "cpscan_windows_$arch.exe"
+    # GoReleaser default naming convention: orkowatch_windows_amd64.exe
+    $BinaryFilename = "owatch_windows_$arch.exe"
     $DownloadUrl = "https://github.com/$GitHubRepo/releases/download/$version/$BinaryFilename"
 
     # Use GetRandomFileName to avoid orphaning a file the way GetTempFileName would
@@ -88,7 +88,7 @@ function Install-Binary {
         [System.IO.Path]::GetRandomFileName() + ".exe"
     )
 
-    Write-Host "[*] Downloading cpscan $version (windows/$arch)..." -ForegroundColor Cyan
+    Write-Host "[*] Downloading orkowatch $version (windows/$arch)..." -ForegroundColor Cyan
 
     Get-RemoteFile -Url $DownloadUrl -Destination $TempFile
 
@@ -106,7 +106,7 @@ function Install-Binary {
         exit 1
     }
 
-    Write-Host "[+] cpscan $version installed to $BinaryPath" -ForegroundColor Green
+    Write-Host "[+] orkowatch $version installed to $BinaryPath" -ForegroundColor Green
 }
 
 function Register-Path {
@@ -135,18 +135,18 @@ function Confirm-Install {
     Write-Host ""
     Write-Host "[+] Verification successful." -ForegroundColor Green
     Write-Host "    $version" -ForegroundColor White
-    Write-Host "    Run 'cpscan --help' to see available commands." -ForegroundColor Yellow
+    Write-Host "    Run 'owatch --help' to see available commands." -ForegroundColor Yellow
 }
 
 function Main {
     Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host "  cpscan Installer" -ForegroundColor Cyan
+    Write-Host "  orkowatch Installer" -ForegroundColor Cyan
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host ""
 
-    # Exit cleanly if cpscan is already installed — do not attempt to overwrite
+    # Exit cleanly if orkowatch is already installed — do not attempt to overwrite
     if (Test-Path $BinaryPath) {
-        Write-Host "[!] cpscan is already installed at $BinaryPath" -ForegroundColor Yellow
+        Write-Host "[!] orkowatch is already installed at $BinaryPath" -ForegroundColor Yellow
         Write-Host "    Run uninstall.ps1 to remove it or update.ps1 to check for a newer version." -ForegroundColor Yellow
         exit 0
     }

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // SSHChecker defines interface for SSH configuration checking

@@ -1,4 +1,4 @@
-module github.com/papa0four/cpscan
+module github.com/papa0four/orkowatch
 
 go 1.23.2
 

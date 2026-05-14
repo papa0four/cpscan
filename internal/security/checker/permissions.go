@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // PermissionChecker defines interface for permission checking

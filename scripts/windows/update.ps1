@@ -1,13 +1,13 @@
 #Requires -RunAsAdministrator
 
-# cpscan update script (Windows)
+# orkowatch update script (Windows)
 # For end-users only. Checks for a newer release and updates if one exists.
 # Developers and contributors should use: git pull && make install
 # Requires: PowerShell 5.1+, Administrator privileges
 
-$GitHubRepo = "papa0four/cpscan"
-$BinaryName = "cpscan.exe"
-$InstallDir = "$env:ProgramFiles\cpscan"
+$GitHubRepo = "papa0four/orkowatch"
+$BinaryName = "owatch.exe"
+$InstallDir = "$env:ProgramFiles\orkowatch"
 $BinaryPath = "$InstallDir\$BinaryName"
 $BackupPath = "$InstallDir\$BinaryName.bak"
 
@@ -114,7 +114,7 @@ function Update-Binary {
     param([string]$Version)
 
     $arch = Get-Arch
-    $BinaryFilename = "cpscan_windows_$arch.exe"
+    $BinaryFilename = "owatch_windows_$arch.exe"
     $DownloadUrl = "https://github.com/$GitHubRepo/releases/download/$Version/$BinaryFilename"
 
     $TempFile = [System.IO.Path]::Combine(
@@ -122,7 +122,7 @@ function Update-Binary {
         [System.IO.Path]::GetRandomFileName() + ".exe"
     )
 
-    Write-Host "[*] Downloading cpscan $Version (windows/$arch)..." -ForegroundColor Cyan
+    Write-Host "[*] Downloading orkowatch $Version (windows/$arch)..." -ForegroundColor Cyan
 
     Get-RemoteFile -Url $DownloadUrl -Destination $TempFile
 
@@ -155,21 +155,21 @@ function Confirm-Update {
     # Backup no longer needed once update is confirmed
     Remove-Item -Path $BackupPath -ErrorAction SilentlyContinue
 
-    Write-Host "[+] cpscan updated to $actual" -ForegroundColor Green
-    Write-Host "    Run 'cpscan --help' to see available commands." -ForegroundColor Yellow
+    Write-Host "[+] orkowatch updated to $actual" -ForegroundColor Green
+    Write-Host "    Run 'owatch --help' to see available commands." -ForegroundColor Yellow
 }
 
 function Main {
     Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host "  cpscan Updater" -ForegroundColor Cyan
+    Write-Host "  orkowatch Updater" -ForegroundColor Cyan
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host ""
 
     try {
-        # Confirm cpscan is installed before proceeding
+        # Confirm orkowatch is installed before proceeding
         if (-not (Test-Path $BinaryPath)) {
-            Write-Host "[-] cpscan is not installed." -ForegroundColor Red
-            Write-Host "    Run install.ps1 to install cpscan first." -ForegroundColor Yellow
+            Write-Host "[-] orkowatch is not installed." -ForegroundColor Red
+            Write-Host "    Run install.ps1 to install orkowatch first." -ForegroundColor Yellow
             exit 1
         }
 
@@ -177,7 +177,7 @@ function Main {
 
         # Dev builds are not managed by this script
         if ($installedVersion -notlike "v*") {
-            Write-Host "[!] cpscan $installedVersion appears to be a developer build." -ForegroundColor Yellow
+            Write-Host "[!] orkowatch $installedVersion appears to be a developer build." -ForegroundColor Yellow
             Write-Host "    This script manages release versions only." -ForegroundColor Yellow
             Write-Host "    To update a developer build: git pull && make install" -ForegroundColor Yellow
             exit 0
@@ -191,14 +191,14 @@ function Main {
 
         # Already on latest
         if ($installedVersion -eq $latestVersion) {
-            Write-Host "[+] cpscan is already up to date." -ForegroundColor Green
+            Write-Host "[+] orkowatch is already up to date." -ForegroundColor Green
             exit 0
         }
 
         # Offer the update
         Write-Host ""
         Write-Host "[!] A new version is available: $latestVersion" -ForegroundColor Yellow
-        $response = Read-Host "    Update cpscan from $installedVersion to $latestVersion? (y/n)"
+        $response = Read-Host "    Update orkowatch from $installedVersion to $latestVersion? (y/n)"
 
         if ($response -notmatch "^[Yy]$") {
             Write-Host "[*] Update declined. Staying on $installedVersion." -ForegroundColor White
@@ -206,10 +206,10 @@ function Main {
         }
 
         # Windows locks running executables — check before attempting replacement
-        $running = Get-Process -Name "cpscan" -ErrorAction SilentlyContinue
+        $running = Get-Process -Name "orkowatch" -ErrorAction SilentlyContinue
         if ($running) {
-            Write-Host "[-] cpscan is currently running." -ForegroundColor Red
-            Write-Host "    Please close all instances of cpscan and run this script again." -ForegroundColor Yellow
+            Write-Host "[-] orkowatch is currently running." -ForegroundColor Red
+            Write-Host "    Please close all instances of orkowatch and run this script again." -ForegroundColor Yellow
             exit 1
         }
 

@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/cpscan/internal/security/audit"
-	"github.com/papa0four/cpscan/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 var (
@@ -45,22 +45,22 @@ This command checks various security aspects including:
 
 You can run all checks or specify individual checks to run.`,
 	Example: `  # Run all security checks with verbose output
-  cpscan security_audit -v
+  owatch security_audit -v
 
   # Run specific checks
-  cpscan security_audit --check-ssh
-  cpscan security_audit --check-firewall
-  cpscan security_audit --check-users
-  cpscan security_audit --file-permissions /path/to/file
+  owatch security_audit --check-ssh
+  owatch security_audit --check-firewall
+  owatch security_audit --check-users
+  owatch security_audit --file-permissions /path/to/file
 
   # Run checks with verbose output
-  cpscan security_audit --check-ssh -v
+  owatch security_audit --check-ssh -v
 
   # Set minimum severity level
-  cpscan security_audit --min-severity HIGH
+  owatch security_audit --min-severity HIGH
 
   # Run checks and save report to file
-  cpscan security_audit -v -o json --report-file audit.json`,
+  owatch security_audit -v -o json --report-file audit.json`,
 	RunE: runSecurityAudit,
 }
 

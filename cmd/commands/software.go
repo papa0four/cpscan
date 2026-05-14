@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/papa0four/cpscan/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 // softwareCmd represents the software command

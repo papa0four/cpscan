@@ -2,16 +2,16 @@
 set -euo pipefail
 
 # =============================================================================
-# 'cpscan' install script
+# 'orkowatch' install script
 # Downloads the latest pre-built release binary from GitHub Releases.
 # Supported distros: Ubuntu, Debian, Fedora, RHEL/CentOS/Rocky, Arch,
 #                    openSUSE, Alpine
 # Supported package managers: apt, dnf/yum, pacman, zypper, and apk-based distros.
 # =============================================================================
 
-GITHUB_REPO="papa0four/cpscan"
+GITHUB_REPO="papa0four/orkowatch"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="cpscan"
+BINARY_NAME="owatch"
 BINARY_PATH="$INSTALL_DIR/$BINARY_NAME"
 
 # Check for root user in current session
@@ -208,11 +208,11 @@ install_binary() {
     local version
     version=$(resolve_version)
  
-    # GoReleaser default naming convention: cpscan_linux_amd64
+    # GoReleaser default naming convention: orkowatch_linux_amd64
     local binary_filename="${BINARY_NAME}_linux_${arch}"
     local download_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${binary_filename}"
  
-    echo "[*] Downloading cpscan $version (linux/$arch)..."
+    echo "[*] Downloading orkowatch $version (linux/$arch)..."
  
     local tmp_binary
     tmp_binary=$(mktemp)
@@ -230,7 +230,7 @@ install_binary() {
     $SUDO mv "$tmp_binary" "$BINARY_PATH"
     $SUDO chmod +x "$BINARY_PATH"
  
-    echo "[+] cpscan $version installed to $BINARY_PATH"
+    echo "[+] orkowatch $version installed to $BINARY_PATH"
 }
  
 # =============================================================================
@@ -238,13 +238,13 @@ install_binary() {
 # =============================================================================
  
 verify_install() {
-    echo "Verifying cpscan installation..."
+    echo "Verifying orkowatch installation..."
     echo ""
     if command -v "$BINARY_NAME" >/dev/null 2>&1; then
         echo ""
         echo "[+] Verification successful."
         "$BINARY_NAME" --version
-        echo "    Run 'cpscan --help' to see available commands."
+        echo "    Run 'orkowatch --help' to see available commands."
     else
         echo "[-] Verification failed: $BINARY_NAME not found in PATH."
         echo "    The binary is at $BINARY_PATH"
@@ -254,17 +254,17 @@ verify_install() {
 }
  
 # =============================================================================
-# GoReleaser default naming convention: 'cpscan_linux_amd64'
+# GoReleaser default naming convention: 'orkowatch_linux_amd64'
 # =============================================================================
  
 main() {
     echo "============================================="
-    echo "  cpscan Installer"
+    echo "  orkowatch Installer"
     echo "============================================="
     echo ""
 
     if [ -f "$BINARY_PATH" ]; then
-        echo "[!] cpscan is already installed at $BINARY_PATH"
+        echo "[!] orkowatch is already installed at $BINARY_PATH"
         echo "    Run uninstall.sh to remove it or update.sh to check for a newer version."
         exit 0
     fi
