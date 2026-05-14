@@ -184,9 +184,9 @@ check: makefile-check fmt-check vet lint test
 ## shell-lint: lint and format-check all shell scripts in scripts/linux/
 shell-lint:
 	@echo "[*] Checking shell script formatting with shfmt..."
-	@shfmt -d scripts/linux/
+	@shfmt -ln bash -d scripts/linux/
 	@echo "[*] Running shellcheck..."
-	@shellcheck --severity=warning scripts/linux/*.sh
+	@shellcheck --severity=warning --shell=bash scripts/linux/*.sh
 	@echo "[+] Shell lint passed."
 
 # -----------------------------------------------------------------------------

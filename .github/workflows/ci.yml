@@ -165,15 +165,12 @@ jobs:
             -o /usr/local/bin/shfmt
           chmod +x /usr/local/bin/shfmt
 
-      - name: Run ShellCheck
-        run: |
-          shellcheck --severity=warning --format=tty scripts/linux/*.sh
+      - name: Run shfmt
+        run: shfmt -ln bash -d scripts/linux
 
       - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
-        with:
-          scandir: './scripts/linux'
-          severity: warning
+        run: |
+          shellcheck --severity=warning --shell=bash --format=tty scripts/linux/*.sh
 
   ps-lint:
     name: PowerShell Lint and Format
