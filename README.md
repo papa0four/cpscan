@@ -1,112 +1,213 @@
-# Orko Watch Host and Network Vulnerability Scanner (orkowatch)
+# Orko Watch (owatch)
 
 ![Orko Watch][logo]
 
 [logo]: /images/orkowatchv2.png "Orko Watch Logo"
 
-A proof of concept (POC) vulnerability scanner developed for Project Orko.
+A host and network vulnerability scanner developed under Project Orko
+by Purple Packet Eaters. Orko Watch performs cross-platform host-level
+enumeration and security auditing across Linux, Unix, macOS, and Windows.
+
+---
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `owatch osinfo` | Gather OS fingerprint information |
+| `owatch software` | List installed software packages |
+| `owatch security_audit` | Run security audit checks |
+| `owatch all` | Run all available scans |
+| `owatch version` | Display current version |
+
+## Quick Start
+
+```bash
+# See all available commands and flags
+owatch --help
+
+# Gather OS information
+owatch osinfo
+
+# List installed software
+owatch software
+
+# Run a full security audit with verbose output
+owatch security_audit -v
+
+# Run specific security checks
+owatch security_audit --check-ssh
+owatch security_audit --check-firewall
+owatch security_audit --check-users
+
+# Run all scans and save report as JSON
+owatch all -o json --report-file report.json
+
+# Skip specific modules when running all scans
+owatch all --skip-modules software,security
+```
+
+## Security Audit Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--check-ssh` | Run SSH configuration check | false |
+| `--check-firewall` | Run firewall configuration check | false |
+| `--check-users` | Run user accounts check | false |
+| `--file-permissions` | Check permissions of specified path | — |
+| `-o, --output` | Output format: text, json, yaml | text |
+| `--report-file` | Save report to file | — |
+| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--skip-checks` | Comma-separated checks to skip | — |
+| `--timeout` | Maximum audit duration | 10m |
+| `-v, --verbose` | Enable verbose output | false |
+
+## Demo
+
+> Coming soon — a recorded demo will be added after the first release tag.
+
+---
 
 ## Downloads
 
-### Windows Scripts
+### Windows
 - [`install.ps1`][win-install]
 - [`update.ps1`][win-update]
 - [`uninstall.ps1`][win-uninstall]
 
-[win-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/install.ps1
-[win-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/update.ps1
-[win-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/uninstall.ps1
+[win-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/install.ps1
+[win-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/update.ps1
+[win-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/uninstall.ps1
 
-### Unix/Linux/MacOS Scripts
-- [`install.sh`][unix-install]
-- [`update.sh`][unix-update]
-- [`uninstall.sh`][unix-uninstall]
+### Linux
+- [`install.sh`][linux-install]
+- [`update.sh`][linux-update]
+- [`uninstall.sh`][linux-uninstall]
 
-[unix-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/install.sh
-[unix-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/update.sh
-[unix-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/uninstall.sh
+[linux-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/install.sh
+[linux-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/update.sh
+[linux-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/uninstall.sh
+
+### macOS
+- [`install.sh`][macos-install]
+- [`update.sh`][macos-update]
+- [`uninstall.sh`][macos-uninstall]
+
+> macOS scripts are not yet fully implemented. See [scripts/macos/](scripts/macos/) for current status.
+
+[macos-install]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/macos/install.sh
+[macos-update]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/macos/update.sh
+[macos-uninstall]: https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/macos/uninstall.sh
+
+---
 
 ## System Requirements
 
 ### Windows
 - PowerShell 5.1 or higher
-- Go 1.23+
 - Administrator privileges
 
-### Unix/Linux/MacOS
+### Linux
 - Bash 4.0+
-- Go 1.20+
 - sudo privileges
+
+### macOS
+- Bash 4.0+
+- sudo privileges
+- Full installation support coming in a future release
+
+> **Note:** Go is not required for end users. The install scripts
+> download pre-built binaries directly from GitHub Releases.
+> Go 1.23+ is only required if building from source.
+
+---
 
 ## Installation
 
 ### Windows
 ```powershell
-# Download installation script
-curl -o install.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/install.ps1
-
-# Open PowerShell as Administrator and run:
+# Download and run as Administrator
+curl -o install.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/install.ps1
 Set-ExecutionPolicy RemoteSigned -Scope Process
 .\install.ps1
 ```
 
-### Unix/Linux/MacOS
+### Linux
 ```bash
-# Download installation script
-curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/install.sh 
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/install.sh
 chmod +x install.sh
 ./install.sh
 ```
+
+### Build from Source
+```bash
+git clone https://github.com/papa0four/orkowatch.git
+cd orkowatch
+make install
+```
+
+---
 
 ## Updating
 
 ### Windows
 ```powershell
-curl -o update.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/update.ps1 
+curl -o update.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/update.ps1
 .\update.ps1
 ```
 
-### Unix/Linux/MacOS
+### Linux
 ```bash
-curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/update.sh
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/update.sh
 chmod +x update.sh
 ./update.sh
 ```
+
+---
 
 ## Uninstalling
 
 ### Windows
 ```powershell
-curl -o uninstall.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/windows/uninstall.ps1
+curl -o uninstall.ps1 https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/windows/uninstall.ps1
 .\uninstall.ps1
 ```
 
-### Unix/Linux/MacOS
+### Linux
 ```bash
-curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/linux/uninstall.sh
+curl -O https://raw.githubusercontent.com/papa0four/orkowatch/main/scripts/linux/uninstall.sh
 chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
+---
+
 ## Troubleshooting
 
 ### Windows
-- Ensure scripts are unblocked after download:
-  ```powershell
-  Unblock-File .\script.ps1
-  ```
+- Unblock scripts after download:
+```powershell
+  Unblock-File .\install.ps1
+```
 - Run PowerShell as Administrator
-- Verify PATH settings if commands not found
+- If `owatch` is not found after install, open a new terminal to
+  reload PATH
 
-### Unix/Linux/MacOS
-- Check script permissions: `chmod +x script.sh`
+### Linux / macOS
+- Ensure script is executable: `chmod +x install.sh`
 - Verify sudo access: `sudo -v`
-- Check PATH: `echo $PATH`
+- If `owatch` is not found after install: `source /etc/profile`
+  or open a new terminal
+- Check PATH includes `/usr/local/bin`: `echo $PATH`
+
+---
 
 ## Support
 For issues or questions, please open a [GitHub Issue][issues].
 
 [issues]: https://github.com/papa0four/orkowatch/issues
+
+---
 
 ## License
 This project is licensed under the Apache License 2.0 with Commons Clause.

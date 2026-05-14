@@ -45,22 +45,22 @@ This command checks various security aspects including:
 
 You can run all checks or specify individual checks to run.`,
 	Example: `  # Run all security checks with verbose output
-  orkowatch security_audit -v
+  owatch security_audit -v
 
   # Run specific checks
-  orkowatch security_audit --check-ssh
-  orkowatch security_audit --check-firewall
-  orkowatch security_audit --check-users
-  orkowatch security_audit --file-permissions /path/to/file
+  owatch security_audit --check-ssh
+  owatch security_audit --check-firewall
+  owatch security_audit --check-users
+  owatch security_audit --file-permissions /path/to/file
 
   # Run checks with verbose output
-  orkowatch security_audit --check-ssh -v
+  owatch security_audit --check-ssh -v
 
   # Set minimum severity level
-  orkowatch security_audit --min-severity HIGH
+  owatch security_audit --min-severity HIGH
 
   # Run checks and save report to file
-  orkowatch security_audit -v -o json --report-file audit.json`,
+  owatch security_audit -v -o json --report-file audit.json`,
 	RunE: runSecurityAudit,
 }
 

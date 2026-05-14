@@ -37,16 +37,16 @@ var allCmd = &cobra.Command{
 
 Results can be output in various formats and saved to a file.`,
 	Example: `  # Run all scans with default settings
-  orkowatch all
+  owatch all
 
   # Run all scans with verbose output
-  orkowatch all -v
+  owatch all -v
 
   # Skip specific modules
-  orkowatch all --skip-modules security,software
+  owatch all --skip-modules security,software
 
   # Save report to file in JSON format
-  orkowatch all -o json --report-file system-scan.json`,
+  owatch all -o json --report-file system-scan.json`,
 	RunE: runAllScans,
 }
 
