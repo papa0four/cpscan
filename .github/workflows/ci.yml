@@ -172,6 +172,17 @@ jobs:
         run: |
           shellcheck --severity=warning --shell=bash --format=tty scripts/linux/*.sh
 
+      - name: Install shellharden
+        run: |
+          wget -qO shellharden.tar.gz \
+            https://github.com/anordal/shellharden/releases/latest/download/shellharden-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf shellharden.tar.gz
+          sudo mv shellharden /usr/local/bin/
+          rm shellharden.tar.gz
+
+      - name: Run shellharden
+        run: shellharden --check scripts/linux/*.sh
+
   ps-lint:
     name: PowerShell Lint and Format
     runs-on: windows-latest

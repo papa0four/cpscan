@@ -187,6 +187,7 @@ shell-lint:
 	@shfmt -ln bash -d scripts/linux/
 	@echo "[*] Running shellcheck..."
 	@shellcheck --severity=warning --shell=bash scripts/linux/*.sh
+	@echo "[*] Running shellharden..."
 	@echo "[+] Shell lint passed."
 
 # -----------------------------------------------------------------------------
