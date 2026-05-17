@@ -448,11 +448,11 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 	if _, err := os.Stat("/etc/pam.d"); err == nil {
 		details = append(details,
 			fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
-	
+
 		// Use os.DirFS to scope file reads to /etc/pam.d,
 		// preventing symlink TOCTOU traversal (CWE-367)
 		pamFS := os.DirFS("/etc/pam.d")
-	
+
 		for _, module := range []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"} {
 			found := false
 			if err := fs.WalkDir(pamFS, ".", func(path string, d fs.DirEntry, err error) error {
