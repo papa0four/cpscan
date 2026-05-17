@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+
 	// "path/filepath"
 	"runtime"
 	"strconv"
@@ -220,7 +221,11 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	var users []userAccount
 
 	if u.osType == "openbsd" {
-		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run() // #nosec G104 -- nolint:errcheck BSD passwd db consistency check; failure is non-fatal, read proceeds regardless
+		// pwd_mkdb consistency check — failure is non-fatal, read proceeds regardless
+		if err := exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run(); err != nil {
+			// non-fatal: continue regardless of outcome
+			_ = err
+		}
 	}
 
 	file, err := os.Open("/etc/passwd")
