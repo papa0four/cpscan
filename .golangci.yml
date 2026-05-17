@@ -1,11 +1,10 @@
-# .golangci.yml
+version: "2"
+
 run:
   timeout: 5m
-  go: '1.26'
 
 linters:
   disable-all: true
-
   enable:
     - gofmt
     - goimports
@@ -39,5 +38,3 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  
