@@ -170,6 +170,28 @@ jobs:
       - name: Run govulncheck
         run: govulncheck ./...
 
+  gosec:
+    name: Go Security Scan
+    runs-on: ubuntu-latest
+    needs: [classify, baseline]
+    if: needs.classify.outputs.run_lint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: gosec ./...
+
   shell-lint:
     name: Shell Lint and Format
     runs-on: ubuntu-latest

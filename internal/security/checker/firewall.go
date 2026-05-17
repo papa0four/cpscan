@@ -72,7 +72,7 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 
 	activeFirewalls := 0
 	for _, fw := range firewalls {
-		cmd := exec.Command(fw.command[0], fw.command[1:]...)
+		cmd := exec.Command(fw.command[0], fw.command[1:]...) // #nosec G204 -- command args sourced from hardcoded firewallTool struct definitions, not user input
 		output, err := cmd.CombinedOutput()
 
 		if err == nil && len(output) > 0 {

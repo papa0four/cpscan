@@ -275,7 +275,7 @@ func outputResults(result *audit.Result) error {
 	}
 
 	if reportFile != "" {
-		if err := os.WriteFile(reportFile, []byte(output), 0644); err != nil {
+		if err := os.WriteFile(reportFile, []byte(output), 0600); err != nil {
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
 		if verbose {

@@ -264,7 +264,7 @@ func (p *WindowsPermissionChecker) Check() types.AuditResult {
 }
 
 func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *types.AuditResult) error {
-	cmd := exec.Command("icacls", path)
+	cmd := exec.Command("icacls", path) // #nosec G204 -- path sourced from hardcoded Windows system directory list, not user input
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to check permissions: %v", err)
