@@ -63,7 +63,7 @@ RELEASE_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint test check docs build-all shell-lint ps-lint
+.PHONY: build install uninstall clean help fmt fmt-check vet lint golvulncheck test check docs build-all shell-lint ps-lint
 
 # -----------------------------------------------------------------------------
 # Build
@@ -155,6 +155,11 @@ lint:
 	@golangci-lint run --timeout=5m
 	@echo "[+] lint passed."
 
+## govulncheck: scan dependencies for known vulnerabilities
+govulncheck:
+	@echo "[*] Running govulncheck..."
+	@govulncheck ./... && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
+
 ## test: run all tests with race detector
 test:
 	@echo "[*] Running tests..."
@@ -172,7 +177,7 @@ makefile-check:
 	@echo "[+] checkmake passed."
 
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint test
+check: makefile-check fmt-check vet lint govulncheck test
 	@echo ""
 	@echo "[+] All quality gates passed."
 
@@ -259,4 +264,6 @@ help:
 	@echo ""
 	@echo "Utilities:"
 	@grep -E '^## (clean|help):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@echo ""
+	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
