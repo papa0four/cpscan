@@ -115,7 +115,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install gitleaks
-        run: go install github.com/gitleaks/gitleaks/v8@latest
+        run: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
 
       - name: Run gitleaks
         run: gitleaks detect --source . --verbose
