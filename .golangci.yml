@@ -8,7 +8,6 @@ linters:
   default: none
 
   enable:
-    - gofmt
     - goimports
     - govet
     - staticcheck
