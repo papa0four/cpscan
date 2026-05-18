@@ -115,10 +115,14 @@ jobs:
           fetch-depth: 0
 
       - name: Install gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
+        run: |
+          git clone https://github.com/gitleaks/gitleaks.git
+          cd gitleaks
+          make build
+          sudo mv gitleaks /usr/local/bin/
 
       - name: Run gitleaks
-        run: gitleaks detect --source . --verbose
+        run: gitleaks git --source . --verbose
 
   makefile-lint:
     name: Makefile Lint and Format

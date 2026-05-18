@@ -185,9 +185,8 @@ makefile-check:
 ## gitleaks: scan for accidentally committed secrets and credentials
 gitleaks:
 	@echo "[*] Running gitleaks..."
-	@go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
-	@gitleaks detect --source . --verbose && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
-
+	@gitleaks git --source . --verbose && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
+	
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
 check: makefile-check fmt-check vet lint govulncheck gosec gitleaks test
 	@echo ""
