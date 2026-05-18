@@ -115,7 +115,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
+        run: go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
 
       - name: Run gitleaks
         run: gitleaks detect --source . --verbose
@@ -131,9 +131,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install checkmake
-        run: |
-          go install github.com/checkmake/checkmake/cmd/checkmake@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+        run: go install github.com/checkmake/checkmake/cmd/checkmake@v0.3.2
 
       - name: Validate Makefile syntax
         run: make -f Makefile help > /dev/null

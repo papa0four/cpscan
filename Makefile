@@ -15,6 +15,7 @@
 #   - golangci-lint    https://golangci-lint.run/usage/install/
 #   - shfmt            https://github.com/mvdan/sh/releases
 #   - shellcheck       https://www.shellcheck.net/
+#   - gitleaks         go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
 #
 # Quick start:
 #   make build         build for current platform
@@ -63,25 +64,7 @@ RELEASE_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build \
-		install \
-		uninstall \
-		clean \
-		help \
-		fmt \
-		fmt-check \
-		vet \
-		lint \
-		govulncheck \
-		gosec \
-		gitleaks \
-		test \
-		check \
-		docs \
-		build-all \
-		shell-lint \
-		ps-lint \
-		makefile-check
+.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks test check docs build-all shell-lint ps-lint makefile-check
 
 # -----------------------------------------------------------------------------
 # Build
@@ -202,6 +185,7 @@ makefile-check:
 ## gitleaks: scan for accidentally committed secrets and credentials
 gitleaks:
 	@echo "[*] Running gitleaks..."
+	@go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
 	@gitleaks detect --source . --verbose && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
 
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
@@ -274,7 +258,6 @@ clean:
 # Help
 # -----------------------------------------------------------------------------
 
-## help: list all available targets with descriptions
 ## help: list all available targets with descriptions
 help:
 	@echo ""
