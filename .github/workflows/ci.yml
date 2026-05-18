@@ -102,6 +102,24 @@ jobs:
         if: needs.classify.outputs.run_vet == 'true'
         run: go vet ./...
 
+  gitleaks:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    needs: [classify, baseline]
+    if: needs.classify.outputs.run_lint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
+
+      - name: Run gitleaks
+        run: gitleaks detect --source . --verbose
+
   makefile-lint:
     name: Makefile Lint and Format
     runs-on: ubuntu-latest

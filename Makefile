@@ -63,7 +63,25 @@ RELEASE_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint golvulncheck gosec test check docs build-all shell-lint ps-lint
+.PHONY: build \
+		install \
+		uninstall \
+		clean \
+		help \
+		fmt \
+		fmt-check \
+		vet \
+		lint \
+		govulncheck \
+		gosec \
+		gitleaks \
+		test \
+		check \
+		docs \
+		build-all \
+		shell-lint \
+		ps-lint \
+		makefile-check
 
 # -----------------------------------------------------------------------------
 # Build
@@ -181,8 +199,13 @@ makefile-check:
 	@checkmake Makefile
 	@echo "[+] checkmake passed."
 
+## gitleaks: scan for accidentally committed secrets and credentials
+gitleaks:
+	@echo "[*] Running gitleaks..."
+	@gitleaks detect --source . --verbose && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
+
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint govulncheck gosec test
+check: makefile-check fmt-check vet lint govulncheck gosec gitleaks test
 	@echo ""
 	@echo "[+] All quality gates passed."
 
@@ -198,6 +221,7 @@ shell-lint:
 	@echo "[*] Running shellcheck..."
 	@shellcheck --severity=warning --shell=bash scripts/linux/*.sh
 	@echo "[*] Running shellharden..."
+	@shellharden --check scripts/linux/*.sh
 	@echo "[+] Shell lint passed."
 
 # -----------------------------------------------------------------------------
@@ -251,6 +275,7 @@ clean:
 # -----------------------------------------------------------------------------
 
 ## help: list all available targets with descriptions
+## help: list all available targets with descriptions
 help:
 	@echo ""
 	@echo "Usage: make <target>"
@@ -259,18 +284,14 @@ help:
 	@grep -E '^## (build|build-all|install|uninstall):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Quality Gates:"
-	@grep -E '^## (fmt|fmt-check|vet|lint|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|gosec|gitleaks|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Linting:"
-	@grep -E '^## (shell-lint|ps-lint):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## (shell-lint|ps-lint|makefile-check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Documentation:"
 	@grep -E '^## docs:' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Utilities:"
 	@grep -E '^## (clean|help):' $(MAKEFILE_LIST) | sed 's/## /  /'
-	@echo ""
-	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
-	@echo ""
-	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|gosec|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
