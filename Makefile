@@ -64,7 +64,7 @@ RELEASE_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks test check docs build-all shell-lint ps-lint makefile-check
+.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check
 
 # -----------------------------------------------------------------------------
 # Build
@@ -187,8 +187,15 @@ gitleaks:
 	@echo "[*] Running gitleaks..."
 	@gitleaks git --verbose . && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
 
+## syft-grype: generate SBOM and scan for vulnerabilities
+syft-grype:
+	@echo "[*] Generating SBOM with syft..."
+	@syft . -o syft-json=sbom.json
+	@echo "[*] Scanning SBOM with grype..."
+	@grype sbom:sbom.json --fail-on medium && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
+
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint govulncheck gosec gitleaks test
+check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test
 	@echo ""
 	@echo "[+] All quality gates passed."
 
@@ -266,7 +273,7 @@ help:
 	@grep -E '^## (build|build-all|install|uninstall):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Quality Gates:"
-	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|gosec|gitleaks|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|gosec|gitleaks|syft-grype|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Linting:"
 	@grep -E '^## (shell-lint|ps-lint|makefile-check):' $(MAKEFILE_LIST) | sed 's/## /  /'
