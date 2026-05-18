@@ -321,7 +321,7 @@ jobs:
         run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Generate SBOM
-        run: syft . -o syft-json=sbom.json
+        run: syft . -o syft-json=sbom.json --source-name=orkowatch --source-version=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
       - name: Scan for vulnerabilities
         run: grype sbom:sbom.json --fail-on medium

@@ -190,10 +190,9 @@ gitleaks:
 ## syft-grype: generate SBOM and scan for vulnerabilities
 syft-grype:
 	@echo "[*] Generating SBOM with syft..."
-	@syft . -o syft-json=sbom.json
+	@syft . -o syft-json=sbom.json --source-name=orkowatch --source-version=$(VERSION)
 	@echo "[*] Scanning SBOM with grype..."
 	@grype sbom:sbom.json --fail-on medium && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
-
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
 check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test
 	@echo ""
