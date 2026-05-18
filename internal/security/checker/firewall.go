@@ -72,7 +72,7 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 
 	activeFirewalls := 0
 	for _, fw := range firewalls {
-		cmd := exec.Command(fw.command[0], fw.command[1:]...)
+		cmd := exec.Command(fw.command[0], fw.command[1:]...) // #nosec G204 -- command args sourced from hardcoded firewallTool struct definitions, not user input
 		output, err := cmd.CombinedOutput()
 
 		if err == nil && len(output) > 0 {
@@ -80,11 +80,8 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 			result.Details = append(result.Details,
 				fmt.Sprintf("\n%s %s firewall is active", types.SymbolOK, fw.name))
 
-			// Parse and add the firewall rules
 			parsedRules := fw.parser(output)
-			for _, rule := range parsedRules {
-				result.Details = append(result.Details, rule)
-			}
+			result.Details = append(result.Details, parsedRules...)
 		}
 	}
 

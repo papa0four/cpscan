@@ -1,14 +1,13 @@
 # .golangci.yml
+version: "2"
+
 run:
   timeout: 5m
-  go: '1.23'
 
 linters:
-  disable-all: true
+  default: none
 
   enable:
-    - gofmt
-    - goimports
     - govet
     - staticcheck
     - ineffassign
@@ -18,26 +17,30 @@ linters:
     - revive
     - whitespace
 
-linters-settings:
-  goimports:
-    local-prefixes: github.com/papa0four/orkowatch
+  settings:
+    errcheck:
+      check-blank: true
 
-  errcheck:
-    check-blank: true
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false
 
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-        disabled: false
+        - name: var-naming
+          severity: warning
+          disabled: false
 
-      - name: var-naming
-        severity: warning
-        disabled: false
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/papa0four/orkowatch
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  

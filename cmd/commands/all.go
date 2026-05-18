@@ -223,7 +223,10 @@ func outputResults(result *ScanResult) error {
 
 	var output io.Writer = os.Stdout
 	if allReportFile != "" {
-		file, err := os.Create(allReportFile)
+		if err := isSafeReportPath(allReportFile); err != nil {
+			return fmt.Errorf("invalid report file path: %w", err)
+		}
+		file, err := os.Create(allReportFile) // #nosec G304 -- path validated by isSafeReportPath before use
 		if err != nil {
 			return fmt.Errorf("failed to create report file: %w", err)
 		}
@@ -294,4 +297,16 @@ func isTerminal() bool {
 		return false
 	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+}
+
+// isSafeReportPath validates the report file path to prevent
+// path traversal attacks (CWE-22) when creating output files.
+func isSafeReportPath(path string) error {
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("report file path must not contain traversal sequences: %s", path)
+	}
+	if path == "" {
+		return fmt.Errorf("report file path must not be empty")
+	}
+	return nil
 }

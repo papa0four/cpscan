@@ -66,7 +66,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 
 	// Try each possible config path
 	for _, path := range s.ConfigPaths {
-		if file, err = os.Open(path); err == nil {
+		if file, err = os.Open(path); err == nil { // #nosec G304 -- paths hardcoded in NewUnixSSHChecker; file contents parsed defensively for two known fields only
 			configPath = path
 			defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
 			break

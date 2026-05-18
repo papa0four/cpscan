@@ -275,7 +275,7 @@ func outputResults(result *audit.Result) error {
 	}
 
 	if reportFile != "" {
-		if err := os.WriteFile(reportFile, []byte(output), 0644); err != nil {
+		if err := os.WriteFile(reportFile, []byte(output), 0600); err != nil {
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
 		if verbose {
@@ -392,20 +392,20 @@ func formatText(result *audit.Result) (string, error) {
 	if isComprehensive {
 		builder.WriteString("Security Audit Report\n")
 		builder.WriteString("====================\n\n")
-		builder.WriteString(fmt.Sprintf("System: %s %s\n", result.SystemInfo.OS, result.SystemInfo.Architecture))
-		builder.WriteString(fmt.Sprintf("Hostname: %s\n", result.SystemInfo.Hostname))
-		builder.WriteString(fmt.Sprintf("Kernel: %s\n\n", result.SystemInfo.KernelVersion))
+		fmt.Fprintf(&builder, "System: %s %s\n", result.SystemInfo.OS, result.SystemInfo.Architecture)
+		fmt.Fprintf(&builder, "Hostname: %s\n", result.SystemInfo.Hostname)
+		fmt.Fprintf(&builder, "Kernel: %s\n\n", result.SystemInfo.KernelVersion)
 	}
 
 	for _, checkResult := range result.Results {
-		builder.WriteString(fmt.Sprintf("Check: %s\n", checkResult.Name))
-		builder.WriteString(fmt.Sprintf("Status: %s\n", checkResult.Status))
+		fmt.Fprintf(&builder, "Check: %s\n", checkResult.Name)
+		fmt.Fprintf(&builder, "Status: %s\n", checkResult.Status)
 		if verbose {
-			builder.WriteString(fmt.Sprintf("Duration: %v\n", checkResult.Duration))
+			fmt.Fprintf(&builder, "Duration: %v\n", checkResult.Duration)
 			if len(checkResult.Details) > 0 {
 				builder.WriteString("\nDetails:\n")
 				for _, detail := range checkResult.Details {
-					builder.WriteString(fmt.Sprintf("  %s\n", detail))
+					fmt.Fprintf(&builder, "  %s\n", detail)
 				}
 			}
 		}
@@ -413,16 +413,16 @@ func formatText(result *audit.Result) (string, error) {
 		if len(checkResult.Findings) > 0 {
 			builder.WriteString("\nFindings:\n")
 			for _, finding := range checkResult.Findings {
-				builder.WriteString(fmt.Sprintf("  [%s] %s\n", finding.Severity, finding.Title))
+				fmt.Fprintf(&builder, "  [%s] %s\n", finding.Severity, finding.Title)
 				if verbose {
 					if finding.Description != "" {
-						builder.WriteString(fmt.Sprintf("    Description: %s\n", finding.Description))
+						fmt.Fprintf(&builder, "    Description: %s\n", finding.Description)
 					}
 					if finding.Impact != "" {
-						builder.WriteString(fmt.Sprintf("    Impact: %s\n", finding.Impact))
+						fmt.Fprintf(&builder, "    Impact: %s\n", finding.Impact)
 					}
 					if finding.Resolution != "" {
-						builder.WriteString(fmt.Sprintf("    Resolution: %s\n", finding.Resolution))
+						fmt.Fprintf(&builder, "    Resolution: %s\n", finding.Resolution)
 					}
 				}
 			}
@@ -432,13 +432,13 @@ func formatText(result *audit.Result) (string, error) {
 	}
 
 	builder.WriteString("\nSummary:\n")
-	builder.WriteString(fmt.Sprintf("Checks Run: %d\n", len(result.Results)))
-	builder.WriteString(fmt.Sprintf("Passed:     %d\n", result.Summary.PassedChecks))
-	builder.WriteString(fmt.Sprintf("Warnings:   %d\n", result.Summary.WarningChecks))
-	builder.WriteString(fmt.Sprintf("Failed:     %d\n", result.Summary.FailedChecks))
+	fmt.Fprintf(&builder, "Checks Run: %d\n", len(result.Results))
+	fmt.Fprintf(&builder, "Passed:     %d\n", result.Summary.PassedChecks)
+	fmt.Fprintf(&builder, "Warnings:   %d\n", result.Summary.WarningChecks)
+	fmt.Fprintf(&builder, "Failed:     %d\n", result.Summary.FailedChecks)
 
 	if verbose {
-		builder.WriteString(fmt.Sprintf("Duration:   %v\n", result.Duration))
+		fmt.Fprintf(&builder, "Duration:   %v\n", result.Duration)
 	}
 
 	return builder.String(), nil

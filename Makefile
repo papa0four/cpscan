@@ -15,6 +15,7 @@
 #   - golangci-lint    https://golangci-lint.run/usage/install/
 #   - shfmt            https://github.com/mvdan/sh/releases
 #   - shellcheck       https://www.shellcheck.net/
+#   - gitleaks         go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
 #
 # Quick start:
 #   make build         build for current platform
@@ -63,7 +64,7 @@ RELEASE_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint test check docs build-all shell-lint ps-lint
+.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check
 
 # -----------------------------------------------------------------------------
 # Build
@@ -155,6 +156,16 @@ lint:
 	@golangci-lint run --timeout=5m
 	@echo "[+] lint passed."
 
+## govulncheck: scan dependencies for known vulnerabilities
+govulncheck:
+	@echo "[*] Running govulncheck..."
+	@govulncheck ./... && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
+
+## gosec: run Go security static analysis
+gosec:
+	@echo "[*] Running gosec..."
+	@gosec ./... && echo "[+] No security issues found." || (echo "[-] Security issues detected. Review output above." && exit 1)
+
 ## test: run all tests with race detector
 test:
 	@echo "[*] Running tests..."
@@ -171,8 +182,19 @@ makefile-check:
 	@checkmake Makefile
 	@echo "[+] checkmake passed."
 
+## gitleaks: scan for accidentally committed secrets and credentials
+gitleaks:
+	@echo "[*] Running gitleaks..."
+	@gitleaks git --verbose . && echo "[+] No secrets found." || (echo "[-] Secrets detected. Review output above." && exit 1)
+
+## syft-grype: generate SBOM and scan for vulnerabilities
+syft-grype:
+	@echo "[*] Generating SBOM with syft..."
+	@syft . -o syft-json=sbom.json --source-name=orkowatch --source-version=$(VERSION)
+	@echo "[*] Scanning SBOM with grype..."
+	@grype sbom:sbom.json --fail-on medium && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint test
+check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test
 	@echo ""
 	@echo "[+] All quality gates passed."
 
@@ -184,9 +206,11 @@ check: makefile-check fmt-check vet lint test
 ## shell-lint: lint and format-check all shell scripts in scripts/linux/
 shell-lint:
 	@echo "[*] Checking shell script formatting with shfmt..."
-	@shfmt -d scripts/linux/
+	@shfmt -ln bash -d scripts/linux/
 	@echo "[*] Running shellcheck..."
-	@shellcheck --severity=warning scripts/linux/*.sh
+	@shellcheck --severity=warning --shell=bash scripts/linux/*.sh
+	@echo "[*] Running shellharden..."
+	@shellharden --check scripts/linux/*.sh
 	@echo "[+] Shell lint passed."
 
 # -----------------------------------------------------------------------------
@@ -248,10 +272,10 @@ help:
 	@grep -E '^## (build|build-all|install|uninstall):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Quality Gates:"
-	@grep -E '^## (fmt|fmt-check|vet|lint|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## (fmt|fmt-check|vet|lint|govulncheck|gosec|gitleaks|syft-grype|test|check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Linting:"
-	@grep -E '^## (shell-lint|ps-lint):' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## (shell-lint|ps-lint|makefile-check):' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Documentation:"
 	@grep -E '^## docs:' $(MAKEFILE_LIST) | sed 's/## /  /'

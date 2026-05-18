@@ -4,9 +4,9 @@ package checker
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -160,7 +160,11 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 			continue
 		}
 
-		infoCmd := exec.Command("dscl", ".", "read", "/Users/"+username,
+		if !isSafeUsername(username) {
+			continue
+		}
+
+		infoCmd := exec.Command("dscl", ".", "read", "/Users/"+username, // #nosec G204 -- username validated by isSafeUsername before use
 			"UniqueID", "PrimaryGroupID", "NFSHomeDirectory", "UserShell")
 		infoOutput, err := infoCmd.CombinedOutput()
 		if err != nil {
@@ -194,7 +198,11 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 		account.isSystem = account.uid < u.config.minUID
 		account.isAdmin = adminUsers[username]
 
-		authCmd := exec.Command("dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority")
+		if !isSafeUsername(username) {
+			continue
+		}
+
+		authCmd := exec.Command("dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority") // #nosec G204 -- username validated by isSafeUsername before use
 		authOutput, err := authCmd.CombinedOutput()
 		if err != nil {
 			account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
@@ -211,7 +219,11 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	var users []userAccount
 
 	if u.osType == "openbsd" {
-		exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run() //nolint:errcheck // BSD passwd db consistency check; failure is non-fatal, read proceeds regardless
+		// pwd_mkdb consistency check — failure is non-fatal, read proceeds regardless
+		if err := exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run(); err != nil {
+			// non-fatal: continue regardless of outcome
+			_ = err
+		}
 	}
 
 	file, err := os.Open("/etc/passwd")
@@ -250,7 +262,11 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 			isSystem: uid < u.config.minUID,
 		}
 
-		groupCmd := exec.Command("id", "-Gn", account.username)
+		if !isSafeUsername(account.username) {
+			continue
+		}
+
+		groupCmd := exec.Command("id", "-Gn", account.username) // #nosec G204 -- username validated by isSafeUsername before use
 		if output, err := groupCmd.CombinedOutput(); err == nil {
 			for _, group := range strings.Fields(string(output)) {
 				if group == "wheel" {
@@ -399,25 +415,30 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 
 func (u *UnixUserChecker) checkAuthConfig() []string {
 	var details []string
-
 	if _, err := os.Stat("/etc/pam.d"); err == nil {
 		details = append(details,
 			fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
 
+		// Use os.DirFS to scope file reads to /etc/pam.d,
+		// preventing symlink TOCTOU traversal (CWE-367)
+		pamFS := os.DirFS("/etc/pam.d")
+
 		for _, module := range []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"} {
 			found := false
-			if err := filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
+			if err := fs.WalkDir(pamFS, ".", func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return nil
 				}
-				if info.IsDir() {
+				if d.IsDir() {
 					return nil
 				}
-				if data, err := os.ReadFile(path); err == nil {
-					if strings.Contains(string(data), module) {
-						found = true
-						return filepath.SkipDir
-					}
+				data, err := fs.ReadFile(pamFS, path)
+				if err != nil {
+					return nil
+				}
+				if strings.Contains(string(data), module) {
+					found = true
+					return fs.SkipAll
 				}
 				return nil
 			}); err != nil {
@@ -479,8 +500,8 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 	}
 
 	for _, source := range u.config.userSources {
-		if file, err := os.Open(source); err == nil {
-			defer file.Close() // nolint:errcheck // read-only passwd source file; close error does not affect scan results
+		if file, err := os.Open(source); err == nil { // #nosec G304 -- paths sourced from hardcoded userSources config, not user input
+			defer file.Close() //nolint:errcheck // read-only passwd source file; close error does not affect scan results
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
@@ -662,4 +683,16 @@ func isWeakShell(shell string) bool {
 		}
 	}
 	return false
+}
+
+func isSafeUsername(username string) bool {
+	for _, r := range username {
+		if (r < 'a' || r > 'z') &&
+			(r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') &&
+			r != '_' && r != '-' && r != '.' {
+			return false
+		}
+	}
+	return len(username) > 0
 }
