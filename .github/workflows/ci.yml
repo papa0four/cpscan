@@ -293,16 +293,15 @@ jobs:
           }
           Write-Host "[+] All PowerShell files are correctly formatted."
 
-      - name: Run PSScriptAnalyzer
+      - name: Run PSScriptAnalyzer with SARIF output
         shell: pwsh
-        run: |
-          $results = Invoke-ScriptAnalyzer -Path ./scripts/windows -Recurse -Severity Error,Warning -Settings ./scripts/windows/.psscriptanalyzerconfig
-          if ($results) {
-            $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
-            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)."
-            exit 1
-          }
-          Write-Host "[+] PSScriptAnalyzer passed."
+        run: ./scripts/windows/sarif-wrapper.ps1
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: psscriptanalyzer.sarif
 
   syft-grype:
     name: SBOM and Vulnerability Scan
