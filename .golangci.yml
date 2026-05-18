@@ -8,7 +8,6 @@ linters:
   default: none
 
   enable:
-    - goimports
     - govet
     - staticcheck
     - ineffassign
@@ -19,10 +18,6 @@ linters:
     - whitespace
 
   settings:
-    goimports:
-      local-prefixes:
-        - github.com/papa0four/orkowatch
-
     errcheck:
       check-blank: true
 
@@ -35,6 +30,16 @@ linters:
         - name: var-naming
           severity: warning
           disabled: false
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/papa0four/orkowatch
 
 issues:
   max-issues-per-linter: 0
