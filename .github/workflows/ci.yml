@@ -122,7 +122,7 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run gitleaks
-        run: gitleaks git --source . --verbose
+        run: gitleaks git --verbose .
 
   makefile-lint:
     name: Makefile Lint and Format
