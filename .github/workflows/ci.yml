@@ -254,6 +254,8 @@ jobs:
     runs-on: windows-latest
     needs: [classify, baseline]
     if: needs.classify.outputs.run_pslint == 'true'
+    permissions:
+      security-events: write
 
     steps:
       - name: Checkout code
@@ -288,7 +290,7 @@ jobs:
             }
           }
           if ($hasErrors) {
-            Write-Error "Formatting issues found. Run Invoke-Formatter locally to fix."
+            Write-Error "Formatting issues found. Run Invoke-Formatter on the affected file(s) to fix."
             exit 1
           }
           Write-Host "[+] All PowerShell files are correctly formatted."
@@ -298,7 +300,7 @@ jobs:
         run: ./scripts/windows/sarif-wrapper.ps1
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: psscriptanalyzer.sarif

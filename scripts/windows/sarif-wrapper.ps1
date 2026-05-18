@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # Invoke-PSScriptAnalyzerSarif.ps1
 # Runs PSScriptAnalyzer and converts output to SARIF format for upload
 # to the GitHub Security tab.
@@ -31,9 +31,9 @@ $ruleMap = @{}
 foreach ($result in $results) {
     if (-not $ruleMap.ContainsKey($result.RuleName)) {
         $ruleMap[$result.RuleName] = @{
-            id               = $result.RuleName
-            name             = $result.RuleName
-            shortDescription = @{ text = $result.RuleName }
+            id                   = $result.RuleName
+            name                 = $result.RuleName
+            shortDescription     = @{ text = $result.RuleName }
             defaultConfiguration = @{
                 level = if ($result.Severity -eq "Error") { "error" } else { "warning" }
             }
@@ -51,9 +51,9 @@ foreach ($result in $results) {
     $relativePath = $relativePath -replace "\\", "/"
 
     $sarifResults += @{
-        ruleId  = $result.RuleName
-        level   = if ($result.Severity -eq "Error") { "error" } else { "warning" }
-        message = @{ text = $result.Message }
+        ruleId    = $result.RuleName
+        level     = if ($result.Severity -eq "Error") { "error" } else { "warning" }
+        message   = @{ text = $result.Message }
         locations = @(
             @{
                 physicalLocation = @{
@@ -61,7 +61,7 @@ foreach ($result in $results) {
                         uri       = $relativePath
                         uriBaseId = "%SRCROOT%"
                     }
-                    region = @{
+                    region           = @{
                         startLine   = $result.Line
                         startColumn = $result.Column
                     }
@@ -75,12 +75,12 @@ foreach ($result in $results) {
 # Assemble and write SARIF document
 # -----------------------------------------------------------------------------
 $analyzerVersion = (Get-Module PSScriptAnalyzer -ListAvailable |
-    Select-Object -First 1).Version.ToString()
+        Select-Object -First 1).Version.ToString()
 
 $sarif = @{
-    version  = "2.1.0"
+    version   = "2.1.0"
     '$schema' = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
-    runs     = @(
+    runs      = @(
         @{
             tool    = @{
                 driver = @{
