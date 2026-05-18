@@ -7,8 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-
-	// "path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -417,39 +415,6 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 
 func (u *UnixUserChecker) checkAuthConfig() []string {
 	var details []string
-
-	// if _, err := os.Stat("/etc/pam.d"); err == nil {
-	// 	details = append(details,
-	// 		fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
-
-	// 	for _, module := range []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"} {
-	// 		found := false
-	// 		if err := filepath.Walk("/etc/pam.d", func(path string, info os.FileInfo, err error) error {
-	// 			if err != nil {
-	// 				return nil
-	// 			}
-	// 			if info.IsDir() {
-	// 				return nil
-	// 			}
-	// 			if data, err := os.ReadFile(path); err == nil { //nolint:gosec // #nosec G122 G304 -- filepath.Walk used intentionally for PAM config scanning; paths not user-controlled
-	// 				if strings.Contains(string(data), module) {
-	// 					found = true
-	// 					return filepath.SkipDir
-	// 				}
-	// 			}
-	// 			return nil
-	// 		}); err != nil {
-	// 			details = append(details,
-	// 				fmt.Sprintf("%s Could not scan PAM configuration: %v",
-	// 					types.SymbolInfo, err))
-	// 		}
-	// 		if found {
-	// 			details = append(details,
-	// 				fmt.Sprintf("%s Found authentication module: %s",
-	// 					types.SymbolInfo, module))
-	// 		}
-	// 	}
-	// }
 	if _, err := os.Stat("/etc/pam.d"); err == nil {
 		details = append(details,
 			fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
@@ -722,10 +687,10 @@ func isWeakShell(shell string) bool {
 
 func isSafeUsername(username string) bool {
 	for _, r := range username {
-		if !((r >= 'a' && r <= 'z') ||
-			(r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') ||
-			r == '_' || r == '-' || r == '.') {
+		if (r < 'a' || r > 'z') &&
+			(r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') &&
+			r != '_' && r != '-' && r != '.' {
 			return false
 		}
 	}

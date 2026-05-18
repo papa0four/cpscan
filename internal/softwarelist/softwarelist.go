@@ -8,8 +8,6 @@ import (
 )
 
 // GetInstalledSoftware retrieves a list of installed software based on the OS
-// It first tries to list software without admin privileges. If the full list cannot be retrieved,
-// it prompts the user to rerun the command with admin/root privileges
 func GetInstalledSoftware() (string, error) {
 	switch runtime.GOOS {
 	case "linux":
@@ -25,9 +23,7 @@ func GetInstalledSoftware() (string, error) {
 	}
 }
 
-// getLinuxSoftware retrieves installed software for Linux-based systems
 func getLinuxSoftware() (string, error) {
-	// Try to list software with both dpkg and rpm (Debian and RedHat based)
 	if output, err := exec.Command("dpkg-query", "-l").Output(); err == nil {
 		return string(output), nil
 	}
@@ -36,42 +32,32 @@ func getLinuxSoftware() (string, error) {
 		return string(output), nil
 	}
 
-	// If neither dpkg nor rpm work, suggest using sudo for full list
-	return "", fmt.Errorf("Insufficient permissions to list all software packages.\n" +
-		"Try running the command with 'sudo go run ./cmd/main.go software' to get a full list.")
+	return "", fmt.Errorf("insufficient permissions to list all software packages; try rerunning with sudo")
 }
 
-// getWindowsSoftware retrieves installed software for Windows systems
 func getWindowsSoftware() (string, error) {
 	output, err := exec.Command("wmic", "product", "get", "name,version").Output()
 	if err == nil {
 		return string(output), nil
 	}
 
-	return "", fmt.Errorf("insufficient permissions to list all software packages.\n" +
-		"Try running from an Administrator prompt for a full list.")
+	return "", fmt.Errorf("insufficient permissions to list all software packages; try rerunning as Administrator")
 }
 
-// getMacSoftware retrieves installed software for MacOS
 func getMacSoftware() (string, error) {
 	output, err := exec.Command("system_profiler", "SPApplicationsDataType").Output()
 	if err == nil {
 		return string(output), nil
 	}
 
-	// Suggest running with sudo if command fails
-	return "", fmt.Errorf("Insufficient permissions to list all software packages.\n" +
-		"Try running the command with 'sudo go run ./cmd/main.go software' to get a full list.")
+	return "", fmt.Errorf("insufficient permissions to list all software packages; try rerunning with sudo")
 }
 
-// getFreeBSDSoftware retrieves installed software for FreeBSD systems
 func getFreeBSDSoftware() (string, error) {
 	output, err := exec.Command("pkg", "info").Output()
 	if err == nil {
 		return string(output), nil
 	}
 
-	// Suggest using sudo if command fails
-	return "", fmt.Errorf("Insufficient permissions to list all software packages.\n" +
-		"Try running the command with 'sudo go run ./cmd/main.go software' to get a full list.")
+	return "", fmt.Errorf("insufficient permissions to list all software packages; try rerunning with sudo")
 }

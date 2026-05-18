@@ -80,11 +80,8 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 			result.Details = append(result.Details,
 				fmt.Sprintf("\n%s %s firewall is active", types.SymbolOK, fw.name))
 
-			// Parse and add the firewall rules
 			parsedRules := fw.parser(output)
-			for _, rule := range parsedRules {
-				result.Details = append(result.Details, rule)
-			}
+			result.Details = append(result.Details, parsedRules...)
 		}
 	}
 
