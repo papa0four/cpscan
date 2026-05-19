@@ -61,7 +61,6 @@ You can run all checks or specify individual checks to run.`,
 
   # Run checks and save report to file
   owatch security_audit -v -o json --report-file audit.json`,
-	RunE: runSecurityAudit,
 }
 
 // Formatter types
@@ -135,7 +134,7 @@ func init() {
 		"Check permissions of specified file path")
 }
 
-func runSecurityAudit(cmd *cobra.Command, args []string) error {
+func buildChecks() []string {
 	var checks []string
 	if checkSSH {
 		checks = append(checks, "ssh")
@@ -149,66 +148,7 @@ func runSecurityAudit(cmd *cobra.Command, args []string) error {
 	if checkFilePerms != "" {
 		checks = append(checks, "file-permissions")
 	}
-
-	if len(checks) == 0 && !verbose {
-		fmt.Println("No checks specified. Use --help to see available options.")
-		return cmd.Help()
-	}
-
-	if err := validateFlags(); err != nil {
-		return err
-	}
-
-	opts := audit.Options{
-		Verbose:        verbose,
-		CustomPaths:    customPaths,
-		SkipChecks:     skipChecks,
-		MinSeverity:    minSeverity,
-		Timeout:        timeout,
-		SpecificChecks: checks,
-	}
-
-	auditor := audit.NewSecurityAuditor(opts)
-
-	if verbose {
-		fmt.Println("[*] Starting security audit...")
-		if len(checks) > 0 {
-			fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
-		} else {
-			fmt.Println("[*] Running comprehensive security audit")
-		}
-		fmt.Printf("[*] Output format: %s\n", outputFormat)
-		if len(customPaths) > 0 {
-			fmt.Printf("[*] Custom paths: %s\n", strings.Join(customPaths, ", "))
-		}
-		if len(skipChecks) > 0 {
-			fmt.Printf("[*] Skipped checks: %s\n", strings.Join(skipChecks, ", "))
-		}
-		fmt.Printf("[*] Minimum severity: %s\n", minSeverity)
-		fmt.Printf("[*] Timeout: %s\n", timeout)
-		fmt.Println()
-	}
-
-	resultChan := make(chan *audit.Result, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		result, err := auditor.RunAudit()
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		resultChan <- result
-	}()
-
-	select {
-	case result := <-resultChan:
-		return outputResults(result)
-	case err := <-errorChan:
-		return fmt.Errorf("audit failed: %w", err)
-	case <-time.After(timeout):
-		return fmt.Errorf("audit timed out after %v", timeout)
-	}
+	return checks
 }
 
 func validateFlags() error {
@@ -250,6 +190,61 @@ func validateFlags() error {
 	}
 
 	return nil
+}
+
+func logVerboseConfig(checks []string) {
+	if !verbose {
+		return
+	}
+	if len(checks) > 0 {
+		fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
+	} else {
+		fmt.Println("[*] Runnning comprehensive security audit")
+	}
+	fmt.Printf("[*] Output format: %s\n", outputFormat)
+	if len(customPaths) > 0 {
+		fmt.Printf("[*] Custom paths: %s\n", strings.Join(customPaths, ", "))
+	}
+	if len(skipChecks) > 0 {
+		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(skipChecks, ", "))
+	}
+	fmt.Printf("[*] Minimum severity: %s\n", minSeverity)
+	fmt.Printf("[*] Timeout: %s\n", timeout)
+	fmt.Println()
+}
+
+func runAuditWithTimeout(checks []string) error {
+	opts := audit.Options{
+		Verbose:        verbose,
+		CustomPaths:    customPaths,
+		SkipChecks:     skipChecks,
+		MinSeverity:    minSeverity,
+		Timeout:        timeout,
+		SpecificChecks: checks,
+	}
+
+	auditor := audit.NewSecurityAuditor(opts)
+
+	resultChan := make(chan *audit.Result, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		result, err := auditor.RunAudit()
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		resultChan <- result
+	}()
+
+	select {
+	case result := <-resultChan:
+		return outputResults(result)
+	case err := <-errorChan:
+		return fmt.Errorf("audit failed: %w", err)
+	case <-time.After(timeout):
+		return fmt.Errorf("audit timeout after %v", timeout)
+	}
 }
 
 func outputResults(result *audit.Result) error {
