@@ -48,7 +48,7 @@ func getWindowsSoftware() (string, error) {
 		`  Format-Table -AutoSize`,
 	}, " ")
 
-	output, err := exec.Command("powershell", "-NoProfile", "-Command", psQuery).Output()
+	output, err := exec.Command("powershell", "-NoProfile", "-Command", psQuery).Output() // #nosec G204 -- psQuery is constructed from hardcoded string literals; no user input is included
 	if err == nil {
 		return string(output), nil
 	}
