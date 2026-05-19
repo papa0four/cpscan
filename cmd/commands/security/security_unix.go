@@ -7,11 +7,8 @@ package security
 import (
 	"fmt"
 	"runtime"
-	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/papa0four/orkowatch/internal/security/audit"
 )
 
 func init() {
@@ -19,41 +16,21 @@ func init() {
 }
 
 func runUnixAudit(cmd *cobra.Command, args []string) error {
-	var checks []string
-	if checkSSH {
-		checks = append(checks, "ssh")
+	checks := buildChecks()
+
+	if len(checks) == 0 && !verbose {
+		fmt.Println("No checks specified. User --help to see available options.")
+		return cmd.Help()
 	}
-	if checkFirewall {
-		checks = append(checks, "firewall")
-	}
-	if checkUsers {
-		checks = append(checks, "users")
-	}
-	if checkFilePerms != "" {
-		checks = append(checks, "file-permissions")
+
+	if err := validateFlags(); err != nil {
+		return err
 	}
 
 	if verbose {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
-		if len(checks) > 0 {
-			fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
-		}
 	}
+	logVerboseConfig(checks)
 
-	opts := audit.Options{
-		Verbose:        verbose,
-		CustomPaths:    customPaths,
-		SkipChecks:     skipChecks,
-		MinSeverity:    minSeverity,
-		Timeout:        timeout,
-		SpecificChecks: checks,
-	}
-
-	auditor := audit.NewSecurityAuditor(opts)
-	result, err := auditor.RunAudit()
-	if err != nil {
-		return fmt.Errorf("audit failed: %w", err)
-	}
-
-	return outputResults(result)
+	return runAuditWithTimeout(checks)
 }
