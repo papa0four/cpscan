@@ -215,18 +215,18 @@ func logVerboseConfig(checks []string) {
 
 func runAuditWithTimeout(checks []string) error {
 	opts := audit.Options{
-		Verbose:  		verbose,
-		CustomPaths:  	customPaths,
-		SkipChecks: 	skipChecks,
-		MinSeverity:	minSeverity,
-		Timeout:  		timeout,
+		Verbose:        verbose,
+		CustomPaths:    customPaths,
+		SkipChecks:     skipChecks,
+		MinSeverity:    minSeverity,
+		Timeout:        timeout,
 		SpecificChecks: checks,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
 
 	resultChan := make(chan *audit.Result, 1)
-	errorChan  := make(chan error, 1)
+	errorChan := make(chan error, 1)
 
 	go func() {
 		result, err := auditor.RunAudit()
