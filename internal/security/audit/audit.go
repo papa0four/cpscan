@@ -12,6 +12,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 // SecurityAuditor handles the orchestration of security checks
@@ -222,9 +223,9 @@ func getSystemInfo() SystemInfo {
 		info.KernelVersion = kernel
 	}
 
-	if softwareInfo, softwareCount, err := getSoftwareInfo(); err == nil {
+	if softwareInfo, err := softwarelist.GetInstalledSoftware(); err == nil {
 		info.SoftwareInfo = softwareInfo
-		info.SoftwareCount = softwareCount
+		info.SoftwareCount = strings.Count(softwareInfo, "\n") + 1
 	}
 
 	return info
@@ -245,31 +246,6 @@ func getKernelVersion() (string, error) {
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
-}
-
-func getSoftwareInfo() (string, int, error) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("powershell",
-			`Get-ItemProperty HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | `+
-				`Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | `+
-				`Format-Table -AutoSize`)
-	case "darwin":
-		cmd = exec.Command("sh", "-c", "system_profiler SPApplicationsDataType | grep 'Name:\\|Version:'")
-	default:
-		cmd = exec.Command("sh", "-c", "dpkg-query -W -f='${Package} ${Version}\n'")
-	}
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", 0, err
-	}
-
-	softwareInfo := string(output)
-	softwareCount := strings.Count(softwareInfo, "\n") + 1
-
-	return softwareInfo, softwareCount, nil
 }
 
 func containsWarning(details []string) bool {

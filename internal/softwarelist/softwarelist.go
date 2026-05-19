@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // GetInstalledSoftware retrieves a list of installed software based on the OS
@@ -36,7 +37,23 @@ func getLinuxSoftware() (string, error) {
 }
 
 func getWindowsSoftware() (string, error) {
-	output, err := exec.Command("wmic", "product", "get", "name,version").Output()
+	psQuery := strings.Join([]string{
+		`$paths = @(`,
+		`  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',`,
+		`  'HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'`,
+		`)`,
+		`Get-ItemProperty $paths |`,
+		`  Select-Object DisplayName, DisplayVersion, Publisher, InstallDate |`,
+		`  Where-Object { $_.DisplayName } |`,
+		`  Format-Table -AutoSize`,
+	}, " ")
+
+	output, err := exec.Command("powershell", "-NoProfile", "-Command", psQuery).Output()
+	if err == nil {
+		return string(output), nil
+	}
+
+	output, err = exec.Command("wmic", "product", "get", "name,version").Output()
 	if err == nil {
 		return string(output), nil
 	}
