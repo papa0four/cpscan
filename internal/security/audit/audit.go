@@ -134,7 +134,8 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 	}
 
 	var wg sync.WaitGroup
-	resultsChan := make(chan types.AuditResult, 4)
+	const numSecurityChecks = 4
+	resultsChan := make(chan types.AuditResult, numSecurityChecks)
 
 	wg.Add(1)
 	go func() {

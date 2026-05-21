@@ -211,6 +211,12 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 					}
 				}
 
+				if err := scanner.Err(); err != nil {
+					result.Details = append(result.Details,
+						fmt.Sprintf("%s ERROR: Failed to read OpenSSH configuration: %v",
+							types.SymbolError, err))
+				}
+
 				// Report OpenSSH configuration findings
 				if config.permRootFound {
 					if config.rootLogin {

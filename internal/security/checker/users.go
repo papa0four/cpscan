@@ -14,6 +14,9 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
+// windowsUserCSVFields is the number of columns produced by Get-LocalUser
+const windowsUserCSVFields = 7
+
 // UserChecker defines interface for user account checking
 type UserChecker interface {
 	Check() types.AuditResult
@@ -56,7 +59,7 @@ func getPlatformConfig() platformConfig {
 				"/etc/passwd",
 				"/var/db/dslocal/nodes/Default/users",
 			},
-			minUID: 500,
+			minUID: minUIDMacOS,
 		}
 	case "freebsd", "openbsd":
 		return platformConfig{
@@ -66,7 +69,7 @@ func getPlatformConfig() platformConfig {
 				"/etc/pwd.db",
 				"/etc/spwd.db",
 			},
-			minUID: 1000,
+			minUID: minUIDDefault,
 		}
 	default: // Linux
 		return platformConfig{
@@ -77,7 +80,7 @@ func getPlatformConfig() platformConfig {
 				"/etc/security/opasswd",
 				"/etc/gshadow",
 			},
-			minUID: 1000,
+			minUID: minUIDDefault,
 		}
 	}
 }
@@ -240,25 +243,25 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 		}
 
 		fields := strings.Split(line, ":")
-		if len(fields) < 7 {
+		if len(fields) < passwdFieldCount {
 			continue
 		}
 
-		uid, err := strconv.Atoi(fields[2])
+		uid, err := strconv.Atoi(fields[passwdFieldUID])
 		if err != nil {
 			continue
 		}
-		gid, err := strconv.Atoi(fields[3])
+		gid, err := strconv.Atoi(fields[passwdFieldGID])
 		if err != nil {
 			continue
 		}
 
 		account := userAccount{
-			username: fields[0],
+			username: fields[passwdFieldUsername],
 			uid:      uid,
 			gid:      gid,
-			homeDir:  fields[5],
-			shell:    fields[6],
+			homeDir:  fields[passwdFieldHomeDir],
+			shell:    fields[passwdFieldShell],
 			isSystem: uid < u.config.minUID,
 		}
 
@@ -279,6 +282,10 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 		users = append(users, account)
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading /etc/passwd: %w", err)
+	}
+
 	return users, nil
 }
 
@@ -297,9 +304,13 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 		scanner := bufio.NewScanner(shadow)
 		for scanner.Scan() {
 			fields := strings.Split(scanner.Text(), ":")
-			if len(fields) >= 2 {
-				shadowEntries[fields[0]] = fields[1]
+			if len(fields) >= shadowMinFields {
+				shadowEntries[fields[passwdFieldUsername]] = fields[passwdFieldPassword]
 			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading /etc/shadow: %w", err)
 		}
 	}
 
@@ -307,8 +318,8 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 	sudoCmd := exec.Command("getent", "group", "sudo", "wheel", "admin")
 	if output, err := sudoCmd.CombinedOutput(); err == nil {
 		for _, line := range strings.Split(string(output), "\n") {
-			if fields := strings.Split(line, ":"); len(fields) >= 4 {
-				for _, user := range strings.Split(fields[3], ",") {
+			if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
+				for _, user := range strings.Split(fields[groupFieldMembers], ",") {
 					sudoers[strings.TrimSpace(user)] = true
 				}
 			}
@@ -323,27 +334,27 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 		}
 
 		fields := strings.Split(line, ":")
-		if len(fields) < 7 {
+		if len(fields) < passwdFieldCount {
 			continue
 		}
 
-		uid, err := strconv.Atoi(fields[2])
+		uid, err := strconv.Atoi(fields[passwdFieldUID])
 		if err != nil {
 			continue
 		}
-		gid, err := strconv.Atoi(fields[3])
+		gid, err := strconv.Atoi(fields[passwdFieldGID])
 		if err != nil {
 			continue
 		}
 
 		account := userAccount{
-			username: fields[0],
+			username: fields[passwdFieldUsername],
 			uid:      uid,
 			gid:      gid,
-			homeDir:  fields[5],
-			shell:    fields[6],
+			homeDir:  fields[passwdFieldHomeDir],
+			shell:    fields[passwdFieldShell],
 			isSystem: uid < u.config.minUID,
-			isAdmin:  sudoers[fields[0]],
+			isAdmin:  sudoers[fields[passwdFieldUsername]],
 		}
 
 		if shadowEntry, exists := shadowEntries[account.username]; exists {
@@ -352,6 +363,10 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 		}
 
 		users = append(users, account)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading /etc/passwd: %w", err)
 	}
 
 	return users, nil
@@ -479,11 +494,17 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 			scanner := bufio.NewScanner(shadow)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
-				if len(fields) >= 2 && fields[1] == "" {
+				if len(fields) >= shadowMinFields && fields[passwdFieldPassword] == "" {
 					result.Details = append(result.Details,
 						fmt.Sprintf("%s CRITICAL: User %s has no password set",
-							types.SymbolCritical, fields[0]))
+							types.SymbolCritical, fields[passwdFieldUsername]))
 				}
+			}
+
+			if err := scanner.Err(); err != nil {
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s Error reading shadow file: %v",
+						types.SymbolError, err))
 			}
 		}
 
@@ -505,13 +526,20 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
-				if len(fields) >= 3 {
-					if uid, err := strconv.Atoi(fields[2]); err == nil && uid == 0 && fields[0] != "root" {
+				if len(fields) >= passwdMinFieldsForUID {
+					uid, err := strconv.Atoi(fields[passwdFieldUID])
+					if err == nil && uid == rootUID && fields[passwdFieldUsername] != "root" {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
 					}
 				}
+			}
+
+			if err := scanner.Err(); err != nil {
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s Error reading %s: %v",
+						types.SymbolError, source, err))
 			}
 		}
 	}
@@ -543,8 +571,10 @@ func (w *WindowsUserChecker) Check() types.AuditResult {
 func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 	var users []windowsUserInfo
 
-	cmd := exec.Command("powershell", "-Command",
-		`Get-LocalUser | Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description | ConvertTo-Csv -NoTypeInformation`)
+	psCmd := `Get-LocalUser | ` +
+		`Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description | ` +
+		`ConvertTo-Csv -NoTypeInformation`
+	cmd := exec.Command("powershell", "-Command", psCmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, err
@@ -571,7 +601,7 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 		}
 
 		fields := strings.Split(line, ",")
-		if len(fields) < 7 {
+		if len(fields) < windowsUserCSVFields {
 			continue
 		}
 

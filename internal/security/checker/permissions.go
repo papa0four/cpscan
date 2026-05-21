@@ -12,6 +12,29 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
+// Expected file and directory permission modes
+const (
+	permStandardFile   os.FileMode = 0644
+	permOwnerReadOnly  os.FileMode = 0400
+	permSudoers        os.FileMode = 0440
+	permOwnerReadWrite os.FileMode = 0600
+	permStandardDir    os.FileMode = 0755
+	permPrivateDir     os.FileMode = 0700
+	permReadOnlyDir    os.FileMode = 0555
+)
+
+// Permission bit masks
+const (
+	bitWorldWritable os.FileMode = 0002
+)
+
+// find command permission arguments
+const (
+	findPermSUID          = "-4000"
+	findPermSGID          = "-2000"
+	findPermWorldWritable = "-0002"
+)
+
 // PermissionChecker defines interface for permission checking
 type PermissionChecker interface {
 	Check() types.AuditResult
@@ -87,35 +110,35 @@ func (p *UnixPermissionChecker) Check() types.AuditResult {
 
 func (p *UnixPermissionChecker) getCriticalPathConfigs() []criticalPath {
 	configs := []criticalPath{
-		{"/etc/passwd", "Password file", 0644, false},
-		{"/etc/shadow", "Shadow password file", 0400, false},
-		{"/etc/group", "Group file", 0644, false},
-		{"/etc/sudoers", "Sudo configuration", 0440, false},
-		{"/etc/ssh/sshd_config", "SSH daemon configuration", 0600, false},
-		{"/var/log", "Log directory", 0755, true},
-		{"/home", "User home directories", 0755, true},
+		{"/etc/passwd", "Password file", permStandardFile, false},
+		{"/etc/shadow", "Shadow password file", permOwnerReadOnly, false},
+		{"/etc/group", "Group file", permStandardFile, false},
+		{"/etc/sudoers", "Sudo configuration", permSudoers, false},
+		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite, false},
+		{"/var/log", "Log directory", permStandardDir, true},
+		{"/home", "User home directories", permStandardDir, true},
 	}
 
 	// Add OS-specific paths
 	switch p.osType {
 	case "darwin":
 		configs = append(configs,
-			criticalPath{"/private/etc", "System configuration directory", 0755, true},
-			criticalPath{"/System", "System directory", 0755, true},
-			criticalPath{"/usr/local/bin", "User-installed binaries", 0755, true},
+			criticalPath{"/private/etc", "System configuration directory", permStandardDir, true},
+			criticalPath{"/System", "System directory", permStandardDir, true},
+			criticalPath{"/usr/local/bin", "User-installed binaries", permStandardDir, true},
 		)
 	case "freebsd", "openbsd":
 		configs = append(configs,
-			criticalPath{"/boot", "Boot directory", 0755, false},
-			criticalPath{"/root", "Root user directory", 0700, false},
-			criticalPath{"/usr/local/etc", "Local configuration", 0755, true},
+			criticalPath{"/boot", "Boot directory", permStandardDir, false},
+			criticalPath{"/root", "Root user directory", permPrivateDir, false},
+			criticalPath{"/usr/local/etc", "Local configuration", permStandardDir, true},
 		)
 	default: // Linux
 		configs = append(configs,
-			criticalPath{"/boot", "Boot directory", 0755, false},
-			criticalPath{"/root", "Root user directory", 0700, false},
-			criticalPath{"/proc", "Process information", 0555, false},
-			criticalPath{"/sys", "System information", 0555, false},
+			criticalPath{"/boot", "Boot directory", permStandardDir, false},
+			criticalPath{"/root", "Root user directory", permPrivateDir, false},
+			criticalPath{"/proc", "Process information", permReadOnlyDir, false},
+			criticalPath{"/sys", "System information", permReadOnlyDir, false},
 		)
 	}
 
@@ -151,7 +174,7 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 			}
 
 			mode := info.Mode()
-			if mode&0002 != 0 { // World-writable
+			if mode&bitWorldWritable != 0 { // World-writable
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s WARNING: %s is world-writable: %v",
 						types.SymbolWarning, path, mode.Perm()))
@@ -166,8 +189,8 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
 	cmd := exec.Command("find", "/",
 		"-type", "f",
-		"-perm", "-4000", // SUID
-		"-o", "-perm", "-2000", // SGID
+		"-perm", findPermSUID, // SUID
+		"-o", "-perm", findPermSGID, // SGID
 	)
 
 	output, err := cmd.CombinedOutput()
@@ -192,7 +215,7 @@ func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
 func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResult) {
 	cmd := exec.Command("find", "/",
 		"-type", "f",
-		"-perm", "-0002",
+		"-perm", findPermWorldWritable,
 		"-not", "-type", "l",
 		"-ls")
 
