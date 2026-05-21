@@ -40,7 +40,7 @@ Results can be output in various formats and saved to a file.`,
   owatch all
 
   # Run all scans with verbose output
-  owatch all -v
+  owatch all -v || owatch all --verbose
 
   # Skip specific modules
   owatch all --skip-modules security,software
@@ -143,8 +143,14 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 	}
 
 	if allVerbose {
-		fmt.Printf("[*] OS: %s | Platform: %s | Version: %s | Kernel: %s\n",
-			info.OS, info.Platform, info.PlatformVersion, info.KernelVersion)
+		// fmt.Printf("[*] OS: %s | Platform: %s | Version: %s | Kernel: %s\n",
+		// 	info.OS, info.Platform, info.PlatformVersion, info.KernelVersion)
+		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
+			info.OS, info.Platform, info.PlatformVersion)
+		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
+			line += fmt.Sprintf(" | Kernel: %s", info.KernelVersion)
+		}
+		fmt.Println(line)
 	}
 
 	return info, nil
@@ -190,16 +196,30 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 		return nil
 	}
 
-	sysInfo := audit.SystemInfo{
-		SoftwareInfo:  scan.SoftwareInfo,
-		SoftwareCount: scan.SoftwareCount,
-	}
+	// sysInfo := audit.SystemInfo{
+	// 	SoftwareInfo:  scan.SoftwareInfo,
+	// 	SoftwareCount: scan.SoftwareCount,
+	// }
 
+	// if scan.OSInfo != nil {
+	// 	sysInfo.OS = scan.OSInfo.OS
+	// 	sysInfo.Architecture = scan.OSInfo.Platform
+	// 	sysInfo.Hostname = scan.OSInfo.PlatformVersion
+	// 	sysInfo.KernelVersion = scan.OSInfo.KernelVersion
+	// }
+
+	sysInfo := scan.SecurityAudit.SystemInfo
 	if scan.OSInfo != nil {
-		sysInfo.OS = scan.OSInfo.OS
-		sysInfo.Architecture = scan.OSInfo.Platform
-		sysInfo.Hostname = scan.OSInfo.PlatformVersion
-		sysInfo.KernelVersion = scan.OSInfo.KernelVersion
+		if scan.OSInfo.Platform != "" {
+			sysInfo.OS = scan.OSInfo.Platform
+		}
+		if scan.OSInfo.KernelVersion != "" {
+			sysInfo.KernelVersion = scan.OSInfo.KernelVersion
+		}
+	}
+	if scan.SoftwareInfo != "" {
+		sysInfo.SoftwareInfo = scan.SoftwareInfo
+		sysInfo.SoftwareCount = scan.SoftwareCount
 	}
 
 	return &audit.Result{
