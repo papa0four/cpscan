@@ -196,18 +196,6 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 		return nil
 	}
 
-	// sysInfo := audit.SystemInfo{
-	// 	SoftwareInfo:  scan.SoftwareInfo,
-	// 	SoftwareCount: scan.SoftwareCount,
-	// }
-
-	// if scan.OSInfo != nil {
-	// 	sysInfo.OS = scan.OSInfo.OS
-	// 	sysInfo.Architecture = scan.OSInfo.Platform
-	// 	sysInfo.Hostname = scan.OSInfo.PlatformVersion
-	// 	sysInfo.KernelVersion = scan.OSInfo.KernelVersion
-	// }
-
 	sysInfo := scan.SecurityAudit.SystemInfo
 	if scan.OSInfo != nil {
 		if scan.OSInfo.Platform != "" {
