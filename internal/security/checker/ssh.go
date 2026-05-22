@@ -159,34 +159,51 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 		Details:     make([]string, 0),
 	}
 
-	// Check OpenSSH installation
-	cmd := exec.Command("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command",
-		"Get-WindowsCapability -Online | Where-Object {$_.Name -like '*OpenSSH.Server*' }")
-	output, err := cmd.CombinedOutput()
+	sshdInstalled := false
 
-	if err != nil {
-		result.Status = "ERROR"
-		result.Description = "Failed to check OpenSSH installation"
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking OpenSSH installation: %v", types.SymbolError, err))
-		return result
+	// Check OpenSSH installation
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+		"(Get-Service -Name sshd -ErrorAction SilentlyContinue).Status")
+	output, err := cmd.CombinedOutput()
+	serviceStatus := strings.TrimSpace(string(output))
+	if err == nil && serviceStatus != "" {
+		sshdInstalled = true
+		switch serviceStatus {
+		case "Running":
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s OpenSSH Server is installed and running", types.SymbolOK))
+		case "Stopped":
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s OpenSSH Server is installed but not running", types.SymbolWarning))
+		default:
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s OpenSSH Server service state: %s", types.SymbolInfo, serviceStatus))
+		}
 	}
 
-	// Process OpenSSH installation status
-	if strings.Contains(string(output), "State : Installed") {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH Server is installed", types.SymbolOK))
+	const sshdBinaryPath = `C:\Windows\System32\OpenSSH\sshd.exe`
+	if !sshdInstalled {
+		if _, err := os.Stat(sshdBinaryPath); err == nil {
+			sshdInstalled = true
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s OpenSSH Server binary found (service not detected)", types.SymbolInfo))
+		}
+	}
 
-		// Check OpenSSH configuration if installed
+	if !sshdInstalled {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s OpenSSH Server is not installed", types.SymbolInfo))
+	}
+
+	// Parse sshd_config if installed
+	if sshdInstalled {
 		if _, err := os.Stat(s.ConfigPath); err == nil {
-			file, err := os.Open(s.ConfigPath)
+			file, err := os.Open(s.ConfigPath) // #nosec G304 -- path set in NewWindowsSSHChecker to a hardcoded system location
 			if err != nil {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s ERROR: Cannot read OpenSSH configuration: %v", types.SymbolError, err))
 			} else {
 				defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s Analyzing OpenSSH configuration...", types.SymbolInfo))
 
 				config := &sshConfig{}
 				scanner := bufio.NewScanner(file)
@@ -217,7 +234,6 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 							types.SymbolError, err))
 				}
 
-				// Report OpenSSH configuration findings
 				if config.permRootFound {
 					if config.rootLogin {
 						result.Details = append(result.Details,
@@ -242,18 +258,14 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: OpenSSH configuration file not found", types.SymbolWarning))
 		}
-	} else {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH Server is not installed", types.SymbolInfo))
 	}
 
 	// Check for PuTTY installation
-	if _, err := os.Stat("C:\\Program Files\\PuTTY\\putty.exe"); err == nil {
+	if _, err := os.Stat(`C:\Program Files\PuTTY\putty.exe`); err == nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s PuTTY is installed", types.SymbolInfo))
 
-		// Check PuTTY registry settings
-		cmd = exec.Command("reg", "query", "HKCU\\Software\\SimonTatham\\PuTTY\\Sessions")
+		cmd = exec.Command("reg", "query", `HKCU\Software\SimonTatham\PuTTY\Sessions`)
 		output, err := cmd.CombinedOutput()
 		if err == nil && len(output) > 0 {
 			sessions := strings.Split(string(output), "\n")
@@ -261,7 +273,8 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 				fmt.Sprintf("%s PuTTY configured sessions:", types.SymbolInfo))
 			for _, session := range sessions {
 				if strings.TrimSpace(session) != "" {
-					result.Details = append(result.Details, fmt.Sprintf(" - %s", strings.TrimSpace(session)))
+					result.Details = append(result.Details,
+						fmt.Sprintf(" - %s", strings.TrimSpace(session)))
 				}
 			}
 		}
