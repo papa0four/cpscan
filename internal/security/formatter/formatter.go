@@ -129,6 +129,7 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 		"warning_checks": result.Summary.WarningChecks,
 		"failed_checks":  result.Summary.FailedChecks,
 		"skipped_checks": result.Summary.SkippedChecks,
+		"duration":       result.Duration.String(),
 	}
 
 	return output
@@ -202,7 +203,6 @@ const defaultTemplate = `
 Security Audit Report
 ====================
 Generated: {{.timestamp}}
-Duration: {{.duration}}
 
 {{if .system}}
 System Information
@@ -244,4 +244,5 @@ Passed: {{.summary.passed_checks}}
 Warnings: {{.summary.warning_checks}}
 Failed: {{.summary.failed_checks}}
 Skipped: {{.summary.skipped_checks}}
+Duration: {{.summary.duration}}
 `

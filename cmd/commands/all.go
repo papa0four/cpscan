@@ -143,8 +143,6 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 	}
 
 	if allVerbose {
-		// fmt.Printf("[*] OS: %s | Platform: %s | Version: %s | Kernel: %s\n",
-		// 	info.OS, info.Platform, info.PlatformVersion, info.KernelVersion)
 		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
 			info.OS, info.Platform, info.PlatformVersion)
 		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
@@ -169,7 +167,7 @@ func runSoftwareInventory() (string, int, error) {
 	softwareCount := strings.Count(software, "\n") + 1
 
 	if allVerbose {
-		fmt.Printf("[*] Found %d installed packages\n", softwareCount)
+		fmt.Printf("[*] Found %d installed packages\n\n", softwareCount)
 		fmt.Println(software)
 	}
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/types"
-	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 // SecurityAuditor handles the orchestration of security checks
@@ -104,16 +103,16 @@ func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 			var checkResult types.AuditResult
 			switch check {
 			case "ssh":
-				checkResult = sa.sshChecker.Check()
+				checkResult = timeCheck(sa.sshChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "firewall":
-				checkResult = sa.firewallChecker.Check()
+				checkResult = timeCheck(sa.firewallChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "users":
-				checkResult = sa.userChecker.Check()
+				checkResult = timeCheck(sa.userChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "file-permissions":
-				checkResult = sa.permissionChecker.Check()
+				checkResult = timeCheck(sa.permissionChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			}
 		}
@@ -143,7 +142,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		if sa.verbose {
 			fmt.Println("[*] Running SSH configuration check...")
 		}
-		resultsChan <- sa.sshChecker.Check()
+		resultsChan <- timeCheck(sa.sshChecker.Check)
 	}()
 
 	wg.Add(1)
@@ -152,7 +151,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		if sa.verbose {
 			fmt.Println("[*] Running firewall configuration check...")
 		}
-		resultsChan <- sa.firewallChecker.Check()
+		resultsChan <- timeCheck(sa.firewallChecker.Check)
 	}()
 
 	wg.Add(1)
@@ -161,7 +160,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		if sa.verbose {
 			fmt.Println("[*] Running user account security check...")
 		}
-		resultsChan <- sa.userChecker.Check()
+		resultsChan <- timeCheck(sa.userChecker.Check)
 	}()
 
 	wg.Add(1)
@@ -170,7 +169,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		if sa.verbose {
 			fmt.Println("[*] Running file permissions check...")
 		}
-		resultsChan <- sa.permissionChecker.Check()
+		resultsChan <- timeCheck(sa.permissionChecker.Check)
 	}()
 
 	go func() {
@@ -206,7 +205,6 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 			summary.SkippedChecks++
 		}
 	}
-
 	return summary
 }
 
@@ -223,19 +221,13 @@ func getSystemInfo() SystemInfo {
 	if kernel, err := getKernelVersion(); err == nil {
 		info.KernelVersion = kernel
 	}
-
-	if softwareInfo, err := softwarelist.GetInstalledSoftware(); err == nil {
-		info.SoftwareInfo = softwareInfo
-		info.SoftwareCount = strings.Count(softwareInfo, "\n") + 1
-	}
-
 	return info
 }
 
 func getKernelVersion() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
-		output, err := exec.Command("ver").CombinedOutput()
+		output, err := exec.Command("cmd", "/c", "ver").CombinedOutput()
 		if err != nil {
 			return "", err
 		}
@@ -247,6 +239,16 @@ func getKernelVersion() (string, error) {
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
+}
+
+func timeCheck(fn func() types.AuditResult) types.AuditResult {
+	start := time.Now()
+	result := fn()
+	end := time.Now()
+	result.StartTime = start
+	result.EndTime = end
+	result.Duration = end.Sub(start)
+	return result
 }
 
 func containsWarning(details []string) bool {
