@@ -16,7 +16,7 @@ type Platform string
 // Distro indentifies a *Nix distro family *if Windows, unused
 type Distro string
 
-// <checker>.<finding_id> to join checker detection logic and registry data
+// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data
 type FindingKey string
 
 // Platform constants
