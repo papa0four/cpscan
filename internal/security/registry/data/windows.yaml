@@ -1,0 +1,326 @@
+# Windows finding definitions for the orkowatch registry.
+# Severity tiers follow CVSS v3.1 base score ranges:
+#   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
+# All entries are sourced from CIS Windows 11 Benchmark v3.0.0,
+# NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
+
+# -------------------------
+# SSH checker findings
+# -------------------------
+
+ssh.server_not_running:
+  title: "OpenSSH Server installed but not running"
+  severity: "MEDIUM"
+  cvss_score: 5.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  cwe: "CWE-16"
+  description: >
+    The OpenSSH Server (sshd) service is installed but currently stopped.
+    An installed but inactive SSH daemon represents an unmanaged attack
+    surface that any administrator-level process or user can start without
+    additional installation steps.
+  impact: >
+    If started, an unconfigured or default-configured SSH service may permit
+    password authentication or expose the system to brute-force attacks.
+    Presence alone indicates unreviewed remote access capability.
+  resolution: >
+    If SSH is not required, remove the OpenSSH Server optional feature via
+    Settings > Apps > Optional Features. If required, configure
+    C:\ProgramData\ssh\sshd_config before enabling the service and restrict
+    access via Windows Firewall rules.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §18.10.56"
+    - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
+    - "https://cwe.mitre.org/data/definitions/16.html"
+
+ssh.config_missing:
+  title: "OpenSSH configuration file not found"
+  severity: "MEDIUM"
+  cvss_score: 5.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+  cwe: "CWE-16"
+  description: >
+    No sshd_config file was found at C:\ProgramData\ssh\sshd_config.
+    Without an explicit configuration file, sshd falls back to compiled-in
+    defaults which may permit password authentication and use deprecated
+    algorithms.
+  impact: >
+    Default SSH configurations frequently fail CIS and DISA STIG requirements.
+    An attacker who starts the SSH service inherits permissive defaults,
+    potentially enabling credential-based remote access without restriction.
+  resolution: >
+    Create C:\ProgramData\ssh\sshd_config with explicit directives for
+    PasswordAuthentication, PermitRootLogin, and AllowedUsers before
+    enabling the sshd service.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §18.10.56.2"
+    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
+    - "https://cwe.mitre.org/data/definitions/16.html"
+
+ssh.root_login_permitted:
+  title: "SSH PermitRootLogin is not explicitly disabled"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-250"
+  description: >
+    The SSH configuration does not explicitly set PermitRootLogin to no.
+    Direct privileged login over SSH gives an attacker full system control
+    upon credential compromise with no privilege escalation step required.
+  impact: >
+    A successful brute-force or credential stuffing attack against the root
+    or Administrator account yields immediate full control of the host.
+    No additional exploitation step is required post-authentication.
+  resolution: >
+    Set PermitRootLogin no in C:\ProgramData\ssh\sshd_config and restart
+    the sshd service. Administrative access should require key-based
+    authentication to a non-privileged account followed by explicit
+    privilege escalation.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §18.10.56.3"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+ssh.password_auth_enabled:
+  title: "SSH password authentication is enabled"
+  severity: "HIGH"
+  cvss_score: 7.5
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-521"
+  description: >
+    PasswordAuthentication is set to yes in the SSH configuration.
+    Password-based SSH is susceptible to brute-force and credential
+    stuffing attacks, particularly when accounts have weak or reused
+    passwords.
+  impact: >
+    Any network-accessible SSH service with password authentication enabled
+    can be targeted by automated brute-force tools. Credential exposure
+    from unrelated breaches directly translates to SSH access risk.
+  resolution: >
+    Set PasswordAuthentication no in C:\ProgramData\ssh\sshd_config and
+    configure key-based authentication exclusively. Restart the sshd
+    service after making changes.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §18.10.56"
+    - "NIST SP 800-53 Rev 5 IA-5(1) (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/521.html"
+
+# -------------------------
+# Firewall checker findings
+# -------------------------
+
+firewall.profile_inactive:
+  title: "One or more Windows Firewall profiles are inactive"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-284"
+  description: >
+    One or more Windows Firewall profiles (Domain, Private, or Public) are
+    not active. A disabled firewall profile removes the host-based packet
+    filter for that network category, exposing all listening services to
+    unauthenticated network traffic matching that profile.
+  impact: >
+    All services bound to network interfaces governed by the inactive profile
+    become directly reachable without firewall enforcement. This eliminates
+    a critical defense-in-depth layer against lateral movement and remote
+    exploitation.
+  resolution: >
+    Enable all firewall profiles via: netsh advfirewall set allprofiles
+    state on. Verify profile state with: netsh advfirewall show allprofiles.
+    Ensure profiles remain enabled via Group Policy if the system is
+    domain-joined.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §9.1.1, §9.2.1, §9.3.1"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "NIST SP 800-53 Rev 5 SI-3 (Malicious Code Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+firewall.all_profiles_disabled:
+  title: "Windows Firewall is completely disabled on all profiles"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-284"
+  description: >
+    Windows Defender Firewall is disabled across all profiles — Domain,
+    Private, and Public. The host has no active host-based packet filtering
+    on any network interface. This is the highest-risk firewall
+    misconfiguration possible on a Windows host.
+  impact: >
+    Every listening service on every interface is reachable without
+    restriction. Combined with any other vulnerability, this eliminates
+    network-layer mitigation entirely. Lateral movement, exploitation of
+    unpatched services, and data exfiltration face no host-based network
+    controls.
+  resolution: >
+    Immediately enable all firewall profiles: netsh advfirewall set
+    allprofiles state on. Investigate how the firewall was disabled and
+    whether unauthorized access occurred during the period it was inactive.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §9.1.1, §9.2.1, §9.3.1"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+# -------------------------
+# User checker findings
+# -------------------------
+
+users.no_password_required:
+  title: "Active user account has no password required"
+  severity: "HIGH"
+  cvss_score: 8.4
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-309"
+  description: >
+    One or more active user accounts have PasswordRequired set to false,
+    meaning Windows does not enforce a password for interactive or network
+    logon. This is distinct from a blank password — the system will not
+    prompt for or validate any credential for these accounts.
+  impact: >
+    Any local attacker, malicious process, or lateral movement attempt can
+    authenticate as this user without any credential. This eliminates the
+    authentication layer entirely for affected accounts and grants access
+    to all resources the account can reach.
+  resolution: >
+    Require passwords for all active accounts via: net user <username> *
+    or via Local Security Policy > Account Policies > Password Policy.
+    Set the account password and ensure PasswordRequired is enforced.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §1.1"
+    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/309.html"
+
+users.administrator_account_active:
+  title: "User account has local Administrator privileges"
+  severity: "MEDIUM"
+  cvss_score: 6.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-250"
+  description: >
+    One or more user accounts are members of the local Administrators group.
+    Administrator-level accounts have unrestricted access to the local
+    system and can bypass most security controls including UAC when
+    configured to auto-elevate.
+  impact: >
+    Compromise of an Administrator account yields full local system control.
+    Combined with credential reuse or weak passwords, Administrator group
+    membership significantly increases the blast radius of any account
+    compromise.
+  resolution: >
+    Limit the local Administrators group to accounts that explicitly require
+    administrative access. Standard users should operate under least-privilege
+    accounts. Review group membership regularly via: Get-LocalGroupMember
+    -Group Administrators.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §2.2"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+users.uac_disabled:
+  title: "User Account Control (UAC) is disabled"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cwe: "CWE-250"
+  description: >
+    User Account Control is disabled via the EnableLUA registry key being
+    set to 0. UAC is the primary privilege escalation barrier on Windows.
+    Without it, any process running in the context of a local Administrator
+    account inherits full administrative rights without a consent prompt.
+  impact: >
+    Malware, scripts, or any process running as the logged-in administrator
+    gains unrestricted system access without triggering UAC elevation prompts.
+    This eliminates the integrity level separation that UAC enforces and
+    allows privilege escalation without any user interaction.
+  resolution: >
+    Enable UAC by setting HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\
+    Policies\System\EnableLUA to 1, or via Local Security Policy >
+    Security Options > User Account Control: Run all administrators in
+    Admin Approval Mode. A system restart is required.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §2.3.17"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+# -------------------------
+# Permissions checker findings
+# -------------------------
+
+permissions.everyone_full_control:
+  title: "Everyone group has full control on a system path"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    The Everyone group has been granted Full Control (F) on a critical
+    system directory. This grants unrestricted read, write, execute, and
+    delete permissions to all users including unauthenticated network
+    users on some configurations.
+  impact: >
+    Any local or network user can replace, modify, or delete files in the
+    affected directory. On system directories such as System32 or Program
+    Files, this enables DLL planting, binary replacement, and direct
+    privilege escalation without any exploit required.
+  resolution: >
+    Remove the Everyone group permission immediately using icacls:
+    icacls <path> /remove "Everyone". Restore expected ACLs using icacls
+    <path> /reset for system directories. Investigate how this permission
+    was granted.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §2.2"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.users_full_control:
+  title: "Users group has full control on a system path"
+  severity: "HIGH"
+  cvss_score: 7.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    The BUILTIN\Users group has been granted Full Control (F) on a critical
+    system directory. Any authenticated local user can read, write, execute,
+    and delete files in this location.
+  impact: >
+    Any standard user account can replace binaries or plant DLLs in the
+    affected system directory, enabling privilege escalation without
+    exploiting any software vulnerability. This is a common DLL hijacking
+    precondition.
+  resolution: >
+    Remove the Full Control grant for BUILTIN\Users and restore read-execute
+    permissions only: icacls <path> /remove:g "BUILTIN\Users" then
+    icacls <path> /grant "BUILTIN\Users:(RX)". Verify against expected
+    Windows ACL baselines.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §2.2"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.admin_share_present:
+  title: "Default administrative shares are present"
+  severity: "LOW"
+  cvss_score: 2.7
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-284"
+  description: >
+    Default Windows administrative shares (C$, ADMIN$, IPC$) are present.
+    These shares are enabled by default and require Administrator credentials
+    to access remotely. They are informational in most environments but
+    represent a lateral movement path when Administrator credentials are
+    compromised.
+  impact: >
+    An attacker with valid Administrator credentials can use administrative
+    shares for remote file access and lateral movement (e.g. PsExec, WMI,
+    SMB-based tools) without installing any additional software on the target.
+  resolution: >
+    In high-security environments where remote administration is not required,
+    disable administrative shares via registry:
+    HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters\
+    AutoShareWks = 0. This persists across reboots. IPC$ cannot be disabled.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §18.3"
+    - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
