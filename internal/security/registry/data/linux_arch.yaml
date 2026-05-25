@@ -1,1 +1,273 @@
-# stub: findings for this platform/family are pending implementation
+# Arch family finding definitions for the orkowatch registry.
+# Covers Arch Linux, Manjaro, EndeavourOS, Garuda, Artix, and derivatives
+# identified via ID_LIKE=arch in /etc/os-release.
+# Severity tiers follow CVSS v3.1 base score ranges:
+#   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
+# All entries sourced from Arch Linux Security wiki, CIS Distribution
+# Independent Linux Benchmark v2.0.0, NIST SP 800-53 Rev 5, and
+# CVSS v3.1 scoring methodology.
+# Note: Arch Linux has no official CIS benchmark. Entries reference
+# the Arch Security wiki and CIS Distribution Independent where applicable.
+
+# -------------------------
+# Firewall checker findings
+# -------------------------
+
+firewall.no_firewall_installed:
+  title: "No firewall manager is installed or active"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-284"
+  description: >
+    Arch Linux does not install a firewall manager by default. Neither
+    iptables, nftables, ufw, nor firewalld was detected as active on
+    this system. The host has no host-based packet filtering in place.
+    Unlike Debian or RHEL family systems, Arch ships with no default
+    firewall configuration and requires explicit installation and
+    configuration by the administrator.
+  impact: >
+    All services bound to any network interface are directly reachable
+    without restriction. Any service started on the host — including
+    development servers, databases, or remote desktop tools — is
+    immediately network-accessible without explicit firewall rules.
+  resolution: >
+    Install and configure nftables, which is the modern kernel-level
+    replacement for iptables and the recommended choice on Arch:
+    pacman -S nftables && systemctl enable --now nftables. Create a
+    base ruleset in /etc/nftables.conf with a default drop policy and
+    explicit allow rules for required services.
+  references:
+    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#Firewalls"
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+firewall.nftables_no_rules:
+  title: "nftables is active but has no rules configured"
+  severity: "HIGH"
+  cvss_score: 8.2
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cwe: "CWE-284"
+  description: >
+    nftables is the active firewall manager but no rules are loaded.
+    An nftables instance with no ruleset provides no packet filtering —
+    all traffic is permitted by default. This is equivalent to having
+    no firewall active despite the service running.
+  impact: >
+    All listening services remain fully accessible on all interfaces.
+    The presence of a running nftables service may create a false
+    sense of security. Traffic filtering requires an explicit ruleset
+    to be loaded — an empty ruleset enforces nothing.
+  resolution: >
+    Create a base ruleset in /etc/nftables.conf with a default drop
+    policy on the input chain and explicit allow rules for required
+    services. Load the ruleset: nft -f /etc/nftables.conf. Enable
+    the service to persist across reboots: systemctl enable nftables.
+  references:
+    - "Arch Linux Wiki nftables: https://wiki.archlinux.org/title/nftables"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+firewall.iptables_default_accept:
+  title: "iptables default policy is ACCEPT on INPUT chain"
+  severity: "HIGH"
+  cvss_score: 8.6
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
+  cwe: "CWE-284"
+  description: >
+    The iptables INPUT chain has a default policy of ACCEPT, meaning
+    any traffic not matched by an explicit rule is permitted through.
+    A secure firewall posture requires a default DROP or REJECT policy
+    with explicit allow rules for required traffic only.
+  impact: >
+    Any service listening on any interface is reachable unless explicitly
+    blocked by a rule. New services started on the host are automatically
+    network-accessible without any firewall change required. This inverts
+    the intended security model of deny-by-default.
+  resolution: >
+    Set a default DROP policy on the INPUT chain: iptables -P INPUT DROP.
+    Add explicit ACCEPT rules for required traffic before applying the
+    default drop to avoid lockout. Persist rules across reboots via
+    iptables-save > /etc/iptables/iptables.rules and enable the
+    iptables systemd service.
+  references:
+    - "Arch Linux Wiki iptables: https://wiki.archlinux.org/title/iptables"
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5.3"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+# -------------------------
+# User checker findings
+# -------------------------
+
+users.sudo_nopasswd:
+  title: "Sudoers entry permits privilege escalation without password"
+  severity: "HIGH"
+  cvss_score: 8.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cwe: "CWE-269"
+  description: >
+    A sudoers rule contains the NOPASSWD tag, allowing one or more users
+    to execute commands with elevated privileges without providing a
+    password. On Arch-family systems this is commonly added during
+    initial setup for convenience and frequently left in place.
+  impact: >
+    Any attacker or process that gains access to the affected user account
+    can immediately escalate to root without any additional credential.
+    This is particularly significant on Arch systems where the primary
+    user account is commonly the sole administrator and frequently
+    targeted for NOPASSWD configuration during installation.
+  resolution: >
+    Remove NOPASSWD tags from sudoers rules: visudo. If passwordless
+    sudo is required for specific automation tasks, scope it to the
+    minimum required commands rather than ALL. Require password
+    confirmation for interactive administrative work.
+  references:
+    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#sudo"
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.3.7"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/269.html"
+
+users.wheel_group_unrestricted:
+  title: "wheel group has unrestricted sudo access"
+  severity: "MEDIUM"
+  cvss_score: 6.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-269"
+  description: >
+    The wheel group is configured with unrestricted sudo access to all
+    commands. On Arch Linux this is the default sudoers configuration
+    when the wheel group line is uncommented during setup. Every member
+    of the wheel group can run any command as root.
+  impact: >
+    Compromise of any wheel group member account yields full root access
+    via sudo. If multiple user accounts are in the wheel group, the
+    attack surface for privilege escalation is multiplied. Unrestricted
+    wheel access provides no command-level containment.
+  resolution: >
+    Audit wheel group membership: getent group wheel. Remove accounts
+    that do not require administrative access. Consider restricting
+    sudo access to specific commands for accounts that only need
+    limited elevation rather than full wheel membership.
+  references:
+    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#sudo"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/269.html"
+
+users.aur_helper_installed:
+  title: "AUR helper is installed"
+  severity: "LOW"
+  cvss_score: 3.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-829"
+  description: >
+    An AUR (Arch User Repository) helper such as yay, paru, or trizen
+    is installed. AUR packages are community-maintained PKGBUILDs that
+    are not reviewed or signed by Arch Linux maintainers. AUR helpers
+    automate the download and build of these packages, which execute
+    arbitrary build scripts with user privileges.
+  impact: >
+    AUR packages execute PKGBUILD scripts during installation that can
+    contain arbitrary commands. Malicious or compromised AUR packages
+    have historically been used to deliver malware. The risk is
+    proportional to the number of AUR packages installed and the
+    diligence with which PKGBUILDs are reviewed before installation.
+  resolution: >
+    Review all installed AUR packages and their PKGBUILDs. Remove AUR
+    packages that are available in the official repositories. Always
+    read PKGBUILDs before installing AUR packages. Consider using
+    an isolated build environment for AUR package compilation.
+  references:
+    - "Arch Linux AUR Security: https://wiki.archlinux.org/title/AUR#Safety"
+    - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
+    - "https://cwe.mitre.org/data/definitions/829.html"
+
+# -------------------------
+# Permissions checker findings
+# -------------------------
+
+permissions.shadow_world_readable:
+  title: "/etc/shadow is readable by non-root users"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+  cwe: "CWE-732"
+  description: >
+    /etc/shadow has permissions that allow non-root users to read its
+    contents. On Arch Linux the expected permission is 640 with ownership
+    root:shadow. Any deviation allows password hash extraction by
+    unprivileged users or processes.
+  impact: >
+    Any local user or process that can read /etc/shadow gains access to
+    all local password hashes for offline cracking. On Arch systems
+    where the primary user account is commonly the only human account,
+    cracking this hash yields full system access via sudo.
+  resolution: >
+    Restore correct permissions: chmod 640 /etc/shadow && chown
+    root:shadow /etc/shadow. Verify: ls -la /etc/shadow. Rotate
+    passwords for all accounts as a precaution if the file was
+    readable for an unknown period.
+  references:
+    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security"
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.3"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.pacman_cache_world_writable:
+  title: "pacman cache directory is world-writable"
+  severity: "HIGH"
+  cvss_score: 7.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    The pacman package cache directory (/var/cache/pacman/pkg) is
+    world-writable. Package files in this directory are used by pacman
+    during installation and upgrades. A world-writable cache allows
+    any local user to replace cached package files with malicious
+    versions that will be installed on the next pacman operation.
+  impact: >
+    A local attacker can replace a cached package tarball with a
+    backdoored version. The next time pacman installs or upgrades
+    that package, the malicious version is installed with root
+    privileges. This enables persistent privilege escalation and
+    backdoor installation without exploiting any software vulnerability.
+  resolution: >
+    Restore correct permissions: chmod 755 /var/cache/pacman/pkg &&
+    chown root:root /var/cache/pacman/pkg. Verify no unexpected files
+    are present in the cache. Clear and repopulate the cache if
+    tampering is suspected: pacman -Scc.
+  references:
+    - "Arch Linux Wiki pacman: https://wiki.archlinux.org/title/pacman"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.ssh_dir_permissions:
+  title: "SSH directory or authorized_keys has incorrect permissions"
+  severity: "HIGH"
+  cvss_score: 7.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
+    permissions that exceed the expected mode. On Arch Linux, OpenSSH
+    enforces StrictModes by default and will refuse to use keys from
+    directories or files with overly permissive modes. Misconfigured
+    permissions also enable unauthorized key injection by other local
+    users.
+  impact: >
+    World or group writable ~/.ssh directories allow other local users
+    to inject authorized keys, granting themselves SSH access as the
+    target user. On Arch systems where the primary user commonly has
+    full sudo access, this enables complete system compromise via
+    key injection alone.
+  resolution: >
+    Set correct permissions: chmod 700 ~/.ssh && chmod 600
+    ~/.ssh/authorized_keys. Verify ownership: chown -R <user>:<user>
+    ~/.ssh. Audit authorized_keys for unexpected entries. Verify
+    StrictModes yes is set or absent (default) in sshd_config.
+  references:
+    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security"
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.19"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
