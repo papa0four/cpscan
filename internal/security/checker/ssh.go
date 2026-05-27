@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
 // SSHChecker defines interface for SSH configuration checking
@@ -24,6 +25,7 @@ type UnixSSHChecker struct {
 // WindowsSSHChecker implements SSHChecker for Windows systems
 type WindowsSSHChecker struct {
 	ConfigPath string
+	ctx  	   registry.OSContext
 }
 
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths

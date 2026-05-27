@@ -12,6 +12,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
 // SecurityAuditor handles the orchestration of security checks
@@ -22,6 +23,7 @@ type SecurityAuditor struct {
 	permissionChecker checker.PermissionChecker
 	verbose           bool
 	options           Options
+	osContext         registry.OSContext
 }
 
 // Options configures the audit process
@@ -65,9 +67,12 @@ type Summary struct {
 
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
+	ctx := registry.DetectOS()
+
 	auditor := &SecurityAuditor{
 		verbose: opts.Verbose,
 		options: opts,
+		osContext: ctx,
 	}
 
 	switch runtime.GOOS {
