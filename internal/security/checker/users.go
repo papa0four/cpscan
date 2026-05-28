@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -35,7 +36,9 @@ type UnixUserChecker struct {
 }
 
 // WindowsUserChecker implements UserChecker for Windows systems
-type WindowsUserChecker struct{}
+type WindowsUserChecker struct {
+	ctx registry.OSContext
+}
 
 // userAccount represents a parsed user account
 type userAccount struct {
@@ -94,8 +97,8 @@ func NewUnixUserChecker() *UnixUserChecker {
 }
 
 // NewWindowsUserChecker creates a new Windows user checker
-func NewWindowsUserChecker() *WindowsUserChecker {
-	return &WindowsUserChecker{}
+func NewWindowsUserChecker(ctx registry.OSContext) *WindowsUserChecker {
+	return &WindowsUserChecker{ctx: ctx}
 }
 
 // Check implements UserChecker interface for Unix systems
@@ -552,6 +555,7 @@ func (w *WindowsUserChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: "Analyzing Windows user accounts and security settings",
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
 	users, err := w.getWindowsUsers()
@@ -627,6 +631,8 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 }
 
 func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
+	noPasswordFindingAdded := false
+
 	for _, user := range users {
 		details := user.Name
 
@@ -634,6 +640,15 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
+			if def, ok := registry.Lookup(w.ctx, "users.administrator_account_active"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+				})
+			}
 		} else if !user.Enabled {
 			details += " (Disabled)"
 			result.Details = append(result.Details,
@@ -642,6 +657,19 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (No Password Required)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
+			// One finding for the class of violation, not one per user account
+			if !noPasswordFindingAdded {
+				if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+					})
+				}
+				noPasswordFindingAdded = true
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolOK, details))
@@ -673,6 +701,15 @@ func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
+			if def, ok := registry.Lookup(w.ctx, "users.uac_disabled"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+				})
+			}
 		}
 	}
 }
