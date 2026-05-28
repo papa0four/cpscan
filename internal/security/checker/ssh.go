@@ -20,6 +20,7 @@ type SSHChecker interface {
 // UnixSSHChecker implements SSHChecker for Unix-like systems
 type UnixSSHChecker struct {
 	ConfigPaths []string
+	ctx         registry.OSContext
 }
 
 // WindowsSSHChecker implements SSHChecker for Windows systems
@@ -29,7 +30,7 @@ type WindowsSSHChecker struct {
 }
 
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths
-func NewUnixSSHChecker() *UnixSSHChecker {
+func NewUnixSSHChecker(ctx registry.OSContext) *UnixSSHChecker {
 	return &UnixSSHChecker{
 		ConfigPaths: []string{
 			"/etc/ssh/sshd_config",
@@ -61,6 +62,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: "Analyzing SSH Configuration settings",
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
 	var file *os.File
@@ -81,6 +83,15 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 		result.Description = fmt.Sprintf("SSH configuration file not found in any of: %v", s.ConfigPaths)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: No SSH configuration file found", types.SymbolError))
+		if def, ok := registry.Lookup(s.ctx, "ssh.config_not_found"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+			})
+		}
 		return result
 	}
 
@@ -125,6 +136,15 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 		if config.rootLogin {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Root login is permitted", types.SymbolWarning))
+			if def, ok := registry.Lookup(s.ctx, "ssh.root_login_permitted"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+				})
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Root login is disabled", types.SymbolOK))
@@ -132,6 +152,15 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	} else {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: PermitRootLogin setting not found (defaults may apply)", types.SymbolWarning))
+		if def, ok := registry.Lookup(s.ctx, "ssh.permit_root_login_not_set"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+			})
+		}
 	}
 
 	// Check password authentication
@@ -139,6 +168,15 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 		if config.passwordAuth {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Password authentication is enabled", types.SymbolWarning))
+			if def, ok := registry.Lookup(s.ctx, "ssh.password_auth_enabled"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+				})
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Password authentication is disabled", types.SymbolOK))
@@ -146,6 +184,15 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 	} else {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: PasswordAuthentication setting not found (defaults may apply)", types.SymbolWarning))
+		if def, ok := registry.Lookup(s.ctx, "ssh.password_auth_not_set"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+			})
+		}
 	}
 
 	result.Status = "COMPLETED"
