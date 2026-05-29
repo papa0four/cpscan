@@ -200,12 +200,12 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 
 	for _, result := range results {
 		switch {
-		case result.Status == "COMPLETED" && !containsWarning(result.Details):
-			summary.PassedChecks++
-		case result.Status == "WARNING" || containsWarning(result.Details):
-			summary.WarningChecks++
 		case result.Status == "ERROR":
 			summary.FailedChecks++
+		case len(result.Findings) > 0:
+			summary.WarningChecks++
+		case result.Status == "COMPLETED":
+			summary.PassedChecks++
 		default:
 			summary.SkippedChecks++
 		}
@@ -254,14 +254,4 @@ func timeCheck(fn func() types.AuditResult) types.AuditResult {
 	result.EndTime = end
 	result.Duration = end.Sub(start)
 	return result
-}
-
-func containsWarning(details []string) bool {
-	for _, detail := range details {
-		if strings.Contains(detail, "WARNING") ||
-			strings.Contains(detail, types.SymbolWarning) {
-			return true
-		}
-	}
-	return false
 }
