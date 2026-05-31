@@ -74,3 +74,19 @@ type ValidationError struct {
 func (e *ValidationError) Error() string {
 	return fmt.Sprintf("validation error in %s: %s - %s", e.Checker, e.Field, e.Message)
 }
+
+// SeverityFormat returns the display symbol and fixed-width padded severity label
+func SeverityFormat(severity string) (symbol, label string) {
+	switch severity {
+	case SeverityCritical:
+		return SymbolCritical, "CRITICAL"
+	case SeverityHigh:
+		return SymbolWarning, "HIGH    "
+	case SeverityMedium:
+		return SymbolWarning, "MEDIUM  "
+	case SeverityLow:
+		return SymbolInfo, "LOW     "
+	default:
+		return SymbolInfo, severity
+	}
+}

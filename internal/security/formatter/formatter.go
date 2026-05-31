@@ -107,6 +107,8 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 	// Add metadata
 	output["timestamp"] = time.Now().UTC().Format(time.RFC3339)
 	output["duration"] = result.Duration.String()
+	output["verbose"] = f.options.Verbose
+	output["non_verbose"] = !f.options.Verbose
 
 	// Add system information if requested
 	if f.options.IncludeSystem {
@@ -132,6 +134,15 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 		"duration":       result.Duration.String(),
 	}
 
+	hasFindings := false
+	for _, r := range formattedResults {
+		if _, ok := r["findings"]; ok {
+			hasFindings = true
+			break
+		}
+	}
+	output["has_findings"] = hasFindings
+
 	return output
 }
 
@@ -148,10 +159,13 @@ func (f *Formatter) formatCheck(check types.AuditResult) map[string]interface{} 
 	var relevantFindings []map[string]interface{}
 	for _, finding := range check.Findings {
 		if isSeverityRelevant(finding.Severity, f.options.MinSeverity) {
+			symbol, label := types.SeverityFormat(finding.Severity)
 			formattedFinding := map[string]interface{}{
 				"title":    finding.Title,
 				"severity": finding.Severity,
 				"category": finding.Category,
+				"symbol":   symbol,
+				"label":    label,
 			}
 
 			if f.options.Verbose {
@@ -199,11 +213,9 @@ func isSeverityRelevant(findingSeverity, minSeverity string) bool {
 }
 
 // Default text template
-const defaultTemplate = `
-Security Audit Report
+const defaultTemplate = `Security Audit Report
 ====================
 Generated: {{.timestamp}}
-
 {{if .system}}
 System Information
 -----------------
@@ -213,36 +225,27 @@ Hostname: {{.system.Hostname}}
 Kernel Version: {{.system.KernelVersion}}
 Software Count: {{.system.SoftwareCount}}
 {{end}}
-
 Check Results
 ------------
 {{range .results}}
 Check: {{.name}}
 Status: {{.status}}
-Description: {{.description}}
 Duration: {{.duration}}
-
-{{if .findings}}
-Findings:
-{{range .findings}}
-  - [{{.severity}}] {{.title}}
+{{if .findings}}Findings:
+{{range .findings}}{{.symbol}} {{.label}}  {{.title}}
+{{if $.verbose}}{{if .description}}  Description: {{.description}}
+{{end}}{{if .impact}}  Impact: {{.impact}}
+{{end}}{{if .resolution}}  Resolution: {{.resolution}}
+{{end}}{{end}}{{end}}{{end}}{{if and $.verbose .details}}Raw Diagnostic Output:
+{{range .details}}  {{.}}
+{{end}}{{end}}
 {{end}}
-{{end}}
-
-{{if .details}}
-Details:
-{{range .details}}
-  {{.}}
-{{end}}
-{{end}}
-{{end}}
-
-Summary
--------
-Total Checks: {{.summary.total_checks}}
-Passed: {{.summary.passed_checks}}
-Warnings: {{.summary.warning_checks}}
-Failed: {{.summary.failed_checks}}
-Skipped: {{.summary.skipped_checks}}
-Duration: {{.summary.duration}}
-`
+Summary:
+Checks Run: {{.summary.total_checks}}
+Passed:     {{.summary.passed_checks}}
+Warnings:   {{.summary.warning_checks}}
+Failed:     {{.summary.failed_checks}}
+Duration:   {{.summary.duration}}
+{{if and .non_verbose .has_findings}}
+Run with -v for full finding details, impact analysis, and remediation guidance.
+{{end}}`
