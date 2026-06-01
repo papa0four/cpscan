@@ -1,183 +1,490 @@
 # Enrichment Subsystem
 
-## Overview
+The enrichment subsystem adds external threat context to a completed local audit.
+It takes the CWE identifiers surfaced by the finding registry, queries one or more
+configured adapter sources, and returns matched CVEs grouped by the CWE that
+produced them. Enrichment is opt-in via `--enrich` / `-e` and always runs after
+the local audit completes. Enrichment failures never affect local audit results.
 
-The enrichment subsystem annotates local audit findings with live data from external CVE intelligence sources. It is invoked when the user
-passes the `--enrich` flag to `security_audit` or `all`. Enrichment runs after the local audit completes, leaving baseline audit latency
-unaffected when the flag is not set.
+---
 
-The subsystem lives at `internal/security/enrichment/`. Source-specific adapters implement the `Enricher` interface, and the orchestrator in
-`internal/security/audit/audit.go` invokes them with the deduplicated list of CVE references collected from local findings.
+## Package location
 
-This document describes the iniital design decisions made for the scaffolding of the enrichment feature. Any future updates to the
-implementation design, or feature enhancements will be outlined within this document.
+```
+internal/security/enrichment/
+  errors.go    -- sentinel error values
+  types.go     -- all exported types
+  validate.go  -- CWE ID normalization and validation
+  enricher.go  -- Enricher interface and NewEnricher constructor
+```
+
+---
 
-## Design Decisions
+## Types
+
+### `Source`
 
-### 1. Normalized type with per-field source attribution
+```go
+type Source string
+```
 
-`CVEEnrichment` is a normalized structure shared across all enrichment sources. Each field that can carry data from an external source is
-paired with a source tag identifying which adapter provided the value.
+Identifies which adapter contributed a field value. Defined constants:
+
+| Constant       | Value        |
+|----------------|--------------|
+| `SourceNVD`    | `"NVD"`      |
+| `SourceKEV`    | `"CISA-KEV"` |
+| `SourceEPSS`   | `"EPSS"`     |
+| `SourceGHSA`   | `"GHSA"`     |
+| `SourceMITRE`  | `"MITRE-CWE"`|
+
+Each field on `CWEEnrichment` that may be populated by different sources carries
+a parallel `*Source` field for attribution. Adapters set both the value and the
+source field together.
+
+### `Status`
+
+```go
+type Status string
+```
+
+Terminal state for an enrichment attempt on a single CWE.
+
+| Constant                | Value                  | Meaning                                      |
+|-------------------------|------------------------|----------------------------------------------|
+| `StatusEnriched`        | `"ENRICHED"`           | At least one CVE match was returned          |
+| `StatusFailed`          | `"FAILED"`             | All sources returned errors                  |
+| `StatusNoMatches`       | `"NO_MATCHES"`         | Sources responded but found no CVE matches   |
+| `StatusNoSourcesQueried`| `"NO_SOURCES_QUERIED"` | Request was valid but no sources were called |
+
+### `CWEEnrichment`
+
+```go
+type CWEEnrichment struct {
+    CWEID  string
+    Status Status
+
+    WeaknessName             string
+    WeaknessNameSource       Source
+
+    WeaknessDescription      string
+    WeaknessDescriptionSource Source
+
+    MatchedCVEs       []CVEMatch
+    MatchedCVEsSource Source
+
+    LastQueried time.Time
+}
+```
+
+Per-CWE enrichment data. `MatchedCVEs` is empty when `Status` is `NO_MATCHES`.
+`LastQueried` is set by the adapter; it informs cache expiry logic.
+
+### `CVEMatch`
+
+```go
+type CVEMatch struct {
+    CVEID         string
+    Source        Source
+    CVSSBaseScore float64
+    CVSSSeverity  string
+    CVSSVector    string
+
+    Published    time.Time
+    LastModified time.Time
 
-When multiple sources contribute data for the same CVE, conflicts are visible to the analyst rather than silently resolved by overwrite. This matters for security work — different sources can disagree on CVSS scoring, affected versions, or exploitation status, and an analyst
-needs to see those disagreements to make informed decisions.
+    KnownExploited         bool
+    ExploitPredictionScore float64
+    PatchAvailable         bool
 
-### 2. Adapter pattern for source pluggability
+    Description string
+    References  []string
+}
+```
+
+A single CVE returned by an adapter as associated with a queried CWE.
+`KnownExploited` is populated from CISA KEV data. `ExploitPredictionScore` is
+populated from EPSS data. Adapters populate only the fields their source
+provides; zero values are valid for unset fields.
 
-The `Enricher` interface defines what an enrichment source must do. Each source is an independent implementation of the interface. The
-orchestrator does not know which sources are configured — it works against the interface.
+### `Failure`
 
-Adding a new source requires implementing the interface and registering the implementation in the constructor. No changes to orchestration,
-rendering, or audit code are required.
+```go
+type Failure struct {
+    CWEID     string
+    Source    Source
+    Reason    string
+    Err       error
+    Retryable bool
+}
+```
 
-### 3. Batch orchestration model
+Records why enrichment for a specific CWE from a specific source failed.
+`Retryable` signals that the failure is transient (network timeout, rate limit)
+and the caller may retry without changing input.
 
-Local audit checks run first and complete fully before any enrichment is attempted. The full audit result is assembled, the CVE references
-across all findings are collected and deduplicated, and the enrichment call is made once with the complete CVE list.
+### `Result`
 
-This isolates network-dependent work from local diagnostic work. A network failure cannot affect the local audit result. A slow enrichment
-source cannot delay local results from being computed.
+```go
+type Result struct {
+    Successes      map[string]CWEEnrichment
+    Failures       map[string]Failure
+    AdapterErrors  []error
+    SourcesQueried []Source
+    Duration       time.Duration
+}
+```
 
-### 4. Partial results with typed failures
+Aggregate output of an enrichment run. Keys in `Successes` and `Failures` are
+canonical CWE IDs (`CWE-N`). A CWE key will appear in exactly one of the two
+maps. `AdapterErrors` holds errors that affected an entire adapter rather than
+a single CWE. `SourcesQueried` lists every source that was attempted regardless
+of outcome.
 
-`EnrichmentResult` carries both `Successes` (a map of successfully enriched CVEs to their data) and `Failures` (a map of CVEs that could
-not be enriched along with the reason). The renderer surfaces both.
+### `EnrichRequest`
 
-A future `Retry` operation can re-run enrichment for only the failed CVEs without re-querying ones that already succeeded. The
-`EnrichmentFailure` type carries a `Retryable` boolean so the retry operation can skip permanent failures (malformed CVE IDs, sources
-declaring the CVE does not exist).
+```go
+type EnrichRequest struct {
+    CWEs        []string
+    BypassCache bool
+    Sources     []Source
+    MinSeverity string
+}
+```
+
+Input to `Enricher.Enrich`. `CWEs` must be canonical IDs (`CWE-N`); the
+adapter validates them on receipt. `BypassCache` forces a live fetch regardless
+of cached data. `Sources` restricts which adapters are called; an empty slice
+uses all configured adapters. `MinSeverity` filters CVE matches below a CVSS
+severity threshold.
+
+---
+
+## Errors
+
+All sentinels are in `errors.go` and are wrapped with `fmt.Errorf("%w", ...)` by
+callers that add context.
 
-### 5. Adapter-side caching
+| Sentinel                    | Meaning                                                                 |
+|-----------------------------|-------------------------------------------------------------------------|
+| `ErrNoEnricherConfigured`   | `NewEnricher` was called but no adapter is registered                   |
+| `ErrInvalidCWEID`           | A CWE identifier failed format validation                               |
+| `ErrEmptyRequest`           | `EnrichRequest.CWEs` was empty                                          |
+| `ErrMissingAPIKey`          | An adapter that requires an API key found none in the environment       |
+
+---
+
+## Validation
+
+`validate.go` exposes three functions. All three accept both canonical (`CWE-N`)
+and MITRE URL (`https://cwe.mitre.org/data/definitions/N.html`) forms and
+normalize to canonical.
+
+### `NormalizeCWEID(input string) (string, error)`
+
+Returns the canonical `CWE-N` form. Returns an error wrapping `ErrInvalidCWEID`
+if the input matches neither accepted form or contains non-digit characters in
+the numeric segment.
+
+### `ValidateCWEID(input string) error`
 
-Each adapter is responsible for its own caching. NVD updates daily, CISA KEV updates weekly, and EPSS updates daily — different sources
-have different freshness rules, and a single cache TTL at the orchestrator level cannot honor all of them correctly.
+Returns `nil` for valid input. Equivalent to calling `NormalizeCWEID` and
+discarding the normalized string. Use when only validity matters.
 
-Adapters may cache, must honor explicit cache bypass via `EnrichRequest.BypassCache`, and must treat cache state as a performance optimization rather than a correctness guarantee.
- 
-### 6. Adapter-side rate limiting
+### `NormalizeCWEIDs(inputs []string) (valid []string, errs []error)`
 
-Each adapter is responsible for honoring its source's rate limits. NVD's public API permits 5 requests per 30 seconds without an API
-key and 50 requests per 30 seconds with one. CISA KEV is a single bulk download. Each adapter manages its own throttling internally
-and respects context cancellation while waiting.
+Bulk normalization. Returns two slices: canonical IDs that passed validation and
+errors for those that did not. Rejects input slices larger than 10,000 entries
+with a single error. Does not deduplicate.
 
-### 7. Concurrency safety expectations
+**Validation rules enforced by all three functions:**
 
-The orchestrator may invoke adapters concurrently when multiple sources are configured. Adapter implementations must therefore be
-safe to call concurrently. Adapters that maintain internal state (rate limiters, caches, connection pools) must protect that state.
+- Input must have the prefix `CWE-` (canonical) or match the MITRE URL pattern.
+- The numeric segment following `CWE-` must be one or more ASCII digits only.
+- Minimum total length of the canonical form is 5 characters (`CWE-` + one digit).
+- No Unicode digits; only bytes `0x30`--`0x39` are accepted.
 
-### 8. CVE ID validation
+---
 
-CVE identifiers are validated against `^CVE-\d{4}-\d{4,}$` at three points: when extracted from registry references, when added to an
-`EnrichRequest`, and when an adapter constructs URLs or query strings. Invalid identifiers are rejected before any network call or string
-construction occurs.
+## Interface
 
-This belt-and-suspenders validation prevents injection of crafted identifiers into URLs, query strings, or downstream parsing logic.
+### `Enricher`
 
-### 9. API key handling
+```go
+type Enricher interface {
+    Enrich(ctx context.Context, req EnrichRequest) (Result, error)
+    Source() Source
+}
+```
 
-API keys are read only from environment variables. Keys are never read from configuration files committed to disk, never written to logs,
-and never serialized into audit results or rendered output. Adapters that require keys but cannot find them in the environment return an
-initialization error.
+Every adapter implements this interface. Implementations must be safe for
+concurrent use. `Source()` returns the `Source` constant for that adapter,
+used by the orchestrator for attribution and logging.
 
-### 10. Local audit independence
+### `NewEnricher() (Enricher, error)`
 
-Enrichment failures never affect local audit results. The audit `Result` is fully populated by local checks before enrichment is
-invoked. If enrichment fails entirely, the result still contains complete local findings and the failure is surfaced separately to
-the user with guidance on how to investigate.
+Returns the configured enricher. Until at least one adapter is registered,
+`NewEnricher` returns `nil, ErrNoEnricherConfigured`. This is the correct
+production state while no adapters exist.
 
-### 11. Error returned when no enricher is configured
+---
 
-In the scaffolding branch, no adapter implementations are shipped. `NewEnricher` returns `ErrNoEnricherConfigured`. The orchestrator
-detects this condition and surfaces a clear message to the user explaining that enrichment is not yet available, while still
-completing the local audit normally.
+## How enrichment is orchestrated
 
-A no-op implementation that silently returns empty results was not shipped because it would hide from the user that enrichment did
-nothing. Returning a typed error makes the system's current capability honest to the user.
+The orchestration path lives in `internal/security/audit/audit.go`. The sequence
+is:
 
-## Implementing a New Enrichment Source
+1. `RunAudit` or `runAllChecks` completes all local checkers.
+2. `finalize` is called on the result.
+3. `finalize` calls `aggregateReferences` which calls `AllCWEReferences()` across
+   every `AuditResult.Findings` slice and stores the deduplicated extraction in
+   `audit.Result.References`.
+4. If `Options.Enrich` is false, `finalize` returns.
+5. `NewEnricher()` is called. If it returns `ErrNoEnricherConfigured`, the error
+   is stored in `audit.Result.EnrichmentError` and `finalize` returns. Local
+   results are unaffected.
+6. If `References.CWEs` is empty, `finalize` returns without calling the enricher.
+7. Otherwise `Enrich` is called with a context scoped to `Options.Timeout`.
+8. On success, `*enrichment.Result` is stored in `audit.Result.Enrichment`.
+9. On failure, the error is stored in `audit.Result.EnrichmentError`.
 
-This section is for contributors adding a new adapter.
+`audit.Result.EnrichmentRequested` is always set from `Options.Enrich`
+regardless of outcome, so the renderer can distinguish "not requested" from
+"requested but failed."
 
-### Package placement
+### `audit.Options.Enrich`
 
-Each adapter lives in its own file within `internal/security/enrichment/`. The file is named after the source: `nvd.go` for the NVD adapter, `kev.go` for CISA KEV, and so on. The type implementing the `Enricher` interface follows the same convention: `nvdEnricher`, `kevEnricher`.
+```go
+type Options struct {
+    // ...
+    Enrich bool
+}
+```
 
-### Interface conformance
+Set by `security_audit --enrich` / `-e` and `all --enrich` / `-e`.
 
-The adapter type must satisfy the `Enricher` interface defined in `enricher.go`. Both `Enrich` and any required initialization functions
-must be implemented. The constructor for the adapter returns the interface type, not the concrete type, to keep the orchestrator
-decoupled from implementations.
+### `audit.Result` enrichment fields
 
-### Validation requirements
+```go
+type Result struct {
+    // ...
+    EnrichmentRequested bool
+    EnrichmentError     error
+    Enrichment          *enrichment.Result
+    References          types.ReferenceExtraction
+}
+```
 
-CVE identifiers received in an `EnrichRequest` must be re-validated inside the adapter before being used in any network call or string
-construction. The orchestrator validates at the boundary, but adapters are responsible for their own input safety.
+`References` is always populated after `finalize` regardless of whether
+enrichment was requested. It is reused by the renderer to drive the enrichment
+output section.
 
-### Caching expectations
+---
 
-If the adapter caches results, the cache must honor the `BypassCache` field on `EnrichRequest`. Cache invalidation rules must
-match the source's freshness guarantees. The cache must not be the sole source of truth — a cache miss must always fall back to the
-live source.
+## Reference extraction
 
-### Rate limiting expectations
+The bridge between registry findings and enrichment input is in
+`internal/security/types/types.go`.
+
+### `Finding.CWEReferences() ReferenceExtraction`
 
-The adapter must enforce the source's published rate limits internally. Waiting for rate limit windows must respect context
-cancellation so the orchestrator can cancel the operation if the overall audit times out.
+Iterates `Finding.References`, normalizes every entry with `Type == "CWE"` via
+`enrichment.NormalizeCWEID`, deduplicates by canonical ID, and separates
+non-CWE references into `ReferenceExtraction.Other`. Normalization failures are
+collected into `ReferenceExtraction.Errors`.
 
-### Error handling
+### `AuditResult.AllCWEReferences() ReferenceExtraction`
 
-Errors that affect specific CVEs go into `EnrichmentFailure` entries in the `Failures` map of the result. Errors that prevent the adapter
-from functioning at all (initialization failure, missing API key, total network failure) are returned as the function's error value.
-Partial success is the normal case — an adapter that successfully enriches some CVEs and fails on others should return both the
-successes and the failures.
+Aggregates `CWEReferences()` across all findings in one `AuditResult`.
+Deduplication is applied across the full set; order matches first occurrence.
+Errors from all findings are concatenated.
 
-### Source attribution
+### `ReferenceExtraction`
 
-When the adapter populates a field on `CVEEnrichment`, it must also populate the corresponding source tag identifying itself. This is
-how analysts trace which source provided which data point. Adapter implementations use a stable source identifier (the exported package
-constant `SourceNVD`, `SourceKEV`, etc.) rather than free-form strings.
+```go
+type ReferenceExtraction struct {
+    CWEs   []string
+    Errors []error
+    Other  []ClassifiedReference
+}
+```
 
-### Testing
+`CWEs` is the input to `EnrichRequest.CWEs`. `Errors` are surfaced in the
+rendered output's reference parsing errors section. `Other` is available for
+future use.
 
-Each adapter ships with unit tests covering the success path, partial failure path, total failure path, rate limit behavior under context
-cancellation, and validation rejection of malformed input. Network calls in tests are mocked. Integration tests against the live source
-live in a build-tagged file and are not run in CI by default.
+### `ClassifiedReference`
 
-## Future Enrichment Sources
+```go
+type ClassifiedReference struct {
+    Type  string
+    Value string
+}
+```
 
-The following sources are candidates for future adapter implementation, in approximate priority order.
+A non-CWE reference from a finding, annotated with its `RefType*` classification.
 
-NVD (National Vulnerability Database) provides the foundational CVE data including current CVSS scoring, affected configurations,
-references, and publication metadata. The first adapter implementation targets NVD v2 API.
+---
 
-CISA KEV (Known Exploited Vulnerabilities catalog) identifies CVEs with confirmed exploitation in the wild. Adds a critical signal for
-prioritization beyond CVSS scoring alone.
+## Registry integration
 
-EPSS (Exploit Prediction Scoring System) provides probability scores for likelihood of exploitation within 30 days. Complements KEV by
-offering forward-looking risk signal for CVEs not yet exploited.
+`Finding.References` is populated in every checker via
+`registry.FindingDefinition.ToReferences()`. Checkers call `registry.Lookup` to
+retrieve the `FindingDefinition` for a key, then assign the return of
+`ToReferences()` to the `Finding.References` field.
 
-GHSA (GitHub Security Advisories) provides curated advisory data with detailed remediation guidance, often with patch availability and
-affected version ranges more precise than NVD.
+### `FindingDefinition.ToReferences() []types.Reference`
 
-## Documentation Format for Future Updates
+Converts the flat `[]string` YAML `references` field into `[]types.Reference`.
+Each string is classified by `classifyReference` using the following rules (in
+priority order):
 
-Files under `docs/dev_guide/` follow this structure:
+| Prefix / pattern                                  | Assigned `Type`  |
+|---------------------------------------------------|------------------|
+| `CWE-` or `https://cwe.mitre.org/`               | `RefTypeCWE`     |
+| `CVE-` or `https://nvd.nist.gov/vuln/detail/CVE-`| `RefTypeCVE`     |
+| `CIS `                                            | `RefTypeCIS`     |
+| `NIST `                                           | `RefTypeNIST`    |
+| `MITRE `                                          | `RefTypeMITRE`   |
+| `https://` or `http://`                           | `RefTypeURL`     |
+| anything else                                     | `RefTypeOther`   |
 
-1. **Overview** — what the subsystem does, where it lives, when it runs. Keep to a few paragraphs.
+CWE references get a generated MITRE URL in `Reference.URL`. CVE references get
+a generated NVD URL. Other types populate only `Title`.
 
-2. **Design Decisions** — numbered list of decisions made during implementation. Each decision gets a brief heading and a few
-   paragraphs of rationale. Rationale describes why the decision was made and what it achieves. Decisions that were considered and
-   rejected are not documented unless the contrast is necessary to explain the current behavior.
+---
 
-3. **Implementing a New X** — contributor guide for extending the subsystem. Step-by-step instructions for adding new
-   implementations, with subsections covering placement, interface conformance, validation, error handling, and testing.
+## Rendering
 
-4. **Future X** — candidates discussed for future implementation in approximate priority order. Brief descriptions only; full design
-   decisions for each future item are documented when that item is actually implemented.
+Rendering lives in two places.
 
-5. **Documentation Format for Future Updates** — only the first subsystem document includes this section, to establish the
-   pattern. Subsequent documents follow the established format without repeating these instructions.
+**`internal/security/formatter/formatter.go`** handles JSON and YAML output
+via `prepareOutput`, which populates the following template keys when
+`enrichment_requested` is true:
 
-Section headers use `##` for top-level sections and `###` for subsections. Code blocks use language tags when the language is
-unambiguous. Line wrapping is at 72 columns to keep diffs readable. File names, type names, and function names use inline code
-formatting. Cross-references to other documents in `docs/dev_guide/` use relative paths.
+| Key                   | Source                                          |
+|-----------------------|-------------------------------------------------|
+| `enrichment_requested`| `audit.Result.EnrichmentRequested`             |
+| `enrichment_error`    | `audit.Result.EnrichmentError.Error()` or `""` |
+| `reference_cwes`      | `audit.Result.References.CWEs`                 |
+| `reference_errors`    | `formatReferenceErrors(result.References.Errors)` |
+| `enrichment_entries`  | `buildEnrichmentEntries(result)`               |
+| `enrichment_failures` | `buildEnrichmentFailures(result)`              |
+
+**`cmd/commands/security/security.go`** handles plain-text output via
+`renderEnrichmentBlock` and `renderReferenceErrors`. These are called from
+`formatText` (the text-mode output path) and implement the six rendering states
+described in the output design.
+
+### Rendering states (text mode)
+
+| Condition                                          | Output                                              |
+|----------------------------------------------------|-----------------------------------------------------|
+| `EnrichmentError != nil`                           | `Unavailable: <error>`                              |
+| `References.CWEs` empty                            | `No CWE references found in current findings.`      |
+| `Enrichment == nil`                                | `No enrichment data returned.`                      |
+| CWE present in `Successes`, status `NO_MATCHES`    | `No CVE matches in queried sources.`                |
+| CWE present in `Successes` with matches            | CVE list with severity symbol, score, source        |
+| `Enrichment.Failures` non-empty                    | Per-CWE failure with retryable indicator            |
+
+`References.Errors` (reference parsing errors) always render when non-empty,
+regardless of which enrichment state applies.
+
+---
+
+## Adapter authoring guide
+
+Adapters are not yet implemented. When writing the first adapter, follow these
+requirements.
+
+### Location
+
+Each adapter gets its own subdirectory under `internal/security/enrichment/`:
+
+```
+internal/security/enrichment/nvd/
+    nvd.go
+```
+
+The adapter package must not import `types`, `registry`, `audit`, or any other
+internal orkowatch package. The enrichment package is a leaf; adapters extend it
+as siblings, not dependents.
+
+### Interface
+
+The adapter type must satisfy `enrichment.Enricher`:
+
+```go
+func (a *NVDAdapter) Enrich(ctx context.Context, req enrichment.EnrichRequest) (enrichment.Result, error)
+func (a *NVDAdapter) Source() enrichment.Source
+```
+
+### Validation
+
+Call `enrichment.NormalizeCWEIDs(req.CWEs)` at the start of `Enrich`. Return
+`enrichment.ErrEmptyRequest` if the normalized slice is empty after validation.
+Record per-CWE normalization errors as `Failure` entries in the result.
+
+### API keys
+
+Read API keys from environment variables only. Never log, serialize, or return
+key material. Return `enrichment.ErrMissingAPIKey` when a required key is absent.
+Document the expected environment variable name in the adapter's package comment.
+
+### Caching
+
+Implement caching inside the adapter. Cache freshness rules differ per source;
+the adapter owns that logic. `EnrichRequest.BypassCache` must skip the cache
+when true.
+
+### Rate limiting
+
+Implement rate limiting inside the adapter. Do not rely on callers to throttle.
+
+### Concurrency
+
+Adapters must be safe for concurrent invocation. The orchestrator may call
+`Enrich` from multiple goroutines.
+
+### Result population
+
+For each CWE that returns results, populate a `CWEEnrichment` entry in
+`Result.Successes` with the canonical CWE ID as the key. Set `Status` to the
+appropriate constant. For each failure, populate `Result.Failures` with the
+canonical CWE ID as the key. Set `Retryable` accurately -- it is displayed to
+the user and used to decide whether a retry is appropriate.
+
+### Registering the adapter
+
+Update `NewEnricher` in `enricher.go` to return the configured adapter once at
+least one is available. Multi-adapter orchestration (concurrent fan-out via
+`errgroup`) is the planned model; `NewEnricher` will evolve accordingly.
+
+---
+
+## YAML registry -- adding references
+
+The reference strings in each YAML file are the source of all CWE input to the
+enrichment subsystem. The classifier in `ToReferences` determines what gets
+extracted as a CWE.
+
+To add a CWE reference to an existing finding, add an entry to the `references`
+list in the relevant YAML file using canonical form:
+
+```yaml
+ssh.weak_algorithms:
+  title: Weak SSH Key Exchange Algorithms Enabled
+  severity: HIGH
+  references:
+    - CWE-326
+    - CWE-327
+    - NIST SP 800-57
+```
+
+Both `CWE-N` and the full MITRE URL are accepted. The classifier normalizes
+both to canonical form before extraction. Only strings that pass CWE validation
+will appear in `EnrichRequest.CWEs`; malformed entries are collected into
+`ReferenceExtraction.Errors` and surfaced in the rendered output.
+
+YAML files are embedded at compile time via `go:embed`. Changes take effect on
+the next build.
