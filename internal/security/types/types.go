@@ -4,6 +4,8 @@ package types
 import (
 	"fmt"
 	"time"
+
+	"github.com/papa0four/orkowatch/internal/security/enrichment"
 )
 
 // Status symbols for check results
@@ -71,6 +73,20 @@ type ValidationError struct {
 	Message string
 }
 
+// ClassifiedReference is a non-CWE reference annotated by type.
+type ClassifiedReference struct {
+	Type  string
+	Value string
+}
+
+// ReferenceExtraction separates valid CWEs from malformed CWE attempts
+// and non-CWE references.
+type ReferenceExtraction struct {
+	CWEs   []string
+	Errors []error
+	Other  []ClassifiedReference
+}
+
 func (e *ValidationError) Error() string {
 	return fmt.Sprintf("validation error in %s: %s - %s", e.Checker, e.Field, e.Message)
 }
@@ -89,4 +105,60 @@ func SeverityFormat(severity string) (symbol, label string) {
 	default:
 		return SymbolInfo, severity
 	}
+}
+
+// CWEReferences returns the CWE IDs referenced by this
+// finding, deduplicated. Order matches first occurrence.
+func (f *Finding) CWEReferences() ReferenceExtraction {
+	var ext ReferenceExtraction
+	if len(f.References) == 0 {
+		return ext
+	}
+	seen := make(map[string]struct{}, len(f.References))
+	for _, ref := range f.References {
+		if ref.Type == "CWE" {
+			id, err := enrichment.NormalizeCWEID(ref.URL)
+			if err != nil {
+				id, err = enrichment.NormalizeCWEID(ref.Title)
+			}
+			if err != nil {
+				ext.Errors = append(ext.Errors, err)
+				continue
+			}
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			ext.CWEs = append(ext.CWEs, id)
+			continue
+		}
+		ext.Other = append(ext.Other, ClassifiedReference{
+			Type:  ref.Type,
+			Value: ref.Title,
+		})
+	}
+	return ext
+}
+
+// AllCWEReferences returns the canonical CWE IDs across all findings
+// in this result, deduplicated. Order matches first occurrence.
+func (r *AuditResult) AllCWEReferences() ReferenceExtraction {
+	var ext ReferenceExtraction
+	if len(r.Findings) == 0 {
+		return ext
+	}
+	seen := make(map[string]struct{})
+	for i := range r.Findings {
+		sub := r.Findings[i].CWEReferences()
+		for _, id := range sub.CWEs {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			ext.CWEs = append(ext.CWEs, id)
+		}
+		ext.Errors = append(ext.Errors, sub.Errors...)
+		ext.Other = append(ext.Other, sub.Other...)
+	}
+	return ext
 }

@@ -129,6 +129,7 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 	}
@@ -534,6 +535,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 							Description: def.Description,
 							Impact:      def.Impact,
 							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
 						})
 					}
 				}
@@ -561,6 +563,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 						Description: def.Description,
 						Impact:      def.Impact,
 						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
 					})
 				}
 			}
@@ -586,6 +589,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 								Description: def.Description,
 								Impact:      def.Impact,
 								Resolution:  def.Resolution,
+								References:  def.ToReferences(),
 							})
 						}
 					}
@@ -700,6 +704,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		} else if !user.Enabled {
@@ -719,6 +724,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 						Description: def.Description,
 						Impact:      def.Impact,
 						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
 					})
 				}
 				noPasswordFindingAdded = true
@@ -761,6 +767,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		}
