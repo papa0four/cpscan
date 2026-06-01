@@ -321,6 +321,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *
 						Description: def.Description,
 						Impact:      def.Impact,
 						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
 					})
 				}
 				everyoneFindingAdded = true
@@ -338,6 +339,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *
 						Description: def.Description,
 						Impact:      def.Impact,
 						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
 					})
 				}
 				usersFindingAdded = true
@@ -386,6 +388,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(result *types.AuditResult)
 						Description: def.Description,
 						Impact:      def.Impact,
 						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
 					})
 				}
 				adminShareFindingAdded = true

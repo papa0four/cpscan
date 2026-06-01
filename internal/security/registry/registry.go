@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // Platform identifies the host OS family
@@ -47,6 +49,17 @@ const (
 	// Non-Linux Platforms
 	DistroNone    Distro = ""
 	DistroUnknown Distro = "uknown"
+)
+
+// Reference type classifications produced by ToReferences.
+const (
+	RefTypeCVE   = "CVE"
+	RefTypeCWE   = "CWE"
+	RefTypeCIS   = "CIS"
+	RefTypeNIST  = "NIST"
+	RefTypeMITRE = "MITRE"
+	RefTypeURL   = "URL"
+	RefTypeOther = "OTHER"
 )
 
 // OSContext obtains full platform and distro info to pass to auditor before registry lookups
@@ -301,4 +314,60 @@ func containsDistro(families []Distro, d Distro) bool {
 		}
 	}
 	return false
+}
+
+// ToReferences classifies flat YAML reference strings into
+// structured types.Reference entries by kind.
+func (d FindingDefinition) ToReferences() []types.Reference {
+	if len(d.References) == 0 {
+		return nil
+	}
+	out := make([]types.Reference, 0, len(d.References))
+	for _, raw := range d.References {
+		out = append(out, classifyReference(raw))
+	}
+	return out
+}
+
+func classifyReference(raw string) types.Reference {
+	trimmed := strings.TrimSpace(raw)
+
+	switch {
+	case isCWEReference(trimmed):
+		return types.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
+	case isCVEReference(trimmed):
+		return types.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
+	case strings.HasPrefix(trimmed, "CIS "):
+		return types.Reference{Title: trimmed, Type: RefTypeCIS}
+	case strings.HasPrefix(trimmed, "NIST "):
+		return types.Reference{Title: trimmed, Type: RefTypeNIST}
+	case strings.HasPrefix(trimmed, "MITRE "):
+		return types.Reference{Title: trimmed, Type: RefTypeMITRE}
+	case strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://"):
+		return types.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
+	default:
+		return types.Reference{Title: trimmed, Type: RefTypeOther}
+	}
+}
+
+func isCWEReference(s string) bool {
+	return strings.HasPrefix(s, "CWE-") || strings.HasPrefix(s, "https://cwe.mitre.org/")
+}
+
+func isCVEReference(s string) bool {
+	return strings.HasPrefix(s, "CVE-") || strings.HasPrefix(s, "https://nvd.nist.gov/vuln/detail/CVE-")
+}
+
+func cweURL(s string) string {
+	if strings.HasPrefix(s, "https://") {
+		return s
+	}
+	return "https://cwe.mitre.org/data/definitions/" + strings.TrimPrefix(s, "CWE-") + ".html"
+}
+
+func cveURL(s string) string {
+	if strings.HasPrefix(s, "https://") {
+		return s
+	}
+	return "https://nvd.nist.gov/vuln/detail/" + s
 }

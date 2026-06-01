@@ -22,6 +22,7 @@ var (
 	allReportFile   string
 	skipModules     []string
 	allTimeout      time.Duration
+	allEnrich       bool
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -60,6 +61,8 @@ func init() {
 		"Modules to skip (comma-separated: os,software,security)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
+	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
+		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 
 	RootCmd.AddCommand(allCmd)
 }
@@ -182,6 +185,7 @@ func runSecurityAuditModule() (*audit.Result, error) {
 		Verbose:     allVerbose,
 		MinSeverity: "LOW",
 		Timeout:     allTimeout / 3,
+		Enrich:      allEnrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)

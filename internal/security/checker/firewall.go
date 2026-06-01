@@ -153,6 +153,7 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 	}
@@ -184,6 +185,7 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 	} else {
