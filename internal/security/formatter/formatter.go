@@ -142,6 +142,15 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 		}
 	}
 	output["has_findings"] = hasFindings
+	output["enrichment_requested"] = result.EnrichmentRequested
+	output["enrichment_error"] = ""
+	if result.EnrichmentError != nil {
+		output["enrichment_error"] = result.EnrichmentError.Error()
+	}
+	output["reference_cwes"] = result.References.CWEs
+	output["reference_errors"] = formatReferenceErrors(result.References.Errors)
+	output["enrichment_entries"] = buildEnrichmentEntries(result)
+	output["enrichment_failures"] = buildEnrichmentFailures(result)
 
 	return output
 }
@@ -212,6 +221,65 @@ func isSeverityRelevant(findingSeverity, minSeverity string) bool {
 	return findingLevel >= minLevel
 }
 
+func formatReferenceErrors(errs []error) []string {
+	out := make([]string, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, e.Error())
+	}
+	return out
+}
+
+func buildEnrichmentEntries(result *audit.Result) []map[string]interface{} {
+	if result.Enrichment == nil {
+		return nil
+	}
+	out := make([]map[string]interface{}, 0, len(result.References.CWEs))
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		matches := make([]map[string]interface{}, 0, len(entry.MatchedCVEs))
+		for _, match := range entry.MatchedCVEs {
+			symbol, label := types.SeverityFormat(match.CVSSSeverity)
+			matches = append(matches, map[string]interface{}{
+				"cve_id":          match.CVEID,
+				"source":          string(match.Source),
+				"cvss_base_score": match.CVSSBaseScore,
+				"cvss_severity":   match.CVSSSeverity,
+				"symbol":          symbol,
+				"label":           label,
+				"description":     match.Description,
+				"known_exploited": match.KnownExploited,
+				"patch_available": match.PatchAvailable,
+			})
+		}
+		out = append(out, map[string]interface{}{
+			"cwe_id":        cwe,
+			"weakness_name": entry.WeaknessName,
+			"no_matches":    string(entry.Status) == "NO_MATCHES" || len(matches) == 0,
+			"matches":       matches,
+		})
+	}
+	return out
+}
+
+func buildEnrichmentFailures(result *audit.Result) []map[string]interface{} {
+	if result.Enrichment == nil || len(result.Enrichment.Failures) == 0 {
+		return nil
+	}
+	out := make([]map[string]interface{}, 0, len(result.Enrichment.Failures))
+	for cwe, failure := range result.Enrichment.Failures {
+		out = append(out, map[string]interface{}{
+			"cwe_id":    cwe,
+			"source":    string(failure.Source),
+			"reason":    failure.Reason,
+			"retryable": failure.Retryable,
+		})
+	}
+	return out
+}
+
 // Default text template
 const defaultTemplate = `Security Audit Report
 ====================
@@ -239,7 +307,23 @@ Duration: {{.duration}}
 {{end}}{{end}}{{end}}{{end}}{{if and $.verbose .details}}Raw Diagnostic Output:
 {{range .details}}  {{.}}
 {{end}}{{end}}
-{{end}}
+{{end}}{{if .enrichment_requested}}
+Enrichment:
+{{if .enrichment_error}}  Unavailable: {{.enrichment_error}}
+{{else if not .reference_cwes}}  No CWE references found in current findings.
+{{else if not .enrichment_entries}}  No enrichment data returned.
+{{else}}{{range .enrichment_entries}}  {{.cwe_id}}{{if .weakness_name}} - {{.weakness_name}}{{end}}
+{{if .no_matches}}    No CVE matches in queried sources.
+{{else}}{{range .matches}}    {{.symbol}} {{.label}}  {{.cve_id}} ({{printf "%.1f" .cvss_base_score}}) [{{.source}}]
+{{if $.verbose}}{{if .description}}      Description: {{.description}}
+{{end}}{{if .known_exploited}}      Known Exploited: yes
+{{end}}{{if .patch_available}}      Patch Available: yes
+{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .enrichment_failures}}
+  Failed enrichments:
+{{range .enrichment_failures}}    {{.cwe_id}} [{{.source}}]: {{.reason}}{{if .retryable}} (retryable){{end}}
+{{end}}{{end}}{{if .reference_errors}}  Reference parsing errors:
+{{range .reference_errors}}    {{.}}
+{{end}}{{end}}{{end}}
 Summary:
 Checks Run: {{.summary.total_checks}}
 Passed:     {{.summary.passed_checks}}

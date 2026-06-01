@@ -2,6 +2,7 @@
 package audit
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/checker"
+	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
@@ -34,16 +36,21 @@ type Options struct {
 	SkipChecks     []string
 	MinSeverity    string
 	Timeout        time.Duration
+	Enrich         bool
 }
 
 // Result represents the complete audit results
 type Result struct {
-	StartTime  time.Time
-	EndTime    time.Time
-	Duration   time.Duration
-	Results    []types.AuditResult
-	SystemInfo SystemInfo
-	Summary    Summary
+	StartTime           time.Time
+	EndTime             time.Time
+	Duration            time.Duration
+	Results             []types.AuditResult
+	SystemInfo          SystemInfo
+	Summary             Summary
+	EnrichmentRequested bool
+	EnrichmentError     error
+	Enrichment          *enrichment.Result
+	References          types.ReferenceExtraction
 }
 
 // SystemInfo contains basic system information
@@ -94,9 +101,10 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 // RunAudit performs the security audit with the specified options
 func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 	result := &Result{
-		StartTime:  time.Now(),
-		SystemInfo: getSystemInfo(),
-		Results:    make([]types.AuditResult, 0),
+		StartTime:           time.Now(),
+		SystemInfo:          getSystemInfo(),
+		Results:             make([]types.AuditResult, 0),
+		EnrichmentRequested: sa.options.Enrich,
 	}
 
 	if len(sa.options.SpecificChecks) > 0 {
@@ -121,15 +129,11 @@ func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 				result.Results = append(result.Results, checkResult)
 			}
 		}
-	} else {
-		return sa.runAllChecks(result)
+		sa.finalize(result)
+		return result, nil
 	}
 
-	result.EndTime = time.Now()
-	result.Duration = result.EndTime.Sub(result.StartTime)
-	result.Summary = sa.calculateSummary(result.Results)
-
-	return result, nil
+	return sa.runAllChecks(result)
 }
 
 func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
@@ -186,11 +190,62 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		result.Results = append(result.Results, checkResult)
 	}
 
+	sa.finalize(result)
+	return result, nil
+}
+
+func (sa *SecurityAuditor) finalize(result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 	result.Summary = sa.calculateSummary(result.Results)
+	result.References = aggregateReferences(result.Results)
 
-	return result, nil
+	if !sa.options.Enrich {
+		return
+	}
+
+	enricher, err := enrichment.NewEnricher()
+	if err != nil {
+		result.EnrichmentError = err
+		return
+	}
+
+	if len(result.References.CWEs) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sa.options.Timeout)
+	defer cancel()
+
+	req := enrichment.EnrichRequest{
+		CWEs:        result.References.CWEs,
+		MinSeverity: sa.options.MinSeverity,
+	}
+
+	enrichResult, err := enricher.Enrich(ctx, req)
+	if err != nil {
+		result.EnrichmentError = err
+		return
+	}
+	result.Enrichment = &enrichResult
+}
+
+func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction {
+	var ext types.ReferenceExtraction
+	seen := make(map[string]struct{})
+	for i := range results {
+		sub := results[i].AllCWEReferences()
+		for _, id := range sub.CWEs {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			ext.CWEs = append(ext.CWEs, id)
+		}
+		ext.Errors = append(ext.Errors, sub.Errors...)
+		ext.Other = append(ext.Other, sub.Other...)
+	}
+	return ext
 }
 
 func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {

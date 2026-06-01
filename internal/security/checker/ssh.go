@@ -90,6 +90,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 		return result
@@ -143,6 +144,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		} else {
@@ -159,6 +161,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 	}
@@ -175,6 +178,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		} else {
@@ -191,6 +195,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 				Description: def.Description,
 				Impact:      def.Impact,
 				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
 			})
 		}
 	}
@@ -233,6 +238,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		default:
@@ -305,6 +311,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 								Description: def.Description,
 								Impact:      def.Impact,
 								Resolution:  def.Resolution,
+								References:  def.ToReferences(),
 							})
 						}
 					} else {
@@ -324,6 +331,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 								Description: def.Description,
 								Impact:      def.Impact,
 								Resolution:  def.Resolution,
+								References:  def.ToReferences(),
 							})
 						}
 					} else {
@@ -342,6 +350,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 					Description: def.Description,
 					Impact:      def.Impact,
 					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
 				})
 			}
 		}
