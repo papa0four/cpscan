@@ -32,6 +32,7 @@ type WindowsSSHChecker struct {
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths
 func NewUnixSSHChecker(ctx registry.OSContext) *UnixSSHChecker {
 	return &UnixSSHChecker{
+		ctx: ctx,
 		ConfigPaths: []string{
 			"/etc/ssh/sshd_config",
 			"/private/etc/ssh/sshd_config", // macOS path

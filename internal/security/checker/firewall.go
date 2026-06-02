@@ -16,7 +16,9 @@ type FirewallChecker interface {
 }
 
 // UnixFirewallChecker implements FirewallChecker for Unix-like systems
-type UnixFirewallChecker struct{}
+type UnixFirewallChecker struct {
+	ctx registry.OSContext
+}
 
 // WindowsFirewallChecker implements FirewallChecker for Windows systems
 type WindowsFirewallChecker struct {
@@ -24,8 +26,8 @@ type WindowsFirewallChecker struct {
 }
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
-func NewUnixFirewallChecker() *UnixFirewallChecker {
-	return &UnixFirewallChecker{}
+func NewUnixFirewallChecker(ctx registry.OSContext) *UnixFirewallChecker {
+	return &UnixFirewallChecker{ctx: ctx}
 }
 
 // NewWindowsFirewallChecker creates a new Windows firewall checker
@@ -94,6 +96,16 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 		result.Description = "No active firewall detected"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
+		if def, ok := registry.Lookup(f.ctx, "firewall.no_active_manager"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)

@@ -90,7 +90,7 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx)
 	default:
 		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
-		auditor.firewallChecker = checker.NewUnixFirewallChecker()
+		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
 		auditor.userChecker = checker.NewUnixUserChecker(ctx)
 		auditor.permissionChecker = checker.NewUnixPermissionChecker()
 	}
