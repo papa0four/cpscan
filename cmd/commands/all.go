@@ -13,7 +13,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/formatter"
-	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -23,6 +22,7 @@ var (
 	allReportFile   string
 	skipModules     []string
 	allTimeout      time.Duration
+	allEnrich       bool
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -61,6 +61,8 @@ func init() {
 		"Modules to skip (comma-separated: os,software,security)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
+	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
+		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 
 	RootCmd.AddCommand(allCmd)
 }
@@ -183,6 +185,7 @@ func runSecurityAuditModule() (*audit.Result, error) {
 		Verbose:     allVerbose,
 		MinSeverity: "LOW",
 		Timeout:     allTimeout / 3,
+		Enrich:      allEnrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -209,12 +212,16 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 	}
 
 	return &audit.Result{
-		StartTime:  scan.Timestamp,
-		EndTime:    scan.Timestamp.Add(scan.Duration),
-		Duration:   scan.Duration,
-		Results:    scan.SecurityAudit.Results,
-		SystemInfo: sysInfo,
-		Summary:    scan.SecurityAudit.Summary,
+		StartTime:           scan.Timestamp,
+		EndTime:             scan.Timestamp.Add(scan.Duration),
+		Duration:            scan.Duration,
+		Results:             scan.SecurityAudit.Results,
+		SystemInfo:          sysInfo,
+		Summary:             scan.SecurityAudit.Summary,
+		EnrichmentRequested: scan.SecurityAudit.EnrichmentRequested,
+		EnrichmentError:     scan.SecurityAudit.EnrichmentError,
+		Enrichment:          scan.SecurityAudit.Enrichment,
+		References:          scan.SecurityAudit.References,
 	}
 }
 
@@ -250,10 +257,6 @@ func outputResults(result *ScanResult) error {
 		return fmt.Errorf("failed to format results: %w", err)
 	}
 
-	if result.SecurityAudit != nil {
-		printCriticalFindings(result.SecurityAudit)
-	}
-
 	return nil
 }
 
@@ -268,32 +271,6 @@ func isModuleSkipped(module string) bool {
 		}
 	}
 	return false
-}
-
-func printCriticalFindings(auditResult *audit.Result) {
-	var criticalCount, highCount int
-
-	for _, result := range auditResult.Results {
-		for _, finding := range result.Findings {
-			switch finding.Severity {
-			case types.SeverityCritical:
-				criticalCount++
-			case types.SeverityHigh:
-				highCount++
-			}
-		}
-	}
-
-	if criticalCount > 0 || highCount > 0 {
-		fmt.Printf("\n%s Critical Security Findings:\n", types.SymbolCritical)
-		if criticalCount > 0 {
-			fmt.Printf("  %d Critical severity issues found\n", criticalCount)
-		}
-		if highCount > 0 {
-			fmt.Printf("  %d High severity issues found\n", highCount)
-		}
-		fmt.Println("\nPlease review the detailed security audit section of the report.")
-	}
 }
 
 // isTerminal checks if the output is going to a terminal

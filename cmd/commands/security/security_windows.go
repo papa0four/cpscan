@@ -18,11 +18,6 @@ func init() {
 func runWindowsAudit(cmd *cobra.Command, args []string) error {
 	checks := buildChecks()
 
-	if len(checks) == 0 && !verbose {
-		fmt.Println("No checks specified. User --help to see available options.")
-		return cmd.Help()
-	}
-
 	if err := validateFlags(); err != nil {
 		return err
 	}

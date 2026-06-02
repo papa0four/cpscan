@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -15,19 +16,23 @@ type FirewallChecker interface {
 }
 
 // UnixFirewallChecker implements FirewallChecker for Unix-like systems
-type UnixFirewallChecker struct{}
+type UnixFirewallChecker struct {
+	ctx registry.OSContext
+}
 
 // WindowsFirewallChecker implements FirewallChecker for Windows systems
-type WindowsFirewallChecker struct{}
+type WindowsFirewallChecker struct {
+	ctx registry.OSContext
+}
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
-func NewUnixFirewallChecker() *UnixFirewallChecker {
-	return &UnixFirewallChecker{}
+func NewUnixFirewallChecker(ctx registry.OSContext) *UnixFirewallChecker {
+	return &UnixFirewallChecker{ctx: ctx}
 }
 
 // NewWindowsFirewallChecker creates a new Windows firewall checker
-func NewWindowsFirewallChecker() *WindowsFirewallChecker {
-	return &WindowsFirewallChecker{}
+func NewWindowsFirewallChecker(ctx registry.OSContext) *WindowsFirewallChecker {
+	return &WindowsFirewallChecker{ctx: ctx}
 }
 
 // firewallTool represents a firewall management tool
@@ -91,6 +96,16 @@ func (f *UnixFirewallChecker) Check() types.AuditResult {
 		result.Description = "No active firewall detected"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
+		if def, ok := registry.Lookup(f.ctx, "firewall.no_active_manager"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)
@@ -111,6 +126,7 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: "Analyzing Windows Firewall Configuration",
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
 	// Check firewall status for all profiles
@@ -127,20 +143,36 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 	// Parse firewall profiles status
 	profiles := parseWindowsFirewallStatus(string(output))
 	activeProfiles := 0
+	inactiveProfiles := 0
 	for profile, state := range profiles {
 		if state {
 			activeProfiles++
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s profile is active", types.SymbolOK, profile))
 		} else {
+			inactiveProfiles++
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: %s profile is inactive", types.SymbolWarning, profile))
 		}
 	}
 
+	// One finding per inactive profile
+	if inactiveProfiles > 0 && activeProfiles > 0 {
+		if def, ok := registry.Lookup(f.ctx, "firewall.profile_inactive"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
+	}
+
 	// Check firewall rules if at least one profile is active
 	if activeProfiles > 0 {
-		cmd = exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name-all", "verbose")
+		cmd = exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose")
 		output, err := cmd.CombinedOutput()
 		if err == nil {
 			rules := parseWindowsFirewallRules(string(output))
@@ -158,6 +190,16 @@ func (f *WindowsFirewallChecker) Check() types.AuditResult {
 		result.Description = "Windows Firewall is disabled for all profiles"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
+		if def, ok := registry.Lookup(f.ctx, "firewall.all_profiles_disabled"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Windows Firewall is active on %d profile(s)", activeProfiles)

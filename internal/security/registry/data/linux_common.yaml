@@ -1,0 +1,431 @@
+# Linux common finding definitions for the orkowatch registry.
+# These findings apply across all Linux distributions regardless of family.
+# Severity tiers follow CVSS v3.1 base score ranges:
+#   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
+# All entries sourced from CIS Distribution Independent Linux Benchmark v2.0.0,
+# NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
+
+# -------------------------
+# SSH checker findings
+# -------------------------
+
+ssh.config_not_found:
+  title: "SSH daemon configuration file not found"
+  severity: "MEDIUM"
+  cvss_score: 5.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+  cwe: "CWE-16"
+  description: >
+    No sshd_config file was found at any expected path. Without an explicit
+    configuration file, sshd falls back to compiled-in defaults which vary
+    by distribution and OpenSSH version. Default configurations frequently
+    permit password authentication and may not restrict root login.
+  impact: >
+    An SSH daemon running without an explicit configuration file may permit
+    password-based authentication, weak ciphers, or root login depending on
+    compiled defaults. The security posture of the service cannot be verified
+    without a configuration file present.
+  resolution: >
+    Create /etc/ssh/sshd_config with explicit directives for
+    PasswordAuthentication, PermitRootLogin, AllowUsers, and cipher
+    suites. Restart sshd after making changes: systemctl restart sshd.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2"
+    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
+    - "https://cwe.mitre.org/data/definitions/16.html"
+
+ssh.root_login_permitted:
+  title: "SSH PermitRootLogin is not explicitly disabled"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-250"
+  description: >
+    PermitRootLogin is not set to no in sshd_config. Direct root login
+    over SSH gives an attacker full system control upon credential compromise
+    with no privilege escalation step required. OpenSSH defaults vary by
+    version — absence of this directive is not safe.
+  impact: >
+    A successful brute-force, credential stuffing, or key theft attack
+    against the root account yields immediate full control of the host.
+    No additional exploitation step is required post-authentication.
+    Combined with password authentication, this represents maximum SSH
+    exposure.
+  resolution: >
+    Set PermitRootLogin no in /etc/ssh/sshd_config and restart sshd.
+    Administrative access should use key-based authentication to a
+    non-privileged account followed by explicit privilege escalation
+    via sudo.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+ssh.password_auth_enabled:
+  title: "SSH password authentication is enabled"
+  severity: "HIGH"
+  cvss_score: 7.5
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-521"
+  description: >
+    PasswordAuthentication is set to yes in sshd_config. Password-based
+    SSH authentication is susceptible to brute-force and credential stuffing
+    attacks. Any account reachable via SSH with a weak or reused password
+    is directly at risk.
+  impact: >
+    Automated brute-force tools can systematically attempt credentials
+    against the SSH service. Credential exposure from unrelated data
+    breaches directly translates to SSH access risk for any account
+    with a matching password.
+  resolution: >
+    Set PasswordAuthentication no in /etc/ssh/sshd_config and configure
+    key-based authentication exclusively. Distribute authorized_keys to
+    required users before disabling password auth to avoid lockout.
+    Restart sshd after changes.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
+    - "NIST SP 800-53 Rev 5 IA-5(1) (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/521.html"
+
+ssh.permit_root_login_not_set:
+  title: "PermitRootLogin directive is absent from SSH configuration"
+  severity: "MEDIUM"
+  cvss_score: 5.9
+  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-16"
+  description: >
+    The PermitRootLogin directive was not found in sshd_config. OpenSSH
+    compiled defaults vary by distribution and version. On some systems
+    the default permits root login; on others it does not. Absence of
+    an explicit setting leaves the behavior undefined and
+    distribution-dependent.
+  impact: >
+    Without an explicit PermitRootLogin directive, the effective policy
+    depends on the OpenSSH build configuration for the installed version.
+    System updates or package replacements may silently change the
+    effective default.
+  resolution: >
+    Add PermitRootLogin no explicitly to /etc/ssh/sshd_config regardless
+    of the assumed default. Explicit configuration is always safer than
+    relying on compiled-in defaults.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
+    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
+    - "https://cwe.mitre.org/data/definitions/16.html"
+
+ssh.password_auth_not_set:
+  title: "PasswordAuthentication directive is absent from SSH configuration"
+  severity: "MEDIUM"
+  cvss_score: 5.9
+  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-16"
+  description: >
+    The PasswordAuthentication directive was not found in sshd_config.
+    OpenSSH defaults to permitting password authentication when this
+    directive is absent, meaning the service may accept password-based
+    logins even without explicit configuration.
+  impact: >
+    Password authentication may be silently active. Any account accessible
+    via SSH with a weak or reused password is exposed to brute-force
+    attacks without the operator being aware that password auth is enabled.
+  resolution: >
+    Add PasswordAuthentication no explicitly to /etc/ssh/sshd_config.
+    Configure key-based authentication before disabling password auth
+    to prevent lockout. Restart sshd after changes.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
+    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
+    - "https://cwe.mitre.org/data/definitions/16.html"
+
+# -------------------------
+# Firewall checker findings
+# -------------------------
+
+firewall.no_active_manager:
+  title: "No active firewall manager detected"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-284"
+  description: >
+    None of the recognized firewall managers (iptables, ufw, firewalld,
+    pfctl) are active on this system. The host has no detected host-based
+    packet filtering in place. All listening services are reachable on
+    all interfaces without network-level access control.
+  impact: >
+    Every service bound to a network interface is directly reachable without
+    restriction. This eliminates host-based network controls as a
+    defense-in-depth layer against exploitation, lateral movement, and
+    unauthorized access to internal services.
+  resolution: >
+    Install and enable an appropriate firewall manager for the distribution.
+    On Debian/Ubuntu: ufw enable. On RHEL/Fedora: systemctl enable --now
+    firewalld. Configure rules to permit only required traffic and deny
+    all else by default.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+# -------------------------
+# User checker findings
+# -------------------------
+
+users.empty_password_hash:
+  title: "User account has no password set in /etc/shadow"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-258"
+  description: >
+    One or more user accounts have an empty password hash field in
+    /etc/shadow. An empty hash means the account has no password and
+    can be accessed without any credential on systems where password
+    authentication is permitted.
+  impact: >
+    Any local or remote attacker can authenticate as this user without
+    providing a password. If the account has sudo access or elevated
+    privileges, this represents an immediate critical compromise path
+    requiring no exploitation.
+  resolution: >
+    Set a strong password immediately: passwd <username>. If the account
+    is a service account that should not allow interactive login, lock it:
+    passwd -l <username> and set the shell to /usr/sbin/nologin in
+    /etc/passwd.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.1"
+    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/258.html"
+
+users.uid_zero_non_root:
+  title: "Non-root account has UID 0"
+  severity: "CRITICAL"
+  cvss_score: 9.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cwe: "CWE-250"
+  description: >
+    A user account other than root has been assigned UID 0. On Linux and
+    Unix systems, UID 0 confers full superuser privileges regardless of
+    the account name. Any account with UID 0 is effectively root.
+  impact: >
+    Compromise of any UID 0 account yields complete system control
+    identical to compromising the root account. Multiple UID 0 accounts
+    expand the attack surface for privilege escalation and make audit
+    trails ambiguous — actions appear to come from different accounts
+    but carry identical privileges.
+  resolution: >
+    Immediately reassign a non-zero UID to the affected account or
+    remove it if it is not required: usermod -u <new_uid> <username>.
+    Investigate how UID 0 was assigned and whether unauthorized access
+    occurred. Only the root account should have UID 0.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.5"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+users.root_account_unlocked:
+  title: "Root account is not locked"
+  severity: "MEDIUM"
+  cvss_score: 6.7
+  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-284"
+  description: >
+    The root account is not in a locked state. On systems where
+    administrative access is managed via sudo, the root account itself
+    should be locked to prevent direct root login via password
+    authentication while preserving sudo-based escalation.
+  impact: >
+    An unlocked root account with a password can be targeted directly
+    via SSH brute-force if PermitRootLogin is not explicitly disabled,
+    or via local authentication bypass techniques. Locking root forces
+    all privileged access through auditable sudo paths.
+  resolution: >
+    Lock the root account password: passwd -l root. Ensure sudo is
+    configured to provide necessary administrative access before locking.
+    Verify PermitRootLogin no is set in sshd_config independently.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+users.ldap_configured:
+  title: "LDAP authentication is configured"
+  severity: "LOW"
+  cvss_score: 2.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-287"
+  description: >
+    /etc/ldap.conf is present, indicating LDAP-based authentication is
+    configured. LDAP authentication introduces a network dependency for
+    local login and may expose credentials if the LDAP connection is
+    not encrypted.
+  impact: >
+    If LDAP is configured without TLS/LDAPS, credentials are transmitted
+    in cleartext over the network. An LDAP server outage may prevent
+    local login. Misconfigured LDAP referrals can expose the system to
+    authentication bypass.
+  resolution: >
+    Verify LDAP is configured with TLS (ldaps:// or StartTLS).
+    Ensure a local fallback authentication method exists for system
+    recovery. Review /etc/ldap.conf for cleartext bind credentials.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
+users.kerberos_configured:
+  title: "Kerberos authentication is configured"
+  severity: "LOW"
+  cvss_score: 2.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-287"
+  description: >
+    /etc/krb5.conf is present, indicating Kerberos authentication is
+    configured. Kerberos introduces a KDC dependency for authentication
+    and requires time synchronization within 5 minutes to function
+    correctly.
+  impact: >
+    KDC unavailability or clock skew may prevent authentication. Weak
+    Kerberos encryption types (DES, RC4) in krb5.conf expose ticket
+    traffic to offline cracking. Misconfigured realms may permit
+    cross-realm authentication abuse.
+  resolution: >
+    Review /etc/krb5.conf for deprecated encryption types and remove
+    DES and RC4 entries. Ensure time synchronization is configured.
+    Verify KDC redundancy for availability.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
+users.sssd_configured:
+  title: "SSSD authentication is configured"
+  severity: "LOW"
+  cvss_score: 2.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-287"
+  description: >
+    /etc/sssd/sssd.conf is present, indicating the System Security
+    Services Daemon is configured for centralized identity management.
+    SSSD introduces external identity provider dependencies for
+    authentication.
+  impact: >
+    SSSD misconfiguration or identity provider unavailability may prevent
+    login. Overly permissive SSSD filter configurations may allow
+    unauthorized accounts to authenticate. Cache poisoning is possible
+    if SSSD offline caching is misconfigured.
+  resolution: >
+    Review /etc/sssd/sssd.conf for access_provider and ldap_access_filter
+    settings. Ensure the identity provider connection uses TLS. Test
+    offline authentication behavior to verify local fallback functions
+    correctly.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
+# -------------------------
+# Permissions checker findings
+# -------------------------
+
+permissions.path_exceeds_expected_mode:
+  title: "File or directory permissions exceed expected mode"
+  severity: "MEDIUM"
+  cvss_score: 5.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-732"
+  description: >
+    A critical system file or directory has permissions that exceed the
+    expected mode defined by CIS benchmarks. Overly permissive settings
+    on files such as /etc/passwd, /etc/shadow, or /etc/sudoers allow
+    unauthorized users to read or modify sensitive system data.
+  impact: >
+    World-readable shadow files expose password hashes to offline cracking.
+    World-writable configuration files allow unauthorized modification of
+    authentication, sudo, or service configuration. The specific impact
+    depends on which path is affected.
+  resolution: >
+    Restore expected permissions using chmod. For common critical files:
+    chmod 644 /etc/passwd, chmod 000 /etc/shadow, chmod 440 /etc/sudoers.
+    Use the CIS benchmark for the specific distribution to verify
+    expected modes for all critical paths.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.world_writable_file:
+  title: "World-writable file found in monitored path"
+  severity: "HIGH"
+  cvss_score: 7.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    A file with world-writable permissions (mode includes 0002) was found
+    within a monitored directory. World-writable files can be modified by
+    any local user regardless of ownership, enabling content injection,
+    configuration tampering, or script replacement.
+  impact: >
+    Any local user or process can overwrite the file contents. On executable
+    files or scripts run by privileged processes, this enables direct
+    privilege escalation. On configuration files, this enables service
+    manipulation or credential injection.
+  resolution: >
+    Remove world-writable permission immediately: chmod o-w <path>.
+    Investigate why the permission was set and whether the file was
+    modified. Audit cron jobs, service scripts, and init files that
+    reference the affected path.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.10"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.suid_sgid_binary:
+  title: "SUID or SGID binary found"
+  severity: "MEDIUM"
+  cvss_score: 6.7
+  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-250"
+  description: >
+    A binary with the SUID or SGID bit set was found. SUID binaries
+    execute with the file owner's privileges rather than the calling
+    user's privileges. Unexpected SUID binaries may have been planted
+    for privilege escalation or left from misconfigured software
+    installation.
+  impact: >
+    Exploitation of a vulnerable SUID binary allows a low-privileged
+    user to execute code as root or another privileged user without
+    sudo access. SUID binaries with known vulnerabilities are a common
+    local privilege escalation vector.
+  resolution: >
+    Audit all SUID/SGID binaries: find / -perm /6000 -type f. Remove
+    the SUID bit from any binary that does not require it: chmod u-s
+    <path>. Compare against a known-good baseline for the distribution
+    to identify unexpected additions.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.11, §6.1.12"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+permissions.unowned_file:
+  title: "File with no valid owner or group found"
+  severity: "MEDIUM"
+  cvss_score: 4.4
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  cwe: "CWE-732"
+  description: >
+    A file with no valid owning user or group was found. Unowned files
+    typically result from user account deletion without cleaning up
+    associated files, or from improper software installation. They
+    represent an ownership gap that may be exploitable.
+  impact: >
+    Unowned files can be claimed by any user who creates an account with
+    the matching numeric UID or GID. If the file is a binary, script,
+    or configuration file in a sensitive location, the new owner gains
+    control over it, potentially enabling privilege escalation.
+  resolution: >
+    Assign appropriate ownership: chown <user>:<group> <path>. If the
+    file is not needed, remove it. Audit recently deleted accounts to
+    identify the source of orphaned files.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.13, §6.1.14"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -49,6 +50,7 @@ type UnixPermissionChecker struct {
 // WindowsPermissionChecker implements PermissionChecker for Windows systems
 type WindowsPermissionChecker struct {
 	Paths []string
+	ctx   registry.OSContext
 }
 
 // criticalPath represents a path that needs permission checking
@@ -71,7 +73,7 @@ func NewUnixPermissionChecker() *UnixPermissionChecker {
 }
 
 // NewWindowsPermissionChecker creates a new Windows permission checker
-func NewWindowsPermissionChecker() *WindowsPermissionChecker {
+func NewWindowsPermissionChecker(ctx registry.OSContext) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
 		Paths: []string{
 			"C:\\Windows\\System32",
@@ -80,6 +82,7 @@ func NewWindowsPermissionChecker() *WindowsPermissionChecker {
 			"C:\\ProgramData",
 			"C:\\Users",
 		},
+		ctx: ctx,
 	}
 }
 
@@ -269,6 +272,7 @@ func (p *WindowsPermissionChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: "Analyzing Windows file and directory permissions",
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
 	for _, path := range p.Paths {
@@ -293,6 +297,9 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *
 		return fmt.Errorf("failed to check permissions: %v", err)
 	}
 
+	everyoneFindingAdded := false
+	usersFindingAdded := false
+
 	// Analyze permissions
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
@@ -301,17 +308,42 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *
 			continue
 		}
 
-		// Check for potentially dangerous permissions
 		if strings.Contains(line, "Everyone:(OI)(CI)(F)") ||
 			strings.Contains(line, "Everyone:(F)") {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Full control granted to Everyone group on %s",
 					types.SymbolWarning, line))
+			if !everyoneFindingAdded {
+				if def, ok := registry.Lookup(p.ctx, "permissions.everyone_full_control"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+				}
+				everyoneFindingAdded = true
+			}
 		} else if strings.Contains(line, "Users:(OI)(CI)(F)") ||
 			strings.Contains(line, "Users:(F)") {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Full control granted to Users group on %s",
 					types.SymbolWarning, line))
+			if !usersFindingAdded {
+				if def, ok := registry.Lookup(p.ctx, "permissions.users_full_control"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+				}
+				usersFindingAdded = true
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolInfo, line))
@@ -334,6 +366,8 @@ func (p *WindowsPermissionChecker) checkNetworkShares(result *types.AuditResult)
 	shares := strings.Split(string(output), "\n")
 	result.Details = append(result.Details, "\nNetwork Shares:")
 
+	adminShareFindingAdded := false
+
 	for _, share := range shares {
 		share = strings.TrimSpace(share)
 		if share == "" || strings.HasPrefix(share, "Share name") ||
@@ -341,12 +375,24 @@ func (p *WindowsPermissionChecker) checkNetworkShares(result *types.AuditResult)
 			continue
 		}
 
-		// Check share permissions
 		shareName := strings.Fields(share)[0]
 		if shareName == "ADMIN$" || shareName == "C$" || shareName == "IPC$" {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Administrative share: %s",
 					types.SymbolWarning, share))
+			if !adminShareFindingAdded {
+				if def, ok := registry.Lookup(p.ctx, "permissions.admin_share_present"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+				}
+				adminShareFindingAdded = true
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolInfo, share))

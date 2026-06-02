@@ -2,6 +2,7 @@
 package audit
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/checker"
+	"github.com/papa0four/orkowatch/internal/security/enrichment"
+	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -22,6 +25,7 @@ type SecurityAuditor struct {
 	permissionChecker checker.PermissionChecker
 	verbose           bool
 	options           Options
+	osContext         registry.OSContext
 }
 
 // Options configures the audit process
@@ -32,16 +36,21 @@ type Options struct {
 	SkipChecks     []string
 	MinSeverity    string
 	Timeout        time.Duration
+	Enrich         bool
 }
 
 // Result represents the complete audit results
 type Result struct {
-	StartTime  time.Time
-	EndTime    time.Time
-	Duration   time.Duration
-	Results    []types.AuditResult
-	SystemInfo SystemInfo
-	Summary    Summary
+	StartTime           time.Time
+	EndTime             time.Time
+	Duration            time.Duration
+	Results             []types.AuditResult
+	SystemInfo          SystemInfo
+	Summary             Summary
+	EnrichmentRequested bool
+	EnrichmentError     error
+	Enrichment          *enrichment.Result
+	References          types.ReferenceExtraction
 }
 
 // SystemInfo contains basic system information
@@ -65,21 +74,24 @@ type Summary struct {
 
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
+	ctx := registry.DetectOS()
+
 	auditor := &SecurityAuditor{
-		verbose: opts.Verbose,
-		options: opts,
+		verbose:   opts.Verbose,
+		options:   opts,
+		osContext: ctx,
 	}
 
 	switch runtime.GOOS {
 	case "windows":
-		auditor.sshChecker = checker.NewWindowsSSHChecker()
-		auditor.firewallChecker = checker.NewWindowsFirewallChecker()
-		auditor.userChecker = checker.NewWindowsUserChecker()
-		auditor.permissionChecker = checker.NewWindowsPermissionChecker()
+		auditor.sshChecker = checker.NewWindowsSSHChecker(ctx)
+		auditor.firewallChecker = checker.NewWindowsFirewallChecker(ctx)
+		auditor.userChecker = checker.NewWindowsUserChecker(ctx)
+		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx)
 	default:
-		auditor.sshChecker = checker.NewUnixSSHChecker()
-		auditor.firewallChecker = checker.NewUnixFirewallChecker()
-		auditor.userChecker = checker.NewUnixUserChecker()
+		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
+		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
+		auditor.userChecker = checker.NewUnixUserChecker(ctx)
 		auditor.permissionChecker = checker.NewUnixPermissionChecker()
 	}
 
@@ -89,9 +101,10 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 // RunAudit performs the security audit with the specified options
 func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 	result := &Result{
-		StartTime:  time.Now(),
-		SystemInfo: getSystemInfo(),
-		Results:    make([]types.AuditResult, 0),
+		StartTime:           time.Now(),
+		SystemInfo:          getSystemInfo(),
+		Results:             make([]types.AuditResult, 0),
+		EnrichmentRequested: sa.options.Enrich,
 	}
 
 	if len(sa.options.SpecificChecks) > 0 {
@@ -116,15 +129,11 @@ func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 				result.Results = append(result.Results, checkResult)
 			}
 		}
-	} else {
-		return sa.runAllChecks(result)
+		sa.finalize(result)
+		return result, nil
 	}
 
-	result.EndTime = time.Now()
-	result.Duration = result.EndTime.Sub(result.StartTime)
-	result.Summary = sa.calculateSummary(result.Results)
-
-	return result, nil
+	return sa.runAllChecks(result)
 }
 
 func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
@@ -181,11 +190,62 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		result.Results = append(result.Results, checkResult)
 	}
 
+	sa.finalize(result)
+	return result, nil
+}
+
+func (sa *SecurityAuditor) finalize(result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 	result.Summary = sa.calculateSummary(result.Results)
+	result.References = aggregateReferences(result.Results)
 
-	return result, nil
+	if !sa.options.Enrich {
+		return
+	}
+
+	enricher, err := enrichment.NewEnricher()
+	if err != nil {
+		result.EnrichmentError = err
+		return
+	}
+
+	if len(result.References.CWEs) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sa.options.Timeout)
+	defer cancel()
+
+	req := enrichment.EnrichRequest{
+		CWEs:        result.References.CWEs,
+		MinSeverity: sa.options.MinSeverity,
+	}
+
+	enrichResult, err := enricher.Enrich(ctx, req)
+	if err != nil {
+		result.EnrichmentError = err
+		return
+	}
+	result.Enrichment = &enrichResult
+}
+
+func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction {
+	var ext types.ReferenceExtraction
+	seen := make(map[string]struct{})
+	for i := range results {
+		sub := results[i].AllCWEReferences()
+		for _, id := range sub.CWEs {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			ext.CWEs = append(ext.CWEs, id)
+		}
+		ext.Errors = append(ext.Errors, sub.Errors...)
+		ext.Other = append(ext.Other, sub.Other...)
+	}
+	return ext
 }
 
 func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {
@@ -195,12 +255,12 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 
 	for _, result := range results {
 		switch {
-		case result.Status == "COMPLETED" && !containsWarning(result.Details):
-			summary.PassedChecks++
-		case result.Status == "WARNING" || containsWarning(result.Details):
-			summary.WarningChecks++
 		case result.Status == "ERROR":
 			summary.FailedChecks++
+		case len(result.Findings) > 0:
+			summary.WarningChecks++
+		case result.Status == "COMPLETED":
+			summary.PassedChecks++
 		default:
 			summary.SkippedChecks++
 		}
@@ -249,14 +309,4 @@ func timeCheck(fn func() types.AuditResult) types.AuditResult {
 	result.EndTime = end
 	result.Duration = end.Sub(start)
 	return result
-}
-
-func containsWarning(details []string) bool {
-	for _, detail := range details {
-		if strings.Contains(detail, "WARNING") ||
-			strings.Contains(detail, types.SymbolWarning) {
-			return true
-		}
-	}
-	return false
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -32,10 +33,13 @@ type platformConfig struct {
 type UnixUserChecker struct {
 	config platformConfig
 	osType string
+	ctx    registry.OSContext
 }
 
 // WindowsUserChecker implements UserChecker for Windows systems
-type WindowsUserChecker struct{}
+type WindowsUserChecker struct {
+	ctx registry.OSContext
+}
 
 // userAccount represents a parsed user account
 type userAccount struct {
@@ -48,6 +52,12 @@ type userAccount struct {
 	isLocked   bool
 	isAdmin    bool
 	isDisabled bool
+}
+
+// authConfigResult holds the outcome of auth configuration detection.
+type authConfigResult struct {
+	Details []string
+	Keys    []registry.FindingKey
 }
 
 // getPlatformConfig returns the appropriate configuration for the current OS
@@ -86,16 +96,17 @@ func getPlatformConfig() platformConfig {
 }
 
 // NewUnixUserChecker creates a new Unix user checker with OS-specific settings
-func NewUnixUserChecker() *UnixUserChecker {
+func NewUnixUserChecker(ctx registry.OSContext) *UnixUserChecker {
 	return &UnixUserChecker{
 		config: getPlatformConfig(),
 		osType: runtime.GOOS,
+		ctx:    ctx,
 	}
 }
 
 // NewWindowsUserChecker creates a new Windows user checker
-func NewWindowsUserChecker() *WindowsUserChecker {
-	return &WindowsUserChecker{}
+func NewWindowsUserChecker(ctx registry.OSContext) *WindowsUserChecker {
+	return &WindowsUserChecker{ctx: ctx}
 }
 
 // Check implements UserChecker interface for Unix systems
@@ -105,9 +116,23 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: fmt.Sprintf("Analyzing user accounts on %s", u.osType),
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
-	result.Details = append(result.Details, u.checkAuthConfig()...)
+	authResult := u.checkAuthConfig()
+	result.Details = append(result.Details, authResult.Details...)
+	for _, key := range authResult.Keys {
+		if def, ok := registry.Lookup(u.ctx, key); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
+	}
 
 	users, err := u.getUsers()
 	if err != nil {
@@ -428,10 +453,12 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 	}
 }
 
-func (u *UnixUserChecker) checkAuthConfig() []string {
-	var details []string
+// checkAuthConfig detects authentication mechanisms configured on the system.
+func (u *UnixUserChecker) checkAuthConfig() authConfigResult {
+	var r authConfigResult
+
 	if _, err := os.Stat("/etc/pam.d"); err == nil {
-		details = append(details,
+		r.Details = append(r.Details,
 			fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
 
 		// Use os.DirFS to scope file reads to /etc/pam.d,
@@ -457,12 +484,12 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 				}
 				return nil
 			}); err != nil {
-				details = append(details,
+				r.Details = append(r.Details,
 					fmt.Sprintf("%s Could not scan PAM configuration: %v",
 						types.SymbolInfo, err))
 			}
 			if found {
-				details = append(details,
+				r.Details = append(r.Details,
 					fmt.Sprintf("%s Found authentication module: %s",
 						types.SymbolInfo, module))
 			}
@@ -470,21 +497,24 @@ func (u *UnixUserChecker) checkAuthConfig() []string {
 	}
 
 	if _, err := os.Stat("/etc/ldap.conf"); err == nil {
-		details = append(details,
+		r.Details = append(r.Details,
 			fmt.Sprintf("%s LDAP authentication is configured", types.SymbolWarning))
+		r.Keys = append(r.Keys, "users.ldap_configured")
 	}
 
 	if _, err := os.Stat("/etc/krb5.conf"); err == nil {
-		details = append(details,
+		r.Details = append(r.Details,
 			fmt.Sprintf("%s Kerberos authentication is configured", types.SymbolWarning))
+		r.Keys = append(r.Keys, "users.kerberos_configured")
 	}
 
 	if _, err := os.Stat("/etc/sssd/sssd.conf"); err == nil {
-		details = append(details,
+		r.Details = append(r.Details,
 			fmt.Sprintf("%s SSSD authentication is configured", types.SymbolWarning))
+		r.Keys = append(r.Keys, "users.sssd_configured")
 	}
 
-	return details
+	return r
 }
 
 func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
@@ -498,6 +528,16 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 					result.Details = append(result.Details,
 						fmt.Sprintf("%s CRITICAL: User %s has no password set",
 							types.SymbolCritical, fields[passwdFieldUsername]))
+					if def, ok := registry.Lookup(u.ctx, "users.empty_password_hash"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
 				}
 			}
 
@@ -516,6 +556,16 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 			} else {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
+				if def, ok := registry.Lookup(u.ctx, "users.root_account_unlocked"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+				}
 			}
 		}
 	}
@@ -532,6 +582,16 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
+						if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+							result.Findings = append(result.Findings, types.Finding{
+								Title:       def.Title,
+								Severity:    def.Severity,
+								Description: def.Description,
+								Impact:      def.Impact,
+								Resolution:  def.Resolution,
+								References:  def.ToReferences(),
+							})
+						}
 					}
 				}
 			}
@@ -552,6 +612,7 @@ func (w *WindowsUserChecker) Check() types.AuditResult {
 		Status:      "CHECKING",
 		Description: "Analyzing Windows user accounts and security settings",
 		Details:     make([]string, 0),
+		Findings:    make([]types.Finding, 0),
 	}
 
 	users, err := w.getWindowsUsers()
@@ -627,6 +688,8 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 }
 
 func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
+	noPasswordFindingAdded := false
+
 	for _, user := range users {
 		details := user.Name
 
@@ -634,6 +697,16 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
+			if def, ok := registry.Lookup(w.ctx, "users.administrator_account_active"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
+				})
+			}
 		} else if !user.Enabled {
 			details += " (Disabled)"
 			result.Details = append(result.Details,
@@ -642,6 +715,20 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (No Password Required)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
+			// One finding for the class of violation, not one per user account
+			if !noPasswordFindingAdded {
+				if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+				}
+				noPasswordFindingAdded = true
+			}
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolOK, details))
@@ -673,6 +760,16 @@ func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
+			if def, ok := registry.Lookup(w.ctx, "users.uac_disabled"); ok {
+				result.Findings = append(result.Findings, types.Finding{
+					Title:       def.Title,
+					Severity:    def.Severity,
+					Description: def.Description,
+					Impact:      def.Impact,
+					Resolution:  def.Resolution,
+					References:  def.ToReferences(),
+				})
+			}
 		}
 	}
 }

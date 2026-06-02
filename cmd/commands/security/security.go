@@ -30,6 +30,9 @@ var (
 	checkFirewall  bool
 	checkUsers     bool
 	checkFilePerms string
+
+	// enrichment flag
+	enrich bool
 )
 
 // SecurityCmd represents the security audit command
@@ -132,6 +135,8 @@ func init() {
 		"Run user accounts check")
 	SecurityCmd.Flags().StringVar(&checkFilePerms, "file-permissions", "",
 		"Check permissions of specified file path")
+	SecurityCmd.Flags().BoolVarP(&enrich, "enrich", "e", false,
+		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 }
 
 func buildChecks() []string {
@@ -221,6 +226,7 @@ func runAuditWithTimeout(checks []string) error {
 		MinSeverity:    minSeverity,
 		Timeout:        timeout,
 		SpecificChecks: checks,
+		Enrich:         enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -282,37 +288,7 @@ func outputResults(result *audit.Result) error {
 		fmt.Println(output)
 	}
 
-	if !verbose {
-		printCriticalFindings(result)
-	}
-
 	return nil
-}
-
-func printCriticalFindings(result *audit.Result) {
-	var criticalCount, highCount int
-
-	for _, checkResult := range result.Results {
-		for _, finding := range checkResult.Findings {
-			switch finding.Severity {
-			case types.SeverityCritical:
-				criticalCount++
-			case types.SeverityHigh:
-				highCount++
-			}
-		}
-	}
-
-	if criticalCount > 0 || highCount > 0 {
-		fmt.Printf("\n%s Security Issues Found:\n", types.SymbolCritical)
-		if criticalCount > 0 {
-			fmt.Printf("  %d Critical severity findings\n", criticalCount)
-		}
-		if highCount > 0 {
-			fmt.Printf("  %d High severity findings\n", highCount)
-		}
-		fmt.Println("\nPlease review the detailed report and take appropriate action.")
-	}
 }
 
 func formatJSON(result *audit.Result) (string, error) {
@@ -379,6 +355,97 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 
 	return formatted
 }
+func renderEnrichmentBlock(builder *strings.Builder, result *audit.Result) {
+	if !result.EnrichmentRequested {
+		return
+	}
+
+	builder.WriteString("Enrichment:\n")
+
+	if result.EnrichmentError != nil {
+		fmt.Fprintf(builder, "  Unavailable: %v\n\n", result.EnrichmentError)
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	if len(result.References.CWEs) == 0 {
+		builder.WriteString("  No CWE references found in current findings.\n\n")
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	if result.Enrichment == nil {
+		builder.WriteString("  No enrichment data returned.\n\n")
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	rendered := 0
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		rendered++
+		fmt.Fprintf(builder, "  %s", cwe)
+		if entry.WeaknessName != "" {
+			fmt.Fprintf(builder, " - %s", entry.WeaknessName)
+		}
+		fmt.Fprintln(builder)
+
+		if entry.Status == "NO_MATCHES" || len(entry.MatchedCVEs) == 0 {
+			builder.WriteString("    No CVE matches in queried sources.\n")
+			continue
+		}
+
+		for _, match := range entry.MatchedCVEs {
+			symbol, label := types.SeverityFormat(match.CVSSSeverity)
+			fmt.Fprintf(builder, "    %s %s  %s (%.1f) [%s]\n",
+				symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
+			if verbose {
+				if match.Description != "" {
+					fmt.Fprintf(builder, "      Description: %s\n", match.Description)
+				}
+				if match.KnownExploited {
+					builder.WriteString("      Known Exploited: yes\n")
+				}
+				if match.PatchAvailable {
+					builder.WriteString("      Patch Available: yes\n")
+				}
+			}
+		}
+	}
+
+	if rendered == 0 {
+		builder.WriteString("  No enrichment data returned.\n")
+	}
+
+	if len(result.Enrichment.Failures) > 0 {
+		builder.WriteString("\n  Failed enrichments:\n")
+		for cwe, failure := range result.Enrichment.Failures {
+			fmt.Fprintf(builder, "    %s [%s]: %s",
+				cwe, failure.Source, failure.Reason)
+			if failure.Retryable {
+				builder.WriteString(" (retryable)")
+			}
+			fmt.Fprintln(builder)
+		}
+	}
+
+	builder.WriteString("\n")
+	renderReferenceErrors(builder, result.References)
+}
+
+func renderReferenceErrors(builder *strings.Builder, refs types.ReferenceExtraction) {
+	if len(refs.Errors) == 0 {
+		return
+	}
+	builder.WriteString("  Reference parsing errors:\n")
+	for _, err := range refs.Errors {
+		fmt.Fprintf(builder, "    %v\n", err)
+	}
+	builder.WriteString("\n")
+}
 
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
@@ -392,48 +459,53 @@ func formatText(result *audit.Result) (string, error) {
 		fmt.Fprintf(&builder, "Kernel: %s\n\n", result.SystemInfo.KernelVersion)
 	}
 
+	hasFindings := false
+
 	for _, checkResult := range result.Results {
 		fmt.Fprintf(&builder, "Check: %s\n", checkResult.Name)
 		fmt.Fprintf(&builder, "Status: %s\n", checkResult.Status)
-		if verbose {
-			fmt.Fprintf(&builder, "Duration: %v\n", checkResult.Duration)
-			if len(checkResult.Details) > 0 {
-				builder.WriteString("\nDetails:\n")
-				for _, detail := range checkResult.Details {
-					fmt.Fprintf(&builder, "  %s\n", detail)
+		fmt.Fprintf(&builder, "Duration: %v\n", checkResult.Duration)
+
+		if len(checkResult.Findings) > 0 {
+			hasFindings = true
+			builder.WriteString("Findings:\n")
+			for _, finding := range checkResult.Findings {
+				symbol, label := types.SeverityFormat(finding.Severity)
+				fmt.Fprintf(&builder, "%s %s  %s\n", symbol, label, finding.Title)
+				if verbose {
+					if finding.Description != "" {
+						fmt.Fprintf(&builder, "  Description: %s\n", finding.Description)
+					}
+					if finding.Impact != "" {
+						fmt.Fprintf(&builder, "  Impact: %s\n", finding.Impact)
+					}
+					if finding.Resolution != "" {
+						fmt.Fprintf(&builder, "  Resolution: %s\n", finding.Resolution)
+					}
 				}
 			}
 		}
 
-		if len(checkResult.Findings) > 0 {
-			builder.WriteString("\nFindings:\n")
-			for _, finding := range checkResult.Findings {
-				fmt.Fprintf(&builder, "  [%s] %s\n", finding.Severity, finding.Title)
-				if verbose {
-					if finding.Description != "" {
-						fmt.Fprintf(&builder, "    Description: %s\n", finding.Description)
-					}
-					if finding.Impact != "" {
-						fmt.Fprintf(&builder, "    Impact: %s\n", finding.Impact)
-					}
-					if finding.Resolution != "" {
-						fmt.Fprintf(&builder, "    Resolution: %s\n", finding.Resolution)
-					}
-				}
+		if verbose && len(checkResult.Details) > 0 {
+			builder.WriteString("Raw Diagnostic Output:\n")
+			for _, detail := range checkResult.Details {
+				fmt.Fprintf(&builder, "  %s\n", detail)
 			}
 		}
 
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString("\nSummary:\n")
+	renderEnrichmentBlock(&builder, result)
+	builder.WriteString("Summary:\n")
 	fmt.Fprintf(&builder, "Checks Run: %d\n", len(result.Results))
 	fmt.Fprintf(&builder, "Passed:     %d\n", result.Summary.PassedChecks)
 	fmt.Fprintf(&builder, "Warnings:   %d\n", result.Summary.WarningChecks)
 	fmt.Fprintf(&builder, "Failed:     %d\n", result.Summary.FailedChecks)
+	fmt.Fprintf(&builder, "Duration:   %v\n", result.Duration)
 
-	if verbose {
-		fmt.Fprintf(&builder, "Duration:   %v\n", result.Duration)
+	if !verbose && hasFindings {
+		builder.WriteString("\nRun with -v for full finding details, impact analysis, and remediation guidance.\n")
 	}
 
 	return builder.String(), nil
