@@ -306,8 +306,7 @@ Duration: {{.duration}}
 {{end}}{{if .resolution}}  Resolution: {{.resolution}}
 {{end}}{{end}}{{end}}{{end}}{{if and $.verbose .details}}Raw Diagnostic Output:
 {{range .details}}  {{.}}
-{{end}}{{end}}
-{{end}}{{if .enrichment_requested}}
+{{end}}{{end}}{{end}}{{if .enrichment_requested}}
 Enrichment:
 {{if .enrichment_error}}  Unavailable: {{.enrichment_error}}
 {{else if not .reference_cwes}}  No CWE references found in current findings.

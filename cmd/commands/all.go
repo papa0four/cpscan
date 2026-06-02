@@ -212,16 +212,16 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 	}
 
 	return &audit.Result{
-		StartTime:            scan.Timestamp,
-		EndTime:              scan.Timestamp.Add(scan.Duration),
-		Duration:             scan.Duration,
-		Results:              scan.SecurityAudit.Results,
-		SystemInfo:           sysInfo,
-		Summary:              scan.SecurityAudit.Summary,
-		EnrichmentRequested:  scan.SecurityAudit.EnrichmentRequested,
-		EnrichmentError:      scan.SecurityAudit.EnrichmentError,
-		Enrichment:           scan.SecurityAudit.Enrichment,
-		References:           scan.SecurityAudit.References,
+		StartTime:           scan.Timestamp,
+		EndTime:             scan.Timestamp.Add(scan.Duration),
+		Duration:            scan.Duration,
+		Results:             scan.SecurityAudit.Results,
+		SystemInfo:          sysInfo,
+		Summary:             scan.SecurityAudit.Summary,
+		EnrichmentRequested: scan.SecurityAudit.EnrichmentRequested,
+		EnrichmentError:     scan.SecurityAudit.EnrichmentError,
+		Enrichment:          scan.SecurityAudit.Enrichment,
+		References:          scan.SecurityAudit.References,
 	}
 }
 
