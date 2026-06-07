@@ -16,7 +16,7 @@ import (
 )
 
 // windowsUserCSVFields is the number of columns produced by Get-LocalUser
-const windowsUserCSVFields = 7
+const windowsUserCSVFields = 8
 
 // UserChecker defines interface for user account checking
 type UserChecker interface {
@@ -633,7 +633,7 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 	var users []windowsUserInfo
 
 	psCmd := `Get-LocalUser | ` +
-		`Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description | ` +
+		`Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description,PrincipalSource | ` +
 		`ConvertTo-Csv -NoTypeInformation`
 	cmd := exec.Command("powershell", "-Command", psCmd)
 	output, err := cmd.CombinedOutput()
@@ -678,6 +678,7 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 			LastLogon:        fields[4],
 			AccountExpires:   fields[5],
 			Description:      fields[6],
+			PrincipalSource:  fields[7],
 			IsAdmin:          adminUsers[fields[0]],
 		}
 
@@ -689,6 +690,10 @@ func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
 
 func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
 	noPasswordFindingAdded := false
+	msAccountFindingAdded := false
+	azureADFindingAdded := false
+	domainFindingAdded := false
+	unknownPrincipalFindingAdded := false
 
 	for _, user := range users {
 		details := user.Name
@@ -712,22 +717,93 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolInfo, details))
 		} else if !user.PasswordRequired {
-			details += " (No Password Required)"
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			// One finding for the class of violation, not one per user account
-			if !noPasswordFindingAdded {
-				if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
+			switch user.PrincipalSource {
+			case "MicrosoftAccount":
+				details += " (Microsoft Account -- no local password hash)"
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s %s", types.SymbolInfo, details))
+				if !msAccountFindingAdded {
+					if def, ok := registry.Lookup(w.ctx, "user.microsoft_account_no_local_password"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
+					msAccountFindingAdded = true
 				}
-				noPasswordFindingAdded = true
+			case "AzureAD":
+				details += " (Azure AD -- no local password hash)"
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s %s", types.SymbolInfo, details))
+				if !azureADFindingAdded {
+					if def, ok := registry.Lookup(w.ctx, "users.azure_ad_account_no_local_password"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
+					azureADFindingAdded = true
+				}
+			case "ActiveDirectory":
+				details += " (Active Directory -- no local password hash)"
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s %s", types.SymbolInfo, details))
+				if !domainFindingAdded {
+					if def, ok := registry.Lookup(w.ctx, "users.domain_account_no_local_password"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
+					domainFindingAdded = true
+				}
+			case "Unknown":
+				details += " (Unknown principal source -- no local password hash)"
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s %s", types.SymbolWarning, details))
+				if !unknownPrincipalFindingAdded {
+					if def, ok := registry.Lookup(w.ctx, "users.unknown_principal_no_local_password"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
+					unknownPrincipalFindingAdded = true
+				}
+			default:
+				// Local account or unrecognized source with no password required
+				details += " (No Password Required)"
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s %s", types.SymbolWarning, details))
+				if !noPasswordFindingAdded {
+					if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
+						result.Findings = append(result.Findings, types.Finding{
+							Title:       def.Title,
+							Severity:    def.Severity,
+							Description: def.Description,
+							Impact:      def.Impact,
+							Resolution:  def.Resolution,
+							References:  def.ToReferences(),
+						})
+					}
+					noPasswordFindingAdded = true
+				}
 			}
 		} else {
 			result.Details = append(result.Details,
@@ -783,6 +859,7 @@ type windowsUserInfo struct {
 	LastLogon        string
 	AccountExpires   string
 	Description      string
+	PrincipalSource  string
 	IsAdmin          bool
 }
 
