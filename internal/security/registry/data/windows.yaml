@@ -244,6 +244,121 @@ users.uac_disabled:
     - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
     - "https://cwe.mitre.org/data/definitions/250.html"
 
+users.microsoft_account_no_local_password:
+  title: "Microsoft-linked account has no local password hash"
+  severity: "LOW"
+  cvss_score: 2.1
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  description: >
+    One or more accounts are linked to a Microsoft identity (personal
+    Microsoft account) and carry no local password hash. Authentication
+    is delegated to the Microsoft identity platform. This is expected
+    behavior for Microsoft-linked accounts and does not indicate a
+    missing credential -- the account cannot be authenticated locally
+    without the associated Microsoft identity.
+  impact: >
+    Authentication posture for these accounts depends entirely on the
+    Microsoft account security configuration (MFA, password strength,
+    account recovery options). Local audit tooling cannot assess
+    the external identity provider's controls. Compromise of the linked
+    Microsoft account grants local access.
+  resolution: >
+    Ensure the linked Microsoft account has multi-factor authentication
+    enabled and a strong password via account.microsoft.com/security.
+    Review whether Microsoft-linked accounts are appropriate for this
+    system's threat model. Consider using local accounts for systems
+    that require fully auditable, offline-capable authentication.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-8 (Identification and Authentication -- Non-Organizational Users)"
+
+users.azure_ad_account_no_local_password:
+  title: "Azure AD account has no local password hash"
+  severity: "LOW"
+  cvss_score: 2.1
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  description: >
+    One or more accounts are joined via Azure Active Directory (Entra ID)
+    and carry no local password hash. Authentication is managed by the
+    organization's Azure AD tenant. This is expected behavior for
+    Entra ID-joined accounts -- local credential enforcement does not
+    apply because the identity provider is the authoritative source.
+  impact: >
+    Authentication posture depends on the organization's Azure AD
+    tenant configuration including conditional access policies, MFA
+    enforcement, and account lockout settings. These controls are
+    outside the scope of local host auditing. Compromise of the Azure
+    AD account or tenant grants local access.
+  resolution: >
+    Verify that the Azure AD tenant enforces MFA via Conditional Access
+    and that account lockout policies meet organizational requirements.
+    Confirm that Azure AD-joined accounts are appropriate for this
+    system's classification and data handling requirements.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "CIS Windows 11 Benchmark v3.0.0 §1.1"
+
+users.domain_account_no_local_password:
+  title: "Active Directory domain account has no local password hash"
+  severity: "LOW"
+  cvss_score: 2.3
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  description: >
+    One or more accounts are sourced from an Active Directory domain
+    and carry no local password hash. Authentication is handled by the
+    domain controller via Kerberos or NTLM. This is expected behavior
+    for domain accounts present in the local user list -- local password
+    enforcement does not apply.
+  impact: >
+    Authentication posture depends on the domain's password policy,
+    Kerberos configuration, and account lockout settings enforced by
+    the domain controller. These are outside local audit scope. Domain
+    credential compromise or pass-the-hash attacks against NTLM
+    authentication remain valid attack paths independent of local
+    password policy.
+  resolution: >
+    Ensure the domain enforces a strong password policy and account
+    lockout via Group Policy. Evaluate whether NTLM should be restricted
+    in favor of Kerberos-only authentication for sensitive systems.
+    Review domain accounts present on this host and remove any that
+    are not operationally required.
+  references:
+    - "CIS Windows 11 Benchmark v3.0.0 §1.1"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 SC-8 (Transmission Confidentiality and Integrity)"
+
+users.unknown_principal_no_password:
+  title: "Account with undetermined principal source has no local password hash"
+  severity: "MEDIUM"
+  cvss_score: 5.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+  cwe: "CWE-287"
+  description: >
+    One or more accounts report an Unknown PrincipalSource from
+    Get-LocalUser and carry no local password hash. The authentication
+    mechanism for these accounts cannot be determined from available
+    non-elevated information. This may indicate a SAM database anomaly,
+    a pre-Windows 10 1607 account remnant, or an account in an
+    indeterminate state.
+  impact: >
+    Without a confirmed authentication mechanism and no local credential
+    present, it is not possible to determine what controls govern access
+    to these accounts. An account in this state may be accessible
+    without any credential depending on how Windows resolves the
+    unknown source at logon time.
+  resolution: >
+    Investigate each affected account manually: Get-LocalUser -Name
+    <username> | Select-Object *. Determine whether the account is
+    still required. If the account cannot be attributed to a known
+    identity source, disable or remove it. If required, establish a
+    clear authentication mechanism and enforce a password or federated
+    identity linkage.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-4 (Identifier Management)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
 # -------------------------
 # Permissions checker findings
 # -------------------------
