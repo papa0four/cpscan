@@ -151,7 +151,7 @@ func buildChecks() []string {
 		checks = append(checks, "users")
 	}
 	if checkFilePerms != "" {
-		checks = append(checks, "file-permissions")
+		checks = append(checks, "permissions")
 	}
 	return checks
 }
