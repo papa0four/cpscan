@@ -72,6 +72,12 @@ type Summary struct {
 	SkippedChecks int
 }
 
+// checkRunner pairs a check's canonical name with its execution function
+type checkRunner struct {
+	name string
+	run  func() types.AuditResult
+}
+
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	ctx := registry.DetectOS()
@@ -124,7 +130,7 @@ func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 			case "users":
 				checkResult = timeCheck(sa.userChecker.Check)
 				result.Results = append(result.Results, checkResult)
-			case "file-permissions":
+			case "permissions":
 				checkResult = timeCheck(sa.permissionChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			}
@@ -141,45 +147,24 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		fmt.Println("[*] Starting comprehensive security audit...")
 	}
 
+	checks := sa.activeChecks()
+	if len(checks) == 0 {
+		return nil, fmt.Errorf("all available checks were skipped; at least one must run")
+	}
+
 	var wg sync.WaitGroup
-	const numSecurityChecks = 4
-	resultsChan := make(chan types.AuditResult, numSecurityChecks)
+	resultsChan := make(chan types.AuditResult, len(checks))
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if sa.verbose {
-			fmt.Println("[*] Running SSH configuration check...")
-		}
-		resultsChan <- timeCheck(sa.sshChecker.Check)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if sa.verbose {
-			fmt.Println("[*] Running firewall configuration check...")
-		}
-		resultsChan <- timeCheck(sa.firewallChecker.Check)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if sa.verbose {
-			fmt.Println("[*] Running user account security check...")
-		}
-		resultsChan <- timeCheck(sa.userChecker.Check)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if sa.verbose {
-			fmt.Println("[*] Running file permissions check...")
-		}
-		resultsChan <- timeCheck(sa.permissionChecker.Check)
-	}()
+	for _, check := range checks {
+		wg.Add(1)
+		go func(c checkRunner) {
+			defer wg.Done()
+			if sa.verbose {
+				fmt.Printf("[*] Running %s check...\n", c.name)
+			}
+			resultsChan <- timeCheck(c.run)
+		}(check)
+	}
 
 	go func() {
 		wg.Wait()
@@ -192,6 +177,33 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 
 	sa.finalize(result)
 	return result, nil
+}
+
+func (sa *SecurityAuditor) activeChecks() []checkRunner {
+	all := []checkRunner{
+		{name: "ssh", run: sa.sshChecker.Check},
+		{name: "firewall", run: sa.firewallChecker.Check},
+		{name: "users", run: sa.userChecker.Check},
+		{name: "permissions", run: sa.permissionChecker.Check},
+	}
+
+	if len(sa.options.SkipChecks) == 0 {
+		return all
+	}
+
+	skipped := make(map[string]struct{}, len(sa.options.SkipChecks))
+	for _, s := range sa.options.SkipChecks {
+		skipped[s] = struct{}{}
+	}
+
+	active := make([]checkRunner, 0, len(all))
+	for _, c := range all {
+		if _, skip := skipped[c.name]; skip {
+			continue
+		}
+		active = append(active, c)
+	}
+	return active
 }
 
 func (sa *SecurityAuditor) finalize(result *Result) {
