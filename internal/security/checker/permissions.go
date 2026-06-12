@@ -2,12 +2,14 @@
 package checker
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
@@ -35,6 +37,19 @@ const (
 	findPermSGID          = "-2000"
 	findPermWorldWritable = "-0002"
 )
+
+// findScanTimeout bounds each FS-wide find operation to prevent audit hang
+const findScanTimeout = 60 * time.Second
+
+// runBoundedFind executes find rooted at "/" and is bounded by findScanTimeout
+func runBoundedFind(args []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), findScanTimeout)
+	defer cancel()
+
+	full := append([]string{"/", "-xdev"}, args...)
+	cmd := exec.CommandContext(ctx, "find", full...) // #nosec G204 -- find predicate args sourced from hardcoded permission constants, not user input
+	return cmd.CombinedOutput()
+}
 
 // PermissionChecker defines interface for permission checking
 type PermissionChecker interface {
@@ -190,13 +205,11 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 }
 
 func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	output, err := runBoundedFind([]string{
 		"-type", "f",
-		"-perm", findPermSUID, // SUID
-		"-o", "-perm", findPermSGID, // SGID
-	)
-
-	output, err := cmd.CombinedOutput()
+		"-perm", findPermSUID,
+		"-o", "-perm", findPermSGID,
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking SUID/SGID files: %v", types.SymbolError, err))
@@ -216,13 +229,12 @@ func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
 }
 
 func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	output, err := runBoundedFind([]string{
 		"-type", "f",
 		"-perm", findPermWorldWritable,
 		"-not", "-type", "l",
-		"-ls")
-
-	output, err := cmd.CombinedOutput()
+		"-ls",
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking world-writable files: %v", types.SymbolError, err))
@@ -242,11 +254,10 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResul
 }
 
 func (p *UnixPermissionChecker) checkUnownedFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	output, err := runBoundedFind([]string{
 		"-nouser", "-o", "-nogroup",
-		"-ls")
-
-	output, err := cmd.CombinedOutput()
+		"-ls",
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking unowned files: %v", types.SymbolError, err))
