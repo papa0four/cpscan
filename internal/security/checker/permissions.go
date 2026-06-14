@@ -2,7 +2,9 @@
 package checker
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,14 +43,67 @@ const (
 // findScanTimeout bounds each FS-wide find operation to prevent audit hang
 const findScanTimeout = 60 * time.Second
 
+// countUnreadablePaths counts the paths find could not read, i.e. permission denied
+func countUnreadablePaths(stderr []byte) int {
+	if len(stderr) == 0 {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(stderr), "\n") {
+		if strings.Contains(line, "Permission denied") {
+			count++
+		}
+	}
+	return count
+}
+
 // runBoundedFind executes find rooted at "/" and is bounded by findScanTimeout
-func runBoundedFind(args []string) ([]byte, error) {
+func runBoundedFind(args []string) (output []byte, skipped int, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), findScanTimeout)
 	defer cancel()
 
 	full := append([]string{"/", "-xdev"}, args...)
 	cmd := exec.CommandContext(ctx, "find", full...) // #nosec G204 -- find predicate args sourced from hardcoded permission constants, not user input
-	return cmd.CombinedOutput()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, 0, fmt.Errorf("find timed out after %s", findScanTimeout)
+	}
+
+	// ExitError means find ran and exited non-zero; this is okay
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		return nil, 0, runErr
+	}
+
+	return stdout.Bytes(), countUnreadablePaths(stderr.Bytes()), nil
+}
+
+// nonEmptyLines splits find output into clean line-by-line output
+func nonEmptyLines(output []byte) []string {
+	raw := strings.Split(string(output), "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// appendSkippedNote annotates the number of paths find could not read
+func appendSkippedNote(result *types.AuditResult, skipped int) {
+	if skipped <= 0 {
+		return
+	}
+	result.Details = append(result.Details,
+		fmt.Sprintf("%s Scanned with %d unreadable paths skipped (run with elevated privileges for complete coverage)",
+			types.SymbolInfo, skipped))
 }
 
 // PermissionChecker defines interface for permission checking
@@ -205,10 +260,9 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 }
 
 func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
-	output, err := runBoundedFind([]string{
+	output, skipped, err := runBoundedFind([]string{
 		"-type", "f",
-		"-perm", findPermSUID,
-		"-o", "-perm", findPermSGID,
+		"(", "-perm", findPermSUID, "-o", "-perm", findPermSGID, ")",
 	})
 	if err != nil {
 		result.Details = append(result.Details,
@@ -216,20 +270,19 @@ func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
 		return
 	}
 
-	suidFiles := strings.Split(string(output), "\n")
-	if len(suidFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nSUID/SGID Files Found:")
-		for _, file := range suidFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, skipped)
 }
 
 func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResult) {
-	output, err := runBoundedFind([]string{
+	output, skipped, err := runBoundedFind([]string{
 		"-type", "f",
 		"-perm", findPermWorldWritable,
 		"-not", "-type", "l",
@@ -241,20 +294,19 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResul
 		return
 	}
 
-	wwFiles := strings.Split(string(output), "\n")
-	if len(wwFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nWorld-Writable Files Found:")
-		for _, file := range wwFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, skipped)
 }
 
 func (p *UnixPermissionChecker) checkUnownedFiles(result *types.AuditResult) {
-	output, err := runBoundedFind([]string{
+	output, skipped, err := runBoundedFind([]string{
 		"-nouser", "-o", "-nogroup",
 		"-ls",
 	})
@@ -264,16 +316,15 @@ func (p *UnixPermissionChecker) checkUnownedFiles(result *types.AuditResult) {
 		return
 	}
 
-	unownedFiles := strings.Split(string(output), "\n")
-	if len(unownedFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nUnowned Files Found:")
-		for _, file := range unownedFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, skipped)
 }
 
 // Check implements PermissionChecker interface for Windows systems
