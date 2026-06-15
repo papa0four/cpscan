@@ -20,7 +20,6 @@ var (
 	verbose      bool
 	outputFormat string
 	reportFile   string
-	customPaths  []string
 	skipChecks   []string
 	minSeverity  string
 	timeout      time.Duration
@@ -119,8 +118,6 @@ func init() {
 		"Output format (text, json, yaml)")
 	SecurityCmd.Flags().StringVar(&reportFile, "report-file", "",
 		"Save audit report to file")
-	SecurityCmd.Flags().StringSliceVar(&customPaths, "paths", []string{},
-		"Custom paths to check (comma-separated)")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated)")
 	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", "LOW",
@@ -156,7 +153,7 @@ func buildChecks() []string {
 	return checks
 }
 
-func validateFlags() error {
+func validateFlags(cmd *cobra.Command) error {
 	validFormats := map[string]bool{
 		"text": true,
 		"json": true,
@@ -176,10 +173,8 @@ func validateFlags() error {
 		return fmt.Errorf("invalid severity level: %s", minSeverity)
 	}
 
-	for _, path := range customPaths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return fmt.Errorf("path does not exist: %s", path)
-		}
+	if err := validateFilePermsPath(cmd); err != nil {
+		return err
 	}
 
 	validChecks := map[string]bool{
@@ -197,6 +192,20 @@ func validateFlags() error {
 	return nil
 }
 
+// validateFilePermsPath enforces existing path and file rejecting explicit empty value
+func validateFilePermsPath(cmd *cobra.Command) error {
+	if !cmd.Flags().Changed("file-permissions") {
+		return nil
+	}
+	if checkFilePerms == "" {
+		return fmt.Errorf("--file-permissions requires a path")
+	}
+	if _, err := os.Stat(checkFilePerms); err != nil {
+		return fmt.Errorf("--file-permissions path is not accessible: %w", err)
+	}
+	return nil
+}
+
 func logVerboseConfig(checks []string) {
 	if !verbose {
 		return
@@ -207,9 +216,6 @@ func logVerboseConfig(checks []string) {
 		fmt.Println("[*] Runnning comprehensive security audit")
 	}
 	fmt.Printf("[*] Output format: %s\n", outputFormat)
-	if len(customPaths) > 0 {
-		fmt.Printf("[*] Custom paths: %s\n", strings.Join(customPaths, ", "))
-	}
 	if len(skipChecks) > 0 {
 		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(skipChecks, ", "))
 	}
@@ -221,8 +227,8 @@ func logVerboseConfig(checks []string) {
 func runAuditWithTimeout(checks []string) error {
 	opts := audit.Options{
 		Verbose:        verbose,
-		CustomPaths:    customPaths,
 		SkipChecks:     skipChecks,
+		FilePermsPath:  checkFilePerms,
 		MinSeverity:    minSeverity,
 		Timeout:        timeout,
 		SpecificChecks: checks,

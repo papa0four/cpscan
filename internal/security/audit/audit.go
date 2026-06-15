@@ -32,8 +32,8 @@ type SecurityAuditor struct {
 type Options struct {
 	Verbose        bool
 	SpecificChecks []string
-	CustomPaths    []string
 	SkipChecks     []string
+	FilePermsPath  string
 	MinSeverity    string
 	Timeout        time.Duration
 	Enrich         bool
@@ -93,12 +93,12 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		auditor.sshChecker = checker.NewWindowsSSHChecker(ctx)
 		auditor.firewallChecker = checker.NewWindowsFirewallChecker(ctx)
 		auditor.userChecker = checker.NewWindowsUserChecker(ctx)
-		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx)
+		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx, opts.FilePermsPath)
 	default:
 		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
 		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
 		auditor.userChecker = checker.NewUnixUserChecker(ctx)
-		auditor.permissionChecker = checker.NewUnixPermissionChecker()
+		auditor.permissionChecker = checker.NewUnixPermissionChecker(opts.FilePermsPath)
 	}
 
 	return auditor
