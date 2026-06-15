@@ -18,7 +18,7 @@ func init() {
 func runWindowsAudit(cmd *cobra.Command, args []string) error {
 	checks := buildChecks()
 
-	if err := validateFlags(); err != nil {
+	if err := validateFlags(cmd); err != nil {
 		return err
 	}
 
