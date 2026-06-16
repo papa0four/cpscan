@@ -50,13 +50,13 @@ You can run all checks or specify individual checks to run.`,
   owatch security_audit -v
 
   # Run specific checks
-  owatch security_audit --check-ssh
-  owatch security_audit --check-firewall
-  owatch security_audit --check-users
-  owatch security_audit --file-permissions /path/to/file
+  owatch security_audit --ssh
+  owatch security_audit --fwall
+  owatch security_audit --users
+  owatch security_audit --fperms /path/to/file
 
   # Run checks with verbose output
-  owatch security_audit --check-ssh -v
+  owatch security_audit --ssh -v
 
   # Set minimum severity level
   owatch security_audit --min-severity HIGH
@@ -124,13 +124,13 @@ func init() {
 		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
 	SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
 		"Maximum time to run the audit")
-	SecurityCmd.Flags().BoolVar(&checkSSH, "check-ssh", false,
+	SecurityCmd.Flags().BoolVar(&checkSSH, "ssh", false,
 		"Run SSH configuration check")
-	SecurityCmd.Flags().BoolVar(&checkFirewall, "check-firewall", false,
+	SecurityCmd.Flags().BoolVar(&checkFirewall, "fwall", false,
 		"Run firewall configuration check")
-	SecurityCmd.Flags().BoolVar(&checkUsers, "check-users", false,
+	SecurityCmd.Flags().BoolVar(&checkUsers, "users", false,
 		"Run user accounts check")
-	SecurityCmd.Flags().StringVar(&checkFilePerms, "file-permissions", "",
+	SecurityCmd.Flags().StringVar(&checkFilePerms, "fperms", "",
 		"Check permissions of specified file path")
 	SecurityCmd.Flags().BoolVarP(&enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
@@ -194,14 +194,14 @@ func validateFlags(cmd *cobra.Command) error {
 
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
 func validateFilePermsPath(cmd *cobra.Command) error {
-	if !cmd.Flags().Changed("file-permissions") {
+	if !cmd.Flags().Changed("fperms") {
 		return nil
 	}
 	if checkFilePerms == "" {
-		return fmt.Errorf("--file-permissions requires a path")
+		return fmt.Errorf("--fperms: requires a path")
 	}
 	if _, err := os.Stat(checkFilePerms); err != nil {
-		return fmt.Errorf("--file-permissions path is not accessible: %w", err)
+		return fmt.Errorf("--fperms: path is not accessible: %w", err)
 	}
 	return nil
 }
