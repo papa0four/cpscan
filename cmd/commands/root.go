@@ -26,6 +26,7 @@ var RootCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(security.SecurityCmd)
+	RootCmd.Flags().BoolP("version", "V", false, "version for owatch")
 }
 
 // Execute runs the root command and exits with a non-zero status on error
