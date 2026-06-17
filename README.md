@@ -36,9 +36,10 @@ owatch software
 owatch security_audit -v
 
 # Run specific security checks
-owatch security_audit --check-ssh
-owatch security_audit --check-firewall
-owatch security_audit --check-users
+owatch security_audit --ssh
+owatch security_audit --fwall
+owatch security_audit --users
+owatch security_audit --fperms /path/to/check
 
 # Run all scans and save report as JSON
 owatch all -o json --report-file report.json
@@ -51,10 +52,10 @@ owatch all --skip-modules software,security
 
 | Flag | Description | Default |
 |---|---|---|
-| `--check-ssh` | Run SSH configuration check | false |
-| `--check-firewall` | Run firewall configuration check | false |
-| `--check-users` | Run user accounts check | false |
-| `--file-permissions` | Check permissions of specified path | — |
+| `--ssh` | Run SSH configuration check | false |
+| `--fwall` | Run firewall configuration check | false |
+| `--users` | Run user accounts check | false |
+| `--fperms` | Check permissions of specified path | — |
 | `-o, --output` | Output format: text, json, yaml | text |
 | `--report-file` | Save report to file | — |
 | `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
