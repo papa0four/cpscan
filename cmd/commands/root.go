@@ -17,7 +17,7 @@ var RootCmd = &cobra.Command{
 	Short:   "orkowatch is a lightweight scanner for host OS vulnerabilities",
 	Long:    `orkowatch helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("owatch requires a subcommand (e.g., osinfo, security_audit, software).")
+		fmt.Println("owatch requires a subcommand (e.g., all, osinfo, security_audit, software).")
 		if err := cmd.Help(); err != nil {
 			fmt.Fprintf(os.Stderr, "error displaying help: %v\n", err)
 		}

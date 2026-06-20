@@ -41,7 +41,7 @@ Results can be output in various formats and saved to a file.`,
   owatch all
 
   # Run all scans with verbose output
-  owatch all -v || owatch all --verbose
+  owatch all -v
 
   # Skip specific modules
   owatch all --skip-modules security,software

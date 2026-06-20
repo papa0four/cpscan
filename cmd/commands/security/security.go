@@ -213,7 +213,7 @@ func logVerboseConfig(checks []string) {
 	if len(checks) > 0 {
 		fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
 	} else {
-		fmt.Println("[*] Runnning comprehensive security audit")
+		fmt.Println("[*] Running comprehensive security audit")
 	}
 	fmt.Printf("[*] Output format: %s\n", outputFormat)
 	if len(skipChecks) > 0 {
