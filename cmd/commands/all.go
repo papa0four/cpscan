@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ Results can be output in various formats and saved to a file.`,
   owatch all
 
   # Run all scans with verbose output
-  owatch all -v || owatch all --verbose
+  owatch all -v
 
   # Skip specific modules
   owatch all --skip-modules security,software
@@ -78,8 +79,27 @@ type ScanResult struct {
 	Errors        []string              `json:"errors,omitempty"`
 }
 
+// validateSkipModules rejects any --skip-modules value that is not recognized
+func validateSkipModules() error {
+	valid := map[string]bool{
+		"os":       true,
+		"software": true,
+		"security": true,
+	}
+	for _, module := range skipModules {
+		if !valid[strings.ToLower(module)] {
+			return fmt.Errorf("invalid module to skip: %s (valid: os, software, security)", module)
+		}
+	}
+	return nil
+}
+
 func runAllScans(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
+
+	if err := validateSkipModules(); err != nil {
+		return err
+	}
 
 	if isModuleSkipped("os") && isModuleSkipped("software") && isModuleSkipped("security") {
 		return fmt.Errorf("all modules have been skipped, at least one module must be run")
@@ -193,11 +213,19 @@ func runSecurityAuditModule() (*audit.Result, error) {
 }
 
 func convertToAuditResult(scan *ScanResult) *audit.Result {
-	if scan.SecurityAudit == nil {
-		return nil
+	var sysInfo audit.SystemInfo
+	if scan.SecurityAudit != nil {
+		sysInfo = scan.SecurityAudit.SystemInfo
+	} else {
+		sysInfo = audit.SystemInfo{
+			OS:           runtime.GOOS,
+			Architecture: runtime.GOARCH,
+		}
+		if hostname, err := os.Hostname(); err == nil {
+			sysInfo.Hostname = hostname
+		}
 	}
 
-	sysInfo := scan.SecurityAudit.SystemInfo
 	if scan.OSInfo != nil {
 		if scan.OSInfo.Platform != "" {
 			sysInfo.OS = scan.OSInfo.Platform
@@ -211,18 +239,23 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 		sysInfo.SoftwareCount = scan.SoftwareCount
 	}
 
-	return &audit.Result{
-		StartTime:           scan.Timestamp,
-		EndTime:             scan.Timestamp.Add(scan.Duration),
-		Duration:            scan.Duration,
-		Results:             scan.SecurityAudit.Results,
-		SystemInfo:          sysInfo,
-		Summary:             scan.SecurityAudit.Summary,
-		EnrichmentRequested: scan.SecurityAudit.EnrichmentRequested,
-		EnrichmentError:     scan.SecurityAudit.EnrichmentError,
-		Enrichment:          scan.SecurityAudit.Enrichment,
-		References:          scan.SecurityAudit.References,
+	result := &audit.Result{
+		StartTime:  scan.Timestamp,
+		EndTime:    scan.Timestamp.Add(scan.Duration),
+		Duration:   scan.Duration,
+		SystemInfo: sysInfo,
 	}
+
+	if scan.SecurityAudit != nil {
+		result.Results = scan.SecurityAudit.Results
+		result.Summary = scan.SecurityAudit.Summary
+		result.EnrichmentRequested = scan.SecurityAudit.EnrichmentRequested
+		result.EnrichmentError = scan.SecurityAudit.EnrichmentError
+		result.Enrichment = scan.SecurityAudit.Enrichment
+		result.References = scan.SecurityAudit.References
+	}
+
+	return result
 }
 
 func outputResults(result *ScanResult) error {
@@ -248,9 +281,6 @@ func outputResults(result *ScanResult) error {
 	}
 
 	auditResult := convertToAuditResult(result)
-	if auditResult == nil {
-		return fmt.Errorf("no security audit results available")
-	}
 
 	f := formatter.NewFormatter(output, opts)
 	if err := f.Format(auditResult); err != nil {

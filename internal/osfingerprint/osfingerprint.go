@@ -14,6 +14,7 @@ type OSInfo struct {
 	Platform        string
 	PlatformVersion string
 	KernelVersion   string
+	Hostname        string
 	AdditionalInfo  map[string]string // store any additional OS-Specific details
 }
 
@@ -29,6 +30,7 @@ func GetOSFingerprint() (*OSInfo, error) {
 		Platform:        info.Platform,
 		PlatformVersion: info.PlatformVersion,
 		KernelVersion:   info.KernelVersion,
+		Hostname:        info.Hostname,
 		AdditionalInfo:  make(map[string]string),
 	}
 
@@ -42,7 +44,6 @@ func GetOSFingerprint() (*OSInfo, error) {
 		osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
 	case "linux":
 		osInfo.AdditionalInfo["DistroFamily"] = info.PlatformFamily // Linux/Unix distribution
-		osInfo.AdditionalInfo["Hostname"] = info.Hostname
 	case "freebsd":
 		osInfo.AdditionalInfo["ProductName"] = "FreeBSD"
 	default:
@@ -60,8 +61,8 @@ func PrintOSInfo() {
 		return
 	}
 
-	fmt.Printf("OS: %s\nPlatform: %s\nVersion: %s\nKernel Version: %s\n",
-		osInfo.OS, osInfo.Platform, osInfo.PlatformVersion, osInfo.KernelVersion)
+	fmt.Printf("OS: %s\nHostname: %s\nPlatform: %s\nVersion: %s\nKernel Version: %s\n",
+		osInfo.OS, osInfo.Hostname, osInfo.Platform, osInfo.PlatformVersion, osInfo.KernelVersion)
 
 	// Print additional OS-specific information
 	for key, value := range osInfo.AdditionalInfo {

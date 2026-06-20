@@ -2,12 +2,16 @@
 package checker
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
@@ -36,6 +40,72 @@ const (
 	findPermWorldWritable = "-0002"
 )
 
+// findScanTimeout bounds each FS-wide find operation to prevent audit hang
+const findScanTimeout = 60 * time.Second
+
+// countUnreadablePaths counts the paths find could not read, i.e. permission denied
+func countUnreadablePaths(stderr []byte) int {
+	if len(stderr) == 0 {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(stderr), "\n") {
+		if strings.Contains(line, "Permission denied") {
+			count++
+		}
+	}
+	return count
+}
+
+// runBoundedFind executes find rooted at "/" and is bounded by findScanTimeout
+func runBoundedFind(root string, args []string) (output []byte, skipped int, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), findScanTimeout)
+	defer cancel()
+
+	full := append([]string{root, "-xdev"}, args...)
+	cmd := exec.CommandContext(ctx, "find", full...) // #nosec G204 -- root validated by caller; predicate args sourced from hardcoded permission constants
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, 0, fmt.Errorf("find timed out after %s", findScanTimeout)
+	}
+
+	// ExitError means find ran and exited non-zero; this is okay
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		return nil, 0, runErr
+	}
+
+	return stdout.Bytes(), countUnreadablePaths(stderr.Bytes()), nil
+}
+
+// nonEmptyLines splits find output into clean line-by-line output
+func nonEmptyLines(output []byte) []string {
+	raw := strings.Split(string(output), "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// appendSkippedNote annotates the number of paths find could not read
+func appendSkippedNote(result *types.AuditResult, scan string, skipped int) {
+	if skipped <= 0 {
+		return
+	}
+	result.Details = append(result.Details,
+		fmt.Sprintf("%s %s: %d unreadable paths skipped (run with elevated privileges for complete coverage)",
+			types.SymbolInfo, scan, skipped))
+}
+
 // PermissionChecker defines interface for permission checking
 type PermissionChecker interface {
 	Check() types.AuditResult
@@ -43,14 +113,16 @@ type PermissionChecker interface {
 
 // UnixPermissionChecker implements PermissionChecker for Unix-like systems
 type UnixPermissionChecker struct {
-	paths  []criticalPath
-	osType string
+	paths    []criticalPath
+	osType   string
+	scanRoot string
 }
 
 // WindowsPermissionChecker implements PermissionChecker for Windows systems
 type WindowsPermissionChecker struct {
-	Paths []string
-	ctx   registry.OSContext
+	Paths    []string
+	ctx      registry.OSContext
+	scanRoot string
 }
 
 // criticalPath represents a path that needs permission checking
@@ -62,9 +134,10 @@ type criticalPath struct {
 }
 
 // NewUnixPermissionChecker creates a new Unix permission checker
-func NewUnixPermissionChecker() *UnixPermissionChecker {
+func NewUnixPermissionChecker(scanRoot string) *UnixPermissionChecker {
 	checker := &UnixPermissionChecker{
-		osType: runtime.GOOS,
+		osType:   runtime.GOOS,
+		scanRoot: scanRoot,
 	}
 
 	// Set default critical paths based on OS
@@ -73,7 +146,7 @@ func NewUnixPermissionChecker() *UnixPermissionChecker {
 }
 
 // NewWindowsPermissionChecker creates a new Windows permission checker
-func NewWindowsPermissionChecker(ctx registry.OSContext) *WindowsPermissionChecker {
+func NewWindowsPermissionChecker(ctx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
 		Paths: []string{
 			"C:\\Windows\\System32",
@@ -82,7 +155,8 @@ func NewWindowsPermissionChecker(ctx registry.OSContext) *WindowsPermissionCheck
 			"C:\\ProgramData",
 			"C:\\Users",
 		},
-		ctx: ctx,
+		ctx:      ctx,
+		scanRoot: scanRoot,
 	}
 }
 
@@ -95,11 +169,13 @@ func (p *UnixPermissionChecker) Check() types.AuditResult {
 		Details:     make([]string, 0),
 	}
 
-	for _, cpath := range p.paths {
-		if err := p.checkPathPermissions(cpath, &result); err != nil {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error checking %s: %v",
-					types.SymbolError, cpath.path, err))
+	if p.scanRoot == "" {
+		for _, cpath := range p.paths {
+			if err := p.checkPathPermissions(cpath, &result); err != nil {
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s Error checking %s: %v",
+						types.SymbolError, cpath.path, err))
+			}
 		}
 	}
 
@@ -109,6 +185,14 @@ func (p *UnixPermissionChecker) Check() types.AuditResult {
 
 	result.Status = "COMPLETED"
 	return result
+}
+
+// effectiveRoot resolves the find scan root; operator supplied
+func (p *UnixPermissionChecker) effectiveRoot() string {
+	if p.scanRoot == "" {
+		return "/"
+	}
+	return p.scanRoot
 }
 
 func (p *UnixPermissionChecker) getCriticalPathConfigs() []criticalPath {
@@ -190,79 +274,74 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 }
 
 func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	const scan string = "SUID/SGID scan"
+	output, skipped, err := runBoundedFind(p.effectiveRoot(), []string{
 		"-type", "f",
-		"-perm", findPermSUID, // SUID
-		"-o", "-perm", findPermSGID, // SGID
-	)
-
-	output, err := cmd.CombinedOutput()
+		"(", "-perm", findPermSUID, "-o", "-perm", findPermSGID, ")",
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking SUID/SGID files: %v", types.SymbolError, err))
 		return
 	}
 
-	suidFiles := strings.Split(string(output), "\n")
-	if len(suidFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nSUID/SGID Files Found:")
-		for _, file := range suidFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, scan, skipped)
 }
 
 func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	const scan string = "World-writable scan"
+	output, skipped, err := runBoundedFind(p.effectiveRoot(), []string{
 		"-type", "f",
 		"-perm", findPermWorldWritable,
 		"-not", "-type", "l",
-		"-ls")
-
-	output, err := cmd.CombinedOutput()
+		"-ls",
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking world-writable files: %v", types.SymbolError, err))
 		return
 	}
 
-	wwFiles := strings.Split(string(output), "\n")
-	if len(wwFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nWorld-Writable Files Found:")
-		for _, file := range wwFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, scan, skipped)
 }
 
 func (p *UnixPermissionChecker) checkUnownedFiles(result *types.AuditResult) {
-	cmd := exec.Command("find", "/",
+	const scan string = "Unowned-files scan"
+	output, skipped, err := runBoundedFind(p.effectiveRoot(), []string{
 		"-nouser", "-o", "-nogroup",
-		"-ls")
-
-	output, err := cmd.CombinedOutput()
+		"-ls",
+	})
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking unowned files: %v", types.SymbolError, err))
 		return
 	}
 
-	unownedFiles := strings.Split(string(output), "\n")
-	if len(unownedFiles) > 0 {
+	files := nonEmptyLines(output)
+	if len(files) > 0 {
 		result.Details = append(result.Details, "\nUnowned Files Found:")
-		for _, file := range unownedFiles {
-			if file = strings.TrimSpace(file); file != "" {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, file))
-			}
+		for _, file := range files {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
 	}
+	appendSkippedNote(result, scan, skipped)
 }
 
 // Check implements PermissionChecker interface for Windows systems
@@ -275,8 +354,18 @@ func (p *WindowsPermissionChecker) Check() types.AuditResult {
 		Findings:    make([]types.Finding, 0),
 	}
 
+	if p.scanRoot != "" {
+		if err := p.checkWindowsPermissions(p.scanRoot, true, &result); err != nil {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s Error checking %s, %v",
+					types.SymbolError, p.scanRoot, err))
+		}
+		result.Status = "COMPLETED"
+		return result
+	}
+
 	for _, path := range p.Paths {
-		if err := p.checkWindowsPermissions(path, &result); err != nil {
+		if err := p.checkWindowsPermissions(path, false, &result); err != nil {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Error checking %s: %v",
 					types.SymbolError, path, err))
@@ -290,11 +379,11 @@ func (p *WindowsPermissionChecker) Check() types.AuditResult {
 	return result
 }
 
-func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *types.AuditResult) error {
-	cmd := exec.Command("icacls", path) // #nosec G204 -- path sourced from hardcoded Windows system directory list, not user input
-	output, err := cmd.CombinedOutput()
+func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, recursive bool, result *types.AuditResult) error {
+	const scan string = "ACL traversal"
+	output, skipped, err := runICACLS(path, recursive)
 	if err != nil {
-		return fmt.Errorf("failed to check permissions: %v", err)
+		return fmt.Errorf("failed to check permissions: %w", err)
 	}
 
 	everyoneFindingAdded := false
@@ -350,7 +439,44 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(path string, result *
 		}
 	}
 
+	appendSkippedNote(result, scan, skipped)
 	return nil
+}
+
+// runICACLS executes against the given path with optional recursion for tree traversal
+func runICACLS(path string, recursive bool) (output []byte, skipped int, err error) {
+	args := []string{path}
+	if recursive {
+		args = append(args, "/T")
+	}
+	cmd := exec.Command("icacls", args...) // #nosec G204 -- path validated by caller; flags are fixed literals
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		return nil, 0, runErr
+	}
+
+	return stdout.Bytes(), countDeniedPaths(stderr.Bytes()), nil
+}
+
+// countDeniedPaths counts the paths icacls could not access
+func countDeniedPaths(stderr []byte) int {
+	if len(stderr) == 0 {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(stderr), "\n") {
+		if strings.Contains(line, "Access is denied") {
+			count++
+		}
+	}
+	return count
 }
 
 func (p *WindowsPermissionChecker) checkNetworkShares(result *types.AuditResult) {
