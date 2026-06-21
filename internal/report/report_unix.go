@@ -123,7 +123,9 @@ func openAndWrite(target string, data []byte) error {
 	}
 
 	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close file: %w", err)
+		}
 		return fmt.Errorf("write report: %w", err)
 	}
 	return f.Close()
