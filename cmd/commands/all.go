@@ -2,8 +2,9 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -12,18 +13,20 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/formatter"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 var (
-	allVerbose      bool
-	allOutputFormat string
-	allReportFile   string
-	skipModules     []string
-	allTimeout      time.Duration
-	allEnrich       bool
+	allVerbose            bool
+	allEnrich             bool
+	allAllowElevatedWrite bool
+	allOutputFormat       string
+	allReportFile         string
+	skipModules           []string
+	allTimeout            time.Duration
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -64,6 +67,8 @@ func init() {
 		"Maximum time to run all scans")
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
+	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
+		"Permit an elevated write outside the allowlisted directories")
 
 	RootCmd.AddCommand(allCmd)
 }
@@ -262,31 +267,34 @@ func outputResults(result *ScanResult) error {
 	opts := formatter.FormatOptions{
 		Format:        formatter.OutputFormat(allOutputFormat),
 		Verbose:       allVerbose,
-		ColorOutput:   isTerminal(),
+		ColorOutput:   isTerminal() && allReportFile == "",
 		IncludeSystem: true,
 		Compact:       false,
 	}
 
-	var output io.Writer = os.Stdout
-	if allReportFile != "" {
-		if err := isSafeReportPath(allReportFile); err != nil {
-			return fmt.Errorf("invalid report file path: %w", err)
-		}
-		file, err := os.Create(allReportFile) // #nosec G304 -- path validated by isSafeReportPath before use
-		if err != nil {
-			return fmt.Errorf("failed to create report file: %w", err)
-		}
-		defer file.Close() //nolint:errcheck // report file written successfully before close; close error does not affect output
-		output = file
-	}
-
 	auditResult := convertToAuditResult(result)
 
-	f := formatter.NewFormatter(output, opts)
+	var buf bytes.Buffer
+	f := formatter.NewFormatter(&buf, opts)
 	if err := f.Format(auditResult); err != nil {
 		return fmt.Errorf("failed to format results: %w", err)
 	}
 
+	if allReportFile == "" {
+		fmt.Print(buf.String())
+		return nil
+	}
+
+	wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
+	if err := report.Write(allReportFile, buf.Bytes(), wOpts); err != nil {
+		if errors.Is(err, report.ErrElevatedWriteDenied) {
+			return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
+		}
+		return fmt.Errorf("failed to write report file: %w", err)
+	}
+	if allVerbose {
+		fmt.Printf("[+] Report saved to: %s\n", allReportFile)
+	}
 	return nil
 }
 
@@ -310,16 +318,4 @@ func isTerminal() bool {
 		return false
 	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
-}
-
-// isSafeReportPath validates the report file path to prevent
-// path traversal attacks (CWE-22) when creating output files.
-func isSafeReportPath(path string) error {
-	if strings.Contains(path, "..") {
-		return fmt.Errorf("report file path must not contain traversal sequences: %s", path)
-	}
-	if path == "" {
-		return fmt.Errorf("report file path must not be empty")
-	}
-	return nil
 }
