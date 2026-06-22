@@ -26,8 +26,6 @@ type Options struct {
 	AllowElevatedWrite bool
 }
 
-const reportFileMode = 0600
-
 // Write validates path through the full guard pipeline and writes data to it,
 func Write(path string, data []byte, opts Options) error {
 	abs, err := filepath.Abs(path)

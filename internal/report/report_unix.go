@@ -13,6 +13,8 @@ import (
 	"syscall"
 )
 
+const reportFileMode = 0600
+
 // systemRoots are refused because they sensitive to an attacker
 var systemRoots = []string{
 	"/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
@@ -104,31 +106,32 @@ func invokingUserHome() string {
 }
 
 // openAndWrite writes data to target with no-follow semantics
-func openAndWrite(target string, data []byte) error {
-	if info, err := os.Lstat(target); err == nil {
+func openAndWrite(target string, data []byte) (err error) {
+	if info, lerr := os.Lstat(target); lerr == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%w: symlink", ErrNotRegularFile)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("%w: %s", ErrNotRegularFile, target)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat destination: %w", err)
+	} else if !errors.Is(lerr, os.ErrNotExist) {
+		return fmt.Errorf("stat destination: %w", lerr)
 	}
 
-	// target is validated through the guard pipeline above and opened no-follow.
-	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, reportFileMode) // #nosec G304 -- validated, no-follow write
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, reportFileMode) // #nosec G304 -- target validated through the guard pipeline and opened no-follow
 	if err != nil {
 		return fmt.Errorf("open destination: %w", err)
 	}
-
-	if _, err := f.Write(data); err != nil {
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close file: %w", err)
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
 		}
-		return fmt.Errorf("write report: %w", err)
+	}()
+
+	if _, werr := f.Write(data); werr != nil {
+		return fmt.Errorf("write report: %w", werr)
 	}
-	return f.Close()
+	return nil
 }
 
 // parentWritableByOthers reports whether dir grants write to group or other

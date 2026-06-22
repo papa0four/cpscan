@@ -14,6 +14,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// fileDeleteChild is the directory right to delete child objects
+const fileDeleteChild = 0x40
+
 func refusedReason(target string) string {
 	// Windows paths are case-insensitive, so fold both sides before comparing.
 	target = strings.ToLower(filepath.Clean(target))
@@ -48,8 +51,7 @@ func refusedBases() []string {
 
 // canonicalParent returns the OS-resolved long-form path of parent so the
 // location checks cannot be evaded by 8.3 short names, links, or trailing dots
-// and spaces. Extended-length and device prefixes are refused, since a report
-// path has no legitimate use for them.
+// and spaces.
 func canonicalParent(parent string) (string, error) {
 	if strings.HasPrefix(parent, `\\?\`) || strings.HasPrefix(parent, `\\.\`) {
 		return "", fmt.Errorf("%w: extended-length or device path", ErrRefusedLocation)
@@ -73,11 +75,15 @@ func canonicalParent(parent string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", ErrParentMissing, parent)
 	}
-	defer windows.CloseHandle(h)
+	defer func() {
+		if cerr := windows.CloseHandle(h); cerr != nil && err == nil {
+			err = fmt.Errorf("close directory handle: %w", cerr)
+		}
+	}()
 
 	const finalPathFlags = 0
 	buf := make([]uint16, windows.MAX_PATH)
-	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), finalPathFlags)
+	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], windows.MAX_PATH, finalPathFlags)
 	if err != nil {
 		return "", fmt.Errorf("canonicalize path: %w", err)
 	}
@@ -128,97 +134,101 @@ func allowlistRoots() []string {
 	return roots
 }
 
-var (
-	advapi32                      = windows.NewLazySystemDLL("advapi32.dll")
-	procGetEffectiveRightsFromACL = advapi32.NewProc("GetEffectiveRightsFromAclW")
-)
-
-// trusteeW mirrors TRUSTEE_W. For a SID-form trustee, Name holds the SID pointer.
-type trusteeW struct {
-	MultipleTrustee          *trusteeW
-	MultipleTrusteeOperation uint32
-	TrusteeForm              uint32
-	TrusteeType              uint32
-	Name                     *uint16
-}
-
-const (
-	trusteeIsSid     = 0 // TRUSTEE_IS_SID
-	trusteeIsUnknown = 0 // TRUSTEE_IS_UNKNOWN
-)
-
 // parentWritableByOthers reports whether a broad group has effective write
 // access to dir.
 func parentWritableByOthers(dir string) (bool, error) {
-	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	sd, err := windows.GetNamedSecurityInfo(
+		dir,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
+	)
 	if err != nil {
 		return false, fmt.Errorf("read security info: %w", err)
 	}
-	dacl, present, err := sd.DACL()
+
+	dacl, _, err := sd.DACL()
+	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
+		// No DACL exists; a NULL DACL grants everyone full access.
+		return true, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("read dacl: %w", err)
 	}
-	// A NULL DACL grants everyone full access, so treat its absence as exposed.
-	if !present || dacl == nil {
+	// A nil DACL here is an empty, fully permissive DACL.
+	if dacl == nil {
 		return true, nil
 	}
 
-	broad, err := broadSIDs()
+	trusted, err := trustedSIDs(sd)
 	if err != nil {
 		return false, err
 	}
 
-	const fileDeleteChild = 0x40
 	const writeMask = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
 		fileDeleteChild | windows.DELETE |
 		windows.GENERIC_WRITE | windows.GENERIC_ALL |
 		windows.WRITE_DAC | windows.WRITE_OWNER
 
-	for _, sid := range broad {
-		mask, err := effectiveRights(dacl, sid)
-		if err != nil {
-			return false, err
+	// ACL field construction
+	type aclLayout struct {
+		revision byte
+		sbz1     byte
+		size     byte
+		count    uint16
+		sbz2     uint16
+	}
+	hdr := (*aclLayout)(unsafe.Pointer(dacl))                                  // #nosec G103 -- audited ACE walk over the fixed OS ACL layout
+	end := uintptr(unsafe.Pointer(dacl)) + uintptr(hdr.size)                   // #nosec G103 -- ACL end boundary, compared only and never converted back to a pointer
+	ace := unsafe.Pointer(uintptr(unsafe.Pointer(dacl)) + unsafe.Sizeof(*hdr)) // #nosec G103 -- first ACE follows the ACL header
+
+	for i := 0; i < int(hdr.count); i++ {
+		header := (*windows.ACE_HEADER)(ace) // #nosec G103 -- bounded ACE read within the ACL buffer
+		if header.AceSize == 0 || uintptr(ace)+uintptr(header.AceSize) > end {
+			break // malformed entry; do not read past the ACL buffer
 		}
-		if mask&writeMask != 0 {
-			return true, nil
+
+		if header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE {
+			allowed := (*windows.ACCESS_ALLOWED_ACE)(ace)
+			if allowed.Mask&writeMask != 0 {
+				sid := (*windows.SID)(unsafe.Pointer(&allowed.SidStart)) // #nosec G103 -- SID embedded in the validated ACE
+				if !sidTrusted(sid, trusted) {
+					return true, nil
+				}
+			}
 		}
+
+		ace = unsafe.Pointer(uintptr(ace) + uintptr(header.AceSize)) // #nosec G103 -- advance within the bounds-checked ACL buffer
 	}
 	return false, nil
 }
 
-func effectiveRights(dacl *windows.ACL, sid *windows.SID) (uint32, error) {
-	trustee := trusteeW{
-		TrusteeForm: trusteeIsSid,
-		TrusteeType: trusteeIsUnknown,
-		Name:        (*uint16)(unsafe.Pointer(sid)),
+func trustedSIDs(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.SID, error) {
+	wellKnown := []windows.WELL_KNOWN_SID_TYPE{
+		windows.WinLocalSystemSid,
+		windows.WinBuiltinAdministratorsSid,
+		windows.WinCreatorOwnerSid,
 	}
-	var mask uint32
-	ret, _, _ := procGetEffectiveRightsFromACL.Call(
-		uintptr(unsafe.Pointer(dacl)),
-		uintptr(unsafe.Pointer(&trustee)),
-		uintptr(unsafe.Pointer(&mask)),
-	)
-	if ret != 0 {
-		return 0, fmt.Errorf("effective rights: error %d", ret)
-	}
-	return mask, nil
-}
-
-func broadSIDs() ([]*windows.SID, error) {
-	types := []windows.WELL_KNOWN_SID_TYPE{
-		windows.WinWorldSid,             // Everyone
-		windows.WinAuthenticatedUserSid, // Authenticated Users
-		windows.WinBuiltinUsersSid,      // Users
-	}
-	sids := make([]*windows.SID, 0, len(types))
-	for _, t := range types {
+	trusted := make([]*windows.SID, 0, len(wellKnown)+1)
+	for _, t := range wellKnown {
 		sid, err := windows.CreateWellKnownSid(t)
 		if err != nil {
 			return nil, fmt.Errorf("well-known sid: %w", err)
 		}
-		sids = append(sids, sid)
+		trusted = append(trusted, sid)
 	}
-	return sids, nil
+	if owner, _, err := sd.Owner(); err == nil && owner != nil {
+		trusted = append(trusted, owner)
+	}
+	return trusted, nil
+}
+
+func sidTrusted(sid *windows.SID, trusted []*windows.SID) bool {
+	for _, t := range trusted {
+		if sid.Equals(t) {
+			return true
+		}
+	}
+	return false
 }
 
 // openAndWrite writes data to target without traversing a reparse point
@@ -254,26 +264,26 @@ func openAndWrite(target string, data []byte) error {
 		return fmt.Errorf("open destination: %w", err)
 	}
 	f := os.NewFile(uintptr(handle), target)
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	var fi windows.ByHandleFileInformation
-	if err := windows.GetFileInformationByHandle(handle, &fi); err != nil {
-		f.Close()
-		return fmt.Errorf("inspect destination: %w", err)
+	if ierr := windows.GetFileInformationByHandle(handle, &fi); err != nil {
+		return fmt.Errorf("inspect destination: %w", ierr)
 	}
 	if fi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		f.Close()
 		return fmt.Errorf("%w: reparse point", ErrNotRegularFile)
 	}
 
-	// Truncate only after the reparse check so a rejected link keeps its content.
-	if err := windows.SetEndOfFile(handle); err != nil {
-		f.Close()
-		return fmt.Errorf("truncate destination: %w", err)
+	if serr := windows.SetEndOfFile(handle); serr != nil {
+		return fmt.Errorf("truncate destination: %w", serr)
 	}
 
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return fmt.Errorf("write report: %w", err)
+	if _, werr := f.Write(data); werr != nil {
+		return fmt.Errorf("write report: %w", werr)
 	}
-	return f.Close()
+	return nil
 }
