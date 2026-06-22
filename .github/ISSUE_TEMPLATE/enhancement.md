@@ -24,3 +24,7 @@ labels: enhancement
 ## Out of scope
 
 <!-- What this issue explicitly does not cover. -->
+
+## Notes
+
+<!-- Cross-issue dependencies, deferred items, or decisions made during scoping. -->

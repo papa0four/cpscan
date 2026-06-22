@@ -16,3 +16,7 @@ labels: chore
 ## Acceptance criteria
 
 - [ ]
+
+## Notes
+
+<!-- Cross-issue dependencies, deferred items, or decisions made during scoping. -->
