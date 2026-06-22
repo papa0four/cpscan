@@ -3,6 +3,7 @@ package security
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
@@ -32,6 +34,9 @@ var (
 
 	// enrichment flag
 	enrich bool
+
+	// allow escalated dir write
+	allowElevatedWrite bool
 )
 
 // SecurityCmd represents the security audit command
@@ -134,6 +139,8 @@ func init() {
 		"Check permissions of specified file path")
 	SecurityCmd.Flags().BoolVarP(&enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
+	SecurityCmd.Flags().BoolVar(&allowElevatedWrite, "allow-elevated-write", false,
+		"Permit an elevated write outside the allowlisted directories")
 }
 
 func buildChecks() []string {
@@ -282,7 +289,11 @@ func outputResults(result *audit.Result) error {
 	}
 
 	if reportFile != "" {
-		if err := os.WriteFile(reportFile, []byte(output), 0600); err != nil {
+		opts := report.Options{AllowElevatedWrite: allowElevatedWrite}
+		if err := report.Write(reportFile, []byte(output), opts); err != nil {
+			if errors.Is(err, report.ErrElevatedWriteDenied) {
+				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
+			}
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
 		if verbose {
