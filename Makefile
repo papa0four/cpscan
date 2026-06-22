@@ -30,6 +30,7 @@ BINARY_NAME := owatch
 BUILD_DIR   := bin
 MAIN_PKG    := ./cmd/owatch/main.go
 INSTALL_DIR := /usr/local/bin
+SBOM_FILE   := sbom.json
 
 # Current Go target
 GOOS    := $(shell go env GOOS)
@@ -247,7 +248,7 @@ endif
 docs:
 	@echo "[*] Starting godoc server at http://localhost:6060"
 	@echo "    Press Ctrl+C to stop."
-	@godoc -http=:6060
+	@pkgsite -http=:6060
 
 # -----------------------------------------------------------------------------
 # Cleanup
@@ -257,6 +258,7 @@ docs:
 clean:
 	@echo "[*] Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR)
+	rm -f $(SBOM_FILE)
 	@echo "[+] Clean complete."
 
 # -----------------------------------------------------------------------------
