@@ -41,8 +41,9 @@ var (
 
 // SecurityCmd represents the security audit command
 var SecurityCmd = &cobra.Command{
-	Use:   "security_audit [flags] [check...]",
-	Short: "Perform a security audit of the system",
+	Use:     "audit [flags] [check...]",
+	Aliases: []string{"security_audit"},
+	Short:   "Perform a security audit of the system",
 	Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
@@ -52,22 +53,22 @@ This command checks various security aspects including:
 
 You can run all checks or specify individual checks to run.`,
 	Example: `  # Run all security checks with verbose output
-  owatch security_audit -v
+  owatch audit -v
 
   # Run specific checks
-  owatch security_audit --ssh
-  owatch security_audit --fwall
-  owatch security_audit --users
-  owatch security_audit --fperms /path/to/file
+  owatch audit --ssh
+  owatch audit --fwall
+  owatch audit --users
+  owatch audit --fperms /path/to/file
 
   # Run checks with verbose output
-  owatch security_audit --ssh -v
+  owatch audit --ssh -v
 
   # Set minimum severity level
-  owatch security_audit --min-severity HIGH
+  owatch audit --min-severity HIGH
 
   # Run checks and save report to file
-  owatch security_audit -v -o json --report-file audit.json`,
+  owatch audit -v -o json --report-file audit.json`,
 }
 
 // Formatter types
@@ -124,7 +125,7 @@ func init() {
 	SecurityCmd.Flags().StringVar(&reportFile, "report-file", "",
 		"Save audit report to file")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
-		"Checks to skip (comma-separated)")
+		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
 	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", "LOW",
 		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
 	SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
@@ -357,6 +358,9 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 		}
 
 		for _, finding := range check.Findings {
+			if !meetsMinSeverity(finding.Severity, minSeverity) {
+				continue
+			}
 			fc.Findings = append(fc.Findings, formattedFinding{
 				Title:       finding.Title,
 				Severity:    finding.Severity,
@@ -372,6 +376,7 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 
 	return formatted
 }
+
 func renderEnrichmentBlock(builder *strings.Builder, result *audit.Result) {
 	if !result.EnrichmentRequested {
 		return
@@ -483,10 +488,16 @@ func formatText(result *audit.Result) (string, error) {
 		fmt.Fprintf(&builder, "Status: %s\n", checkResult.Status)
 		fmt.Fprintf(&builder, "Duration: %v\n", checkResult.Duration)
 
-		if len(checkResult.Findings) > 0 {
+		var filteredFindings []types.Finding
+		for _, finding := range checkResult.Findings {
+			if meetsMinSeverity(finding.Severity, minSeverity) {
+				filteredFindings = append(filteredFindings, finding)
+			}
+		}
+		if len(filteredFindings) > 0 {
 			hasFindings = true
 			builder.WriteString("Findings:\n")
-			for _, finding := range checkResult.Findings {
+			for _, finding := range filteredFindings {
 				symbol, label := types.SeverityFormat(finding.Severity)
 				fmt.Fprintf(&builder, "%s %s  %s\n", symbol, label, finding.Title)
 				if verbose {
@@ -526,4 +537,33 @@ func formatText(result *audit.Result) (string, error) {
 	}
 
 	return builder.String(), nil
+}
+
+// severityLevel returns the numeric rank of a severity string for threshold
+// comparisons. Unknown values return -1 so they are never silently dropped.
+func severityLevel(s string) int {
+	switch strings.ToUpper(s) {
+	case types.SeverityLow:
+		return 0
+	case types.SeverityMedium:
+		return 1
+	case types.SeverityHigh:
+		return 2
+	case types.SeverityCritical:
+		return 3
+	default:
+		return -1
+	}
+}
+
+// meetsMinSeverity reports whether findingSeverity is at or above the
+// minSeverity threshold. Unrecognized severity values pass through so
+// findings are never silently dropped.
+func meetsMinSeverity(findingSeverity, min string) bool {
+	fl := severityLevel(findingSeverity)
+	ml := severityLevel(min)
+	if fl < 0 || ml < 0 {
+		return true
+	}
+	return fl >= ml
 }
