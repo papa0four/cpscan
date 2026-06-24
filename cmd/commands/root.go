@@ -19,7 +19,7 @@ var RootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("owatch requires a subcommand (e.g., all, osinfo, security_audit, software).")
+		fmt.Println("owatch requires a subcommand (e.g., all, osinfo, audit, software).")
 		if err := cmd.Help(); err != nil {
 			fmt.Fprintf(os.Stderr, "error displaying help: %v\n", err)
 		}
