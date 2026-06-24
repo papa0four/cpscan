@@ -469,6 +469,11 @@ func renderReferenceErrors(builder *strings.Builder, refs types.ReferenceExtract
 	builder.WriteString("\n")
 }
 
+// formatText renders result as human-readable text, applying the active
+// minSeverity filter to findings before output. Each check block includes
+// a clean-pass confirmation when no findings meet the threshold, ensuring
+// an empty findings block is never visually ambiguous. Verbose mode appends
+// finding details, impact, resolution, and raw diagnostic output.
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 	isComprehensive := len(result.Results) > 1
@@ -512,6 +517,11 @@ func formatText(result *audit.Result) (string, error) {
 					}
 				}
 			}
+		} else {
+			// Explicit clean pass confirmation so an empty findings block is
+			// never mistaken for a silent checker failure.
+			fmt.Fprintf(&builder, "Findings:\n%s No findings at or above %s severity\n",
+				types.SymbolOK, strings.ToUpper(minSeverity))
 		}
 
 		if verbose && len(checkResult.Details) > 0 {
