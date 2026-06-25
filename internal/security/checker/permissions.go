@@ -116,6 +116,7 @@ type UnixPermissionChecker struct {
 	paths    []criticalPath
 	osType   string
 	scanRoot string
+	ctx      registry.OSContext
 }
 
 // WindowsPermissionChecker implements PermissionChecker for Windows systems
@@ -134,10 +135,11 @@ type criticalPath struct {
 }
 
 // NewUnixPermissionChecker creates a new Unix permission checker
-func NewUnixPermissionChecker(scanRoot string) *UnixPermissionChecker {
+func NewUnixPermissionChecker(ctx registry.OSContext, scanRoot string) *UnixPermissionChecker {
 	checker := &UnixPermissionChecker{
 		osType:   runtime.GOOS,
 		scanRoot: scanRoot,
+		ctx:      ctx,
 	}
 
 	// Set default critical paths based on OS
@@ -248,6 +250,16 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: %s (%s) has permissions %v, expected %v",
 				types.SymbolWarning, cp.path, cp.description, mode.Perm(), cp.expected))
+		if def, ok := registry.Lookup(p.ctx, "permissions.path_exceeds_expected_mode"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	} else {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s %s has correct permissions: %v",
@@ -292,6 +304,16 @@ func (p *UnixPermissionChecker) checkSUIDFiles(result *types.AuditResult) {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
+		if def, ok := registry.Lookup(p.ctx, "permissions.suid_sgid_binary"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	}
 	appendSkippedNote(result, scan, skipped)
 }
@@ -317,6 +339,16 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(result *types.AuditResul
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
+		if def, ok := registry.Lookup(p.ctx, "permissions.world_writable_file"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
+		}
 	}
 	appendSkippedNote(result, scan, skipped)
 }
@@ -339,6 +371,16 @@ func (p *UnixPermissionChecker) checkUnownedFiles(result *types.AuditResult) {
 		for _, file := range files {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
+		}
+		if def, ok := registry.Lookup(p.ctx, "permissions.unowned_file"); ok {
+			result.Findings = append(result.Findings, types.Finding{
+				Title:       def.Title,
+				Severity:    def.Severity,
+				Description: def.Description,
+				Impact:      def.Impact,
+				Resolution:  def.Resolution,
+				References:  def.ToReferences(),
+			})
 		}
 	}
 	appendSkippedNote(result, scan, skipped)

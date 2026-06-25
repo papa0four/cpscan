@@ -108,12 +108,19 @@ type (
 		References  []types.Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	}
 
+	// formattedSummary carries per-severity finding counts and check-level
+	// pass/skip totals for structured output formats. WarningChecks and
+	// FailedChecks are removed -- findings are the canonical signal; check
+	// status is reflected in PassedChecks and SkippedChecks only.
 	formattedSummary struct {
-		TotalChecks   int `json:"total_checks" yaml:"total_checks"`
-		PassedChecks  int `json:"passed_checks" yaml:"passed_checks"`
-		WarningChecks int `json:"warning_checks" yaml:"warning_checks"`
-		FailedChecks  int `json:"failed_checks" yaml:"failed_checks"`
-		SkippedChecks int `json:"skipped_checks" yaml:"skipped_checks"`
+		TotalChecks      int `json:"total_checks" yaml:"total_checks"`
+		PassedChecks     int `json:"passed_checks" yaml:"passed_checks"`
+		SkippedChecks    int `json:"skipped_checks" yaml:"skipped_checks"`
+		TotalFindings    int `json:"total_findings" yaml:"total_findings"`
+		CriticalFindings int `json:"critical_findings" yaml:"critical_findings"`
+		HighFindings     int `json:"high_findings" yaml:"high_findings"`
+		MediumFindings   int `json:"medium_findings" yaml:"medium_findings"`
+		LowFindings      int `json:"low_findings" yaml:"low_findings"`
 	}
 )
 
@@ -340,11 +347,14 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 			SoftwareCount: result.SystemInfo.SoftwareCount,
 		},
 		Summary: formattedSummary{
-			TotalChecks:   result.Summary.TotalChecks,
-			PassedChecks:  result.Summary.PassedChecks,
-			WarningChecks: result.Summary.WarningChecks,
-			FailedChecks:  result.Summary.FailedChecks,
-			SkippedChecks: result.Summary.SkippedChecks,
+			TotalChecks:      result.Summary.TotalChecks,
+			PassedChecks:     result.Summary.PassedChecks,
+			SkippedChecks:    result.Summary.SkippedChecks,
+			TotalFindings:    result.Summary.TotalFindings,
+			CriticalFindings: result.Summary.CriticalFindings,
+			HighFindings:     result.Summary.HighFindings,
+			MediumFindings:   result.Summary.MediumFindings,
+			LowFindings:      result.Summary.LowFindings,
 		},
 	}
 
@@ -536,11 +546,15 @@ func formatText(result *audit.Result) (string, error) {
 
 	renderEnrichmentBlock(&builder, result)
 	builder.WriteString("Summary:\n")
-	fmt.Fprintf(&builder, "Checks Run: %d\n", len(result.Results))
-	fmt.Fprintf(&builder, "Passed:     %d\n", result.Summary.PassedChecks)
-	fmt.Fprintf(&builder, "Warnings:   %d\n", result.Summary.WarningChecks)
-	fmt.Fprintf(&builder, "Failed:     %d\n", result.Summary.FailedChecks)
-	fmt.Fprintf(&builder, "Duration:   %v\n", result.Duration)
+	fmt.Fprintf(&builder, "Checks Run:      %d\n", result.Summary.TotalChecks)
+	fmt.Fprintf(&builder, "Passed:          %d\n", result.Summary.PassedChecks)
+	fmt.Fprintf(&builder, "Skipped:         %d\n", result.Summary.SkippedChecks)
+	fmt.Fprintf(&builder, "Total Findings:  %d\n", result.Summary.TotalFindings)
+	fmt.Fprintf(&builder, "  Critical:      %d\n", result.Summary.CriticalFindings)
+	fmt.Fprintf(&builder, "  High:          %d\n", result.Summary.HighFindings)
+	fmt.Fprintf(&builder, "  Medium:        %d\n", result.Summary.MediumFindings)
+	fmt.Fprintf(&builder, "  Low:           %d\n", result.Summary.LowFindings)
+	fmt.Fprintf(&builder, "Duration:        %v\n", result.Duration)
 
 	if !verbose && hasFindings {
 		builder.WriteString("\nRun with -v for full finding details, impact analysis, and remediation guidance.\n")

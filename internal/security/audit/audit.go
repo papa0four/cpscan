@@ -63,13 +63,21 @@ type SystemInfo struct {
 	SoftwareCount int
 }
 
-// Summary provides a summary of the audit results
+// Summary reports the outcome of a completed audit at both check and finding
+// level. PassedChecks counts checks that completed with zero findings.
+// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
+// broken down by severity so the analyst can assess exposure at a glance
+// without reading individual check output. TotalFindings is the sum of all
+// severity buckets.
 type Summary struct {
-	TotalChecks   int
-	PassedChecks  int
-	WarningChecks int
-	FailedChecks  int
-	SkippedChecks int
+	TotalChecks      int
+	PassedChecks     int
+	SkippedChecks    int
+	TotalFindings    int
+	CriticalFindings int
+	HighFindings     int
+	MediumFindings   int
+	LowFindings      int
 }
 
 // checkRunner pairs a check's canonical name with its execution function
@@ -98,7 +106,7 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
 		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
 		auditor.userChecker = checker.NewUnixUserChecker(ctx)
-		auditor.permissionChecker = checker.NewUnixPermissionChecker(opts.FilePermsPath)
+		auditor.permissionChecker = checker.NewUnixPermissionChecker(ctx, opts.FilePermsPath)
 	}
 
 	return auditor
@@ -260,6 +268,13 @@ func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction 
 	return ext
 }
 
+// calculateSummary iterates all check results and produces a Summary with
+// per-severity finding counts. A check is counted as passed only when it
+// completes with zero findings. ERROR status checks are not counted as
+// passed or skipped -- their findings still contribute to severity totals.
+// Severity classification uses the canonical SeverityX constants from the
+// types package so the bucketing is consistent with registry and enrichment
+// output.
 func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {
 	summary := Summary{
 		TotalChecks: len(results),
@@ -268,13 +283,27 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 	for _, result := range results {
 		switch {
 		case result.Status == "ERROR":
-			summary.FailedChecks++
-		case len(result.Findings) > 0:
-			summary.WarningChecks++
-		case result.Status == "COMPLETED":
-			summary.PassedChecks++
-		default:
+			// ERROR checks are neither passed nor skipped --
+			// their findings still count toward severity totals
+		case result.Status == "SKIPPED":
 			summary.SkippedChecks++
+			continue
+		case len(result.Findings) == 0:
+			summary.PassedChecks++
+		}
+
+		for _, finding := range result.Findings {
+			summary.TotalFindings++
+			switch strings.ToUpper(finding.Severity) {
+			case types.SeverityCritical:
+				summary.CriticalFindings++
+			case types.SeverityHigh:
+				summary.HighFindings++
+			case types.SeverityMedium:
+				summary.MediumFindings++
+			case types.SeverityLow:
+				summary.LowFindings++
+			}
 		}
 	}
 	return summary
