@@ -16,7 +16,7 @@ enumeration and security auditing across Linux, Unix, macOS, and Windows.
 |---|---|
 | `owatch osinfo` | Gather OS fingerprint information |
 | `owatch software` | List installed software packages |
-| `owatch security_audit` | Run security audit checks |
+| `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch version` | Display current version |
 
@@ -33,13 +33,13 @@ owatch osinfo
 owatch software
 
 # Run a full security audit with verbose output
-owatch security_audit -v
+owatch audit -v
 
 # Run specific security checks
-owatch security_audit --ssh
-owatch security_audit --fwall
-owatch security_audit --users
-owatch security_audit --fperms /path/to/check
+owatch audit --ssh
+owatch audit --fwall
+owatch audit --users
+owatch audit --fperms /path/to/check
 
 # Run all scans and save report as JSON
 owatch all -o json --report-file report.json
@@ -62,6 +62,34 @@ owatch all --skip-modules software,security
 | `--skip-checks` | Comma-separated checks to skip | — |
 | `--timeout` | Maximum audit duration | 10m |
 | `-v, --verbose` | Enable verbose output | false |
+
+## Shell Completion
+
+`owatch` can generate shell completion scripts via the `completion` subcommand.
+Completion scripts are sourced into the shell session, not executed directly.
+
+### bash
+```bash
+source <(owatch completion bash)
+```
+
+### zsh
+```zsh
+source <(owatch completion zsh)
+```
+
+### fish
+```fish
+owatch completion fish | source
+```
+
+### PowerShell
+```powershell
+owatch completion powershell | Out-String | Invoke-Expression
+```
+
+> **Note:** Shell completion requires `owatch` to be installed and available
+> in PATH. It does not work with `go run` during development.
 
 ## Demo
 

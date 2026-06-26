@@ -126,12 +126,15 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 
 	// Add summary
 	output["summary"] = map[string]interface{}{
-		"total_checks":   result.Summary.TotalChecks,
-		"passed_checks":  result.Summary.PassedChecks,
-		"warning_checks": result.Summary.WarningChecks,
-		"failed_checks":  result.Summary.FailedChecks,
-		"skipped_checks": result.Summary.SkippedChecks,
-		"duration":       result.Duration.String(),
+		"total_checks":      result.Summary.TotalChecks,
+		"passed_checks":     result.Summary.PassedChecks,
+		"skipped_checks":    result.Summary.SkippedChecks,
+		"total_findings":    result.Summary.TotalFindings,
+		"critical_findings": result.Summary.CriticalFindings,
+		"high_findings":     result.Summary.HighFindings,
+		"medium_findings":   result.Summary.MediumFindings,
+		"low_findings":      result.Summary.LowFindings,
+		"duration":          result.Duration.String(),
 	}
 
 	hasFindings := false
@@ -324,11 +327,15 @@ Enrichment:
 {{range .reference_errors}}    {{.}}
 {{end}}{{end}}{{end}}
 Summary:
-Checks Run: {{.summary.total_checks}}
-Passed:     {{.summary.passed_checks}}
-Warnings:   {{.summary.warning_checks}}
-Failed:     {{.summary.failed_checks}}
-Duration:   {{.summary.duration}}
+Checks Run:      {{.summary.total_checks}}
+Passed:          {{.summary.passed_checks}}
+Skipped:         {{.summary.skipped_checks}}
+Total Findings:  {{.summary.total_findings}}
+  Critical:      {{.summary.critical_findings}}
+  High:          {{.summary.high_findings}}
+  Medium:        {{.summary.medium_findings}}
+  Low:           {{.summary.low_findings}}
+Duration:        {{.summary.duration}}
 {{if and .non_verbose .has_findings}}
 Run with -v for full finding details, impact analysis, and remediation guidance.
 {{end}}`

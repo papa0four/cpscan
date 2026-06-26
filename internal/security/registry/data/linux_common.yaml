@@ -322,6 +322,88 @@ users.sssd_configured:
     - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
     - "https://cwe.mitre.org/data/definitions/287.html"
 
+users.regular_user_admin_privileges:
+  title: "Regular user account has administrative group membership"
+  severity: "MEDIUM"
+  cvss_score: 6.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-250"
+  description: >
+    A non-system user account is a member of a privileged group (sudo or
+    wheel). Administrative group membership grants the ability to execute
+    commands as root via sudo. This may reflect intentional operator
+    access or an unauthorized privilege assignment.
+  impact: >
+    Any process or attacker that gains access to this account can escalate
+    to root via sudo without requiring additional exploitation. The risk
+    is proportional to the strength of the account's authentication and
+    whether the administrative access is operationally justified.
+  resolution: >
+    Review sudo and wheel group membership: getent group sudo wheel.
+    Remove any account from administrative groups that does not require
+    elevated access. Scope sudo rules to specific commands where full
+    root access is not required.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/250.html"
+
+users.login_shell_present:
+  title: "User account has an interactive login shell"
+  severity: "LOW"
+  cvss_score: 2.5
+  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+  cwe: "CWE-272"
+  description: >
+    A user account has an interactive login shell assigned. For regular
+    operator accounts this is expected. For accounts that should not
+    require interactive access (service accounts, daemon accounts, or
+    legacy accounts), an interactive shell represents an unnecessary
+    attack surface. This finding is informational -- context determines
+    whether it is a misconfiguration or intended policy.
+  impact: >
+    An account with an interactive shell that is compromised or
+    misused provides an attacker with a full interactive session.
+    Service accounts with login shells are a common persistence and
+    lateral movement vector when combined with weak or absent passwords.
+  resolution: >
+    For accounts that do not require interactive access, set the shell
+    to a nologin or false variant: usermod -s /usr/sbin/nologin
+    <username>. Review all accounts with interactive shells and confirm
+    each is operationally justified.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.2"
+    - "NIST SP 800-53 Rev 5 AC-2 (Account Management)"
+    - "https://cwe.mitre.org/data/definitions/272.html"
+
+users.no_password_login_shell:
+  title: "Account with no password set has a valid login shell"
+  severity: "HIGH"
+  cvss_score: 8.1
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-287"
+  description: >
+    A user account has no password set in /etc/shadow and is assigned
+    an interactive login shell. An account with no password hash and a
+    valid shell can be accessed without any credential on systems where
+    password authentication is not explicitly required for all accounts.
+  impact: >
+    Any local or remote attacker can authenticate as this account without
+    providing a password if the authentication stack permits empty
+    credentials. Combined with an interactive shell, this grants an
+    attacker a full session under the affected account without any
+    exploitation required.
+  resolution: >
+    Either set a strong password for the account or replace the login
+    shell with a nologin variant: usermod -s /usr/sbin/nologin <username>.
+    If the account is no longer needed, lock or remove it: passwd -l
+    <username> or userdel <username>. Audit all accounts with empty
+    password fields: awk -F: '$2 == "" ' /etc/shadow.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
+    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
 # -------------------------
 # Permissions checker findings
 # -------------------------
