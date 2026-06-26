@@ -29,11 +29,15 @@ type platformConfig struct {
 	minUID      int
 }
 
-// UnixUserChecker implements UserChecker for Unix-like systems
+// UnixUserChecker implements UserChecker for Unix-like systems.
+// shadowReadable is set to true when /etc/shadow was successfully opened
+// during getLinuxUsers; it gates the no-password finding and surfaces a
+// diagnostic when the check runs without sufficient privileges.
 type UnixUserChecker struct {
-	config platformConfig
-	osType string
-	ctx    registry.OSContext
+	config         platformConfig
+	osType         string
+	ctx            registry.OSContext
+	shadowReadable bool
 }
 
 // WindowsUserChecker implements UserChecker for Windows systems
@@ -41,17 +45,23 @@ type WindowsUserChecker struct {
 	ctx registry.OSContext
 }
 
-// userAccount represents a parsed user account
+// userAccount represents a parsed user account from /etc/passwd and,
+// where available, /etc/shadow. isSystem is true when the UID falls
+// below the platform minimum for regular user accounts. isLocked is
+// true when the shadow password field begins with ! or *. hasPassword
+// is true when a non-empty, non-placeholder password hash is present
+// in /etc/shadow; false indicates no credential is set.
 type userAccount struct {
-	username   string
-	uid        int
-	gid        int
-	homeDir    string
-	shell      string
-	isSystem   bool
-	isLocked   bool
-	isAdmin    bool
-	isDisabled bool
+	username    string
+	uid         int
+	gid         int
+	homeDir     string
+	shell       string
+	isSystem    bool
+	isLocked    bool
+	isAdmin     bool
+	isDisabled  bool
+	hasPassword bool
 }
 
 // authConfigResult holds the outcome of auth configuration detection.
@@ -325,6 +335,7 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 
 	shadowEntries := make(map[string]string)
 	if shadow, err := os.Open("/etc/shadow"); err == nil {
+		u.shadowReadable = true
 		defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
 		scanner := bufio.NewScanner(shadow)
 		for scanner.Scan() {
@@ -392,6 +403,19 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 		if shadowEntry, exists := shadowEntries[account.username]; exists {
 			account.isLocked = strings.HasPrefix(shadowEntry, "!") ||
 				strings.HasPrefix(shadowEntry, "*")
+			// Only set hasPassword when shadow was readable and the entry is
+			// a real hash -- not a lock prefix, placeholder, or empty field.
+			// When shadow is unreadable the entry will not exist and hasPassword
+			// stays false; the no-password finding is suppressed in that case.
+			account.hasPassword = shadowEntry != "" &&
+				!strings.HasPrefix(shadowEntry, "!") &&
+				!strings.HasPrefix(shadowEntry, "*")
+		} else {
+			// Shadow entry absent -- either shadow is unreadable or the account
+			// has no shadow entry. Treat password status as unknown rather than
+			// assuming no password is set, to avoid false positives when running
+			// without elevated privileges.
+			account.hasPassword = true
 		}
 
 		users = append(users, account)
@@ -421,6 +445,48 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			suspiciousUsers = append(suspiciousUsers, details)
 		} else if !user.isSystem {
 			regularUsers = append(regularUsers, details)
+		}
+
+		// UID 0 on any account other than root is unconditional root equivalence
+		// regardless of account name, group membership, or sudo policy.
+		if user.uid == rootUID && user.username != "root" {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s CRITICAL: Account %s has UID 0 (root-equivalent)",
+					types.SymbolCritical, user.username))
+			if _, dup := seen["users.uid_zero_non_root"]; !dup {
+				if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+					seen["users.uid_zero_non_root"] = struct{}{}
+				}
+			}
+		}
+
+		// An account with no password and an interactive shell can be accessed
+		// without any credential on systems where empty passwords are permitted.
+		if !user.hasPassword && isInteractiveShell(user.shell) && !user.isLocked {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s WARNING: Account %s has no password and an interactive login shell",
+					types.SymbolWarning, user.username))
+			if _, dup := seen["users.no_password_login_shell"]; !dup {
+				if def, ok := registry.Lookup(u.ctx, "users.no_password_login_shell"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+					seen["users.no_password_login_shell"] = struct{}{}
+				}
+			}
 		}
 
 		if user.isAdmin && !user.isSystem {
@@ -460,6 +526,12 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				}
 			}
 		}
+	}
+
+	if !u.shadowReadable {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s No-password check skipped: /etc/shadow is not readable without elevated privileges",
+				types.SymbolInfo))
 	}
 
 	if len(adminUsers) > 0 {

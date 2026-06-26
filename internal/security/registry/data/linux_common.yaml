@@ -376,6 +376,34 @@ users.login_shell_present:
     - "NIST SP 800-53 Rev 5 AC-2 (Account Management)"
     - "https://cwe.mitre.org/data/definitions/272.html"
 
+users.no_password_login_shell:
+  title: "Account with no password set has a valid login shell"
+  severity: "HIGH"
+  cvss_score: 8.1
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cwe: "CWE-287"
+  description: >
+    A user account has no password set in /etc/shadow and is assigned
+    an interactive login shell. An account with no password hash and a
+    valid shell can be accessed without any credential on systems where
+    password authentication is not explicitly required for all accounts.
+  impact: >
+    Any local or remote attacker can authenticate as this account without
+    providing a password if the authentication stack permits empty
+    credentials. Combined with an interactive shell, this grants an
+    attacker a full session under the affected account without any
+    exploitation required.
+  resolution: >
+    Either set a strong password for the account or replace the login
+    shell with a nologin variant: usermod -s /usr/sbin/nologin <username>.
+    If the account is no longer needed, lock or remove it: passwd -l
+    <username> or userdel <username>. Audit all accounts with empty
+    password fields: awk -F: '$2 == "" ' /etc/shadow.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
+    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/287.html"
+
 # -------------------------
 # Permissions checker findings
 # -------------------------
