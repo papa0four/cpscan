@@ -339,13 +339,20 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 		}
 	}
 
+	// Query each privileged group independently so a missing group (e.g. wheel
+	// or admin absent on Debian-family systems) does not cause the entire
+	// lookup to fail and silently zero out the sudoers map.
 	sudoers := make(map[string]bool)
-	sudoCmd := exec.Command("getent", "group", "sudo", "wheel", "admin")
-	if output, err := sudoCmd.CombinedOutput(); err == nil {
-		for _, line := range strings.Split(string(output), "\n") {
-			if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
-				for _, user := range strings.Split(fields[groupFieldMembers], ",") {
-					sudoers[strings.TrimSpace(user)] = true
+	for _, group := range []string{"sudo", "wheel", "admin"} {
+		cmd := exec.Command("getent", "group", group) // #nosec G204 -- group names are hardcoded literals, not user input
+		if output, err := cmd.CombinedOutput(); err == nil {
+			for _, line := range strings.Split(string(output), "\n") {
+				if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
+					for _, member := range strings.Split(fields[groupFieldMembers], ",") {
+						if name := strings.TrimSpace(member); name != "" {
+							sudoers[name] = true
+						}
+					}
 				}
 			}
 		}
@@ -404,6 +411,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 		suspiciousUsers []string
 	)
 
+	seen := make(map[registry.FindingKey]struct{})
 	for _, user := range users {
 		details := fmt.Sprintf("%s (UID: %d, Shell: %s)", user.username, user.uid, user.shell)
 
@@ -419,12 +427,38 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Regular user %s has administrative privileges",
 					types.SymbolWarning, user.username))
+			if _, dup := seen["users.regular_user_admin_privileges"]; !dup {
+				if def, ok := registry.Lookup(u.ctx, "users.regular_user_admin_privileges"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+					seen["users.regular_user_admin_privileges"] = struct{}{}
+				}
+			}
 		}
 
-		if isWeakShell(user.shell) && !user.isSystem {
+		if isInteractiveShell(user.shell) && !user.isSystem {
 			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: User %s has a potentially insecure shell: %s",
+				fmt.Sprintf("%s User %s has an interactive login shell: %s",
 					types.SymbolWarning, user.username, user.shell))
+			if _, dup := seen["users.login_shell_present"]; !dup {
+				if def, ok := registry.Lookup(u.ctx, "users.login_shell_present"); ok {
+					result.Findings = append(result.Findings, types.Finding{
+						Title:       def.Title,
+						Severity:    def.Severity,
+						Description: def.Description,
+						Impact:      def.Impact,
+						Resolution:  def.Resolution,
+						References:  def.ToReferences(),
+					})
+					seen["users.login_shell_present"] = struct{}{}
+				}
+			}
 		}
 	}
 
@@ -871,22 +905,27 @@ func isSuspiciousUser(user userAccount) bool {
 		strings.Contains(user.username, "test")
 }
 
-func isWeakShell(shell string) bool {
-	weakShells := []string{
-		"/bin/sh",
-		"/usr/bin/sh",
-		"/bin/bash",
-		"/usr/bin/bash",
-		"cmd.exe",
-		"powershell.exe",
+// isInteractiveShell reports whether shell allows interactive login. Shells
+// that do not appear in the nologin/false/sync family are considered
+// interactive regardless of whether they are considered "secure" -- the
+// analyst decides whether the assignment is intentional.
+func isInteractiveShell(shell string) bool {
+	nonInteractive := []string{
+		"nologin",
+		"/bin/false",
+		"/usr/bin/false",
+		"/bin/sync",
+		"/usr/bin/sync",
+		"/sbin/halt",
+		"/sbin/shutdown",
 	}
-
-	for _, weakShell := range weakShells {
-		if strings.HasSuffix(shell, weakShell) {
-			return true
+	for _, s := range nonInteractive {
+		if strings.HasSuffix(shell, s) {
+			return false
 		}
 	}
-	return false
+	// empty shell field defaults to /bin/sh which is interactive
+	return true
 }
 
 func isSafeUsername(username string) bool {
