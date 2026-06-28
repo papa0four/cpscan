@@ -16,7 +16,7 @@ func init() {
 }
 
 func runUnixAudit(cmd *cobra.Command, args []string) error {
-	checks := buildChecks()
+	mask := buildMask()
 
 	if err := validateFlags(cmd); err != nil {
 		return err
@@ -25,7 +25,7 @@ func runUnixAudit(cmd *cobra.Command, args []string) error {
 	if verbose {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
-	logVerboseConfig(checks)
+	logVerboseConfig(mask)
 
-	return runAuditWithTimeout(checks)
+	return runAuditWithTimeout(cmd, mask)
 }

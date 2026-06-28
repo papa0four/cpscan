@@ -14,6 +14,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/report"
+	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/formatter"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -49,8 +50,8 @@ Results can be output in various formats and saved to a file.`,
   # Skip specific modules
   owatch all --skip-modules security,software
 
-  # Save report to file in JSON format
-  owatch all -o json --report-file system-scan.json`,
+  # Save report to directory in JSON format
+  owatch all -o json --report-file /path/to/reports`,
 	RunE: runAllScans,
 }
 
@@ -58,9 +59,9 @@ func init() {
 	allCmd.Flags().BoolVarP(&allVerbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
 	allCmd.Flags().StringVarP(&allOutputFormat, "output", "o", "text",
-		"Output format (text, json, yaml)")
+		"Output format (json, yaml, text, csv)")
 	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
-		"Save complete report to file")
+		"Save complete report to the specified directory; filename is generated automatically")
 	allCmd.Flags().StringSliceVar(&skipModules, "skip-modules", []string{},
 		"Modules to skip (comma-separated: os,software,security)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
@@ -84,6 +85,24 @@ type ScanResult struct {
 	Errors        []string              `json:"errors,omitempty"`
 }
 
+// allScanLabel is the scan segment used in generated report filenames for the all command
+const allScanLabel = "all"
+
+// buildAllMask composes a CheckMask from the active module and security check flags
+func buildAllMask() scan.CheckMask {
+	var mask scan.CheckMask
+	if !isModuleSkipped("os") {
+		mask |= scan.ModuleOS
+	}
+	if !isModuleSkipped("software") {
+		mask |= scan.ModuleSoftware
+	}
+	if !isModuleSkipped("security") {
+		mask |= scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+	}
+	return mask
+}
+
 // validateSkipModules rejects any --skip-modules value that is not recognized
 func validateSkipModules() error {
 	valid := map[string]bool{
@@ -99,10 +118,46 @@ func validateSkipModules() error {
 	return nil
 }
 
+// validateAllFlags rejects invalid flag combinations for the all command.
+func validateAllFlags(cmd *cobra.Command) error {
+	switch allOutputFormat {
+	case "json", "yaml", "text", "csv":
+		// accepted
+	default:
+		return fmt.Errorf("invalid output format: %s (valid: json, yaml, text, csv)", allOutputFormat)
+	}
+
+	if cmd.Flags().Changed("report-file") {
+		if err := validateAllReportDir(allReportFile); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateAllReportDir confirms that the value passed to --report-file is an
+// existing directory. The program generates the filename inside it; the caller
+// supplies only the destination directory.
+func validateAllReportDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("--report-file: directory is not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("--report-file: %s is not a directory", path)
+	}
+	return nil
+}
+
 func runAllScans(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
 
 	if err := validateSkipModules(); err != nil {
+		return err
+	}
+
+	if err := validateAllFlags(cmd); err != nil {
 		return err
 	}
 
@@ -151,9 +206,10 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		results <- result
 	}()
 
+	mask := buildAllMask()
 	select {
 	case result := <-results:
-		return outputResults(result)
+		return outputResults(cmd, result, mask)
 	case <-time.After(allTimeout):
 		return fmt.Errorf("scan timed out after %v", allTimeout)
 	}
@@ -263,9 +319,16 @@ func convertToAuditResult(scan *ScanResult) *audit.Result {
 	return result
 }
 
-func outputResults(result *ScanResult) error {
+func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) error {
+	format := "text"
+	if cmd.Flags().Changed("output") {
+		format = allOutputFormat
+	} else if allReportFile != "" {
+		format = "json"
+	}
+
 	opts := formatter.FormatOptions{
-		Format:        formatter.OutputFormat(allOutputFormat),
+		Format:        formatter.OutputFormat(format),
 		Verbose:       allVerbose,
 		ColorOutput:   isTerminal() && allReportFile == "",
 		IncludeSystem: true,
@@ -280,21 +343,24 @@ func outputResults(result *ScanResult) error {
 		return fmt.Errorf("failed to format results: %w", err)
 	}
 
-	if allReportFile == "" {
-		fmt.Print(buf.String())
+	if allReportFile != "" {
+		hostname := report.ResolveHostname()
+		codes := scan.Codes(mask)
+		path := report.DefaultPath(allReportFile, allScanLabel, hostname, codes, format)
+		wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
+		if err := report.Write(path, buf.Bytes(), wOpts); err != nil {
+			if errors.Is(err, report.ErrElevatedWriteDenied) {
+				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
+			}
+			return fmt.Errorf("failed to write report file: %w", err)
+		}
+		if allVerbose {
+			fmt.Printf("[+] Report saved to: %s\n", path)
+		}
 		return nil
 	}
 
-	wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
-	if err := report.Write(allReportFile, buf.Bytes(), wOpts); err != nil {
-		if errors.Is(err, report.ErrElevatedWriteDenied) {
-			return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
-		}
-		return fmt.Errorf("failed to write report file: %w", err)
-	}
-	if allVerbose {
-		fmt.Printf("[+] Report saved to: %s\n", allReportFile)
-	}
+	fmt.Print(buf.String())
 	return nil
 }
 
