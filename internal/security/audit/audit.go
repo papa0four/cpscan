@@ -53,14 +53,14 @@ type Result struct {
 	References          types.ReferenceExtraction
 }
 
-// SystemInfo contains basic system information
+// SystemInfo contains basic system information collected at the start of an audit.
 type SystemInfo struct {
-	OS            string
-	Architecture  string
-	Hostname      string
-	KernelVersion string
-	SoftwareInfo  string
-	SoftwareCount int
+	OS            string `json:"os" yaml:"os"`
+	Architecture  string `json:"architecture" yaml:"architecture"`
+	Hostname      string `json:"hostname" yaml:"hostname"`
+	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+	SoftwareInfo  string `json:"software_info,omitempty" yaml:"software_info,omitempty"`
+	SoftwareCount int    `json:"software_count" yaml:"software_count"`
 }
 
 // Summary reports the outcome of a completed audit at both check and finding
