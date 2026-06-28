@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/report"
+	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
@@ -124,13 +125,16 @@ type (
 	}
 )
 
+// scanLabel is the scan segment used in generated report filenames.
+const scanLabel = "audit"
+
 func init() {
 	SecurityCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Enable verbose output")
 	SecurityCmd.Flags().StringVarP(&outputFormat, "output", "o", "text",
 		"Output format (text, json, yaml)")
 	SecurityCmd.Flags().StringVar(&reportFile, "report-file", "",
-		"Save audit report to file")
+		"Save audit report to the specified directory; filename is generated automatically")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
 	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", "LOW",
@@ -151,31 +155,30 @@ func init() {
 		"Permit an elevated write outside the allowlisted directories")
 }
 
-func buildChecks() []string {
-	var checks []string
+// buildMask composes a CheckMask from the active flag values
+func buildMask() scan.CheckMask {
+	var mask scan.CheckMask
 	if checkSSH {
-		checks = append(checks, "ssh")
+		mask |= scan.CheckSSH
 	}
 	if checkFirewall {
-		checks = append(checks, "firewall")
+		mask |= scan.CheckFirewall
 	}
 	if checkUsers {
-		checks = append(checks, "users")
+		mask |= scan.CheckUsers
 	}
 	if checkFilePerms != "" {
-		checks = append(checks, "permissions")
+		mask |= scan.CheckPerms
 	}
-	return checks
+	return mask
 }
 
 func validateFlags(cmd *cobra.Command) error {
-	validFormats := map[string]bool{
-		"text": true,
-		"json": true,
-		"yaml": true,
-	}
-	if !validFormats[outputFormat] {
-		return fmt.Errorf("invalid output format: %s", outputFormat)
+	switch outputFormat {
+	case "json", "yaml", "text", "csv":
+		// accepted
+	default:
+		return fmt.Errorf("invalid output format: %s (valid: json, yaml, text)", outputFormat)
 	}
 
 	validSeverities := map[string]bool{
@@ -190,6 +193,12 @@ func validateFlags(cmd *cobra.Command) error {
 
 	if err := validateFilePermsPath(cmd); err != nil {
 		return err
+	}
+
+	if cmd.Flags().Changed("report-file") {
+		if err := validateReportDir(reportFile); err != nil {
+			return err
+		}
 	}
 
 	validChecks := map[string]bool{
@@ -207,6 +216,19 @@ func validateFlags(cmd *cobra.Command) error {
 	return nil
 }
 
+// validateReportDir confirms that the value passed to --report-file is an existing directory.
+// The program generates the filename inside it; the caller supplies only the destination directory.
+func validateReportDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("--report-file: directory is not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("--report-file: %s is not a directory", path)
+	}
+	return nil
+}
+
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
 func validateFilePermsPath(cmd *cobra.Command) error {
 	if !cmd.Flags().Changed("fperms") {
@@ -221,10 +243,11 @@ func validateFilePermsPath(cmd *cobra.Command) error {
 	return nil
 }
 
-func logVerboseConfig(checks []string) {
+func logVerboseConfig(mask scan.CheckMask) {
 	if !verbose {
 		return
 	}
+	checks := scan.EnabledChecks(mask)
 	if len(checks) > 0 {
 		fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
 	} else {
@@ -239,14 +262,14 @@ func logVerboseConfig(checks []string) {
 	fmt.Println()
 }
 
-func runAuditWithTimeout(checks []string) error {
+func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
 		Verbose:        verbose,
 		SkipChecks:     skipChecks,
 		FilePermsPath:  checkFilePerms,
 		MinSeverity:    minSeverity,
 		Timeout:        timeout,
-		SpecificChecks: checks,
+		SpecificChecks: scan.EnabledChecks(mask),
 		Enrich:         enrich,
 	}
 
@@ -266,7 +289,7 @@ func runAuditWithTimeout(checks []string) error {
 
 	select {
 	case result := <-resultChan:
-		return outputResults(result)
+		return outputResults(cmd, result, mask)
 	case err := <-errorChan:
 		return fmt.Errorf("audit failed: %w", err)
 	case <-time.After(timeout):
@@ -274,20 +297,29 @@ func runAuditWithTimeout(checks []string) error {
 	}
 }
 
-func outputResults(result *audit.Result) error {
+func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
 		fmt.Println("No results to display.")
 		return nil
 	}
 
+	format := "text"
+	if cmd.Flags().Changed("output") {
+		format = outputFormat
+	} else if reportFile != "" {
+		format = "json"
+	}
+
 	var output string
 	var err error
 
-	switch outputFormat {
+	switch format {
 	case "json":
 		output, err = formatJSON(result)
 	case "yaml":
 		output, err = formatYAML(result)
+	case "csv":
+		return fmt.Errorf("csv output format is not yet implemented")
 	default:
 		output, err = formatText(result)
 	}
@@ -297,22 +329,23 @@ func outputResults(result *audit.Result) error {
 	}
 
 	if reportFile != "" {
+		hostname := report.ResolveHostname()
+		codes := scan.Codes(mask)
+		path := report.DefaultPath(reportFile, scanLabel, hostname, codes, format)
 		opts := report.Options{AllowElevatedWrite: allowElevatedWrite}
-		if err := report.Write(reportFile, []byte(output), opts); err != nil {
+		if err := report.Write(path, []byte(output), opts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
 				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
 			}
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
 		if verbose {
-			fmt.Printf("[+] Report saved to: %s\n", reportFile)
+			fmt.Printf("[+] Report saved to: %s\n", path)
 		}
+		return nil
 	}
 
-	if reportFile == "" || verbose {
-		fmt.Println(output)
-	}
-
+	fmt.Println(output)
 	return nil
 }
 
