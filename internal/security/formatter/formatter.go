@@ -42,6 +42,200 @@ type Formatter struct {
 	writer  io.Writer
 }
 
+// formatterResult is the typed output structure for JSON and YAML serialization.
+// Only data fields are included; presentation state is excluded by design.
+type formatterResult struct {
+	Timestamp           string              `json:"timestamp" yaml:"timestamp"`
+	Duration            string              `json:"duration" yaml:"duration"`
+	System              *audit.SystemInfo   `json:"system_info,omitempty" yaml:"system_info,omitempty"`
+	Results             []formatterCheck    `json:"results" yaml:"results"`
+	Summary             formatterSummary    `json:"summary" yaml:"summary"`
+	EnrichmentRequested bool                `json:"enrichment_requested" yaml:"enrichment_requested"`
+	EnrichmentError     string              `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
+	ReferenceCWEs       []string            `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+	ReferenceErrors     []string            `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
+	EnrichmentEntries   []enrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
+	EnrichmentFailures  []enrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+}
+
+// formatterCheck is the typed representation of a single check result.
+type formatterCheck struct {
+	Name        string             `json:"name" yaml:"name"`
+	Status      string             `json:"status" yaml:"status"`
+	Description string             `json:"description" yaml:"description"`
+	Duration    string             `json:"duration" yaml:"duration"`
+	Findings    []formatterFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
+	Details     []string           `json:"details,omitempty" yaml:"details,omitempty"`
+}
+
+// formatterFinding is the typed representation of a single finding.
+// Presentation fields (symbol, label, category) are excluded from serialization.
+type formatterFinding struct {
+	Title       string            `json:"title" yaml:"title"`
+	Severity    string            `json:"severity" yaml:"severity"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Impact      string            `json:"impact,omitempty" yaml:"impact,omitempty"`
+	Resolution  string            `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+	References  []types.Reference `json:"references,omitempty" yaml:"references,omitempty"`
+}
+
+// formatterSummary carries per-severity finding counts for serialized output.
+type formatterSummary struct {
+	TotalChecks      int    `json:"total_checks" yaml:"total_checks"`
+	PassedChecks     int    `json:"passed_checks" yaml:"passed_checks"`
+	SkippedChecks    int    `json:"skipped_checks" yaml:"skipped_checks"`
+	TotalFindings    int    `json:"total_findings" yaml:"total_findings"`
+	CriticalFindings int    `json:"critical_findings" yaml:"critical_findings"`
+	HighFindings     int    `json:"high_findings" yaml:"high_findings"`
+	MediumFindings   int    `json:"medium_findings" yaml:"medium_findings"`
+	LowFindings      int    `json:"low_findings" yaml:"low_findings"`
+	Duration         string `json:"duration" yaml:"duration"`
+}
+
+// enrichmentEntry is the typed representation of a CWE enrichment result.
+type enrichmentEntry struct {
+	CWEID        string            `json:"cwe_id" yaml:"cwe_id"`
+	WeaknessName string            `json:"weakness_name,omitempty" yaml:"weakness_name,omitempty"`
+	NoMatches    bool              `json:"no_matches" yaml:"no_matches"`
+	Matches      []enrichmentMatch `json:"matches,omitempty" yaml:"matches,omitempty"`
+}
+
+// enrichmentMatch is the typed representation of a single CVE match.
+type enrichmentMatch struct {
+	CVEID          string  `json:"cve_id" yaml:"cve_id"`
+	Source         string  `json:"source" yaml:"source"`
+	CVSSBaseScore  float64 `json:"cvss_base_score" yaml:"cvss_base_score"`
+	CVSSSeverity   string  `json:"cvss_severity" yaml:"cvss_severity"`
+	Description    string  `json:"description,omitempty" yaml:"description,omitempty"`
+	KnownExploited bool    `json:"known_exploited" yaml:"known_exploited"`
+	PatchAvailable bool    `json:"patch_available" yaml:"patch_available"`
+}
+
+// enrichmentFailure is the typed representation of a failed enrichment lookup.
+type enrichmentFailure struct {
+	CWEID     string `json:"cwe_id" yaml:"cwe_id"`
+	Source    string `json:"source" yaml:"source"`
+	Reason    string `json:"reason" yaml:"reason"`
+	Retryable bool   `json:"retryable" yaml:"retryable"`
+}
+
+// toFormatterResult converts an audit.Result into the typed serialization
+// structure. Only data fields are included; presentation state is excluded.
+func (f *Formatter) toFormatterResult(result *audit.Result) formatterResult {
+	out := formatterResult{
+		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		Duration:            result.Duration.String(),
+		EnrichmentRequested: result.EnrichmentRequested,
+		Summary: formatterSummary{
+			TotalChecks:      result.Summary.TotalChecks,
+			PassedChecks:     result.Summary.PassedChecks,
+			SkippedChecks:    result.Summary.SkippedChecks,
+			TotalFindings:    result.Summary.TotalFindings,
+			CriticalFindings: result.Summary.CriticalFindings,
+			HighFindings:     result.Summary.HighFindings,
+			MediumFindings:   result.Summary.MediumFindings,
+			LowFindings:      result.Summary.LowFindings,
+			Duration:         result.Duration.String(),
+		},
+	}
+
+	if f.options.IncludeSystem {
+		out.System = &result.SystemInfo
+	}
+
+	if result.EnrichmentError != nil {
+		out.EnrichmentError = result.EnrichmentError.Error()
+	}
+
+	if len(result.References.CWEs) > 0 {
+		out.ReferenceCWEs = result.References.CWEs
+	}
+
+	out.ReferenceErrors = formatReferenceErrors(result.References.Errors)
+	out.EnrichmentEntries = buildTypedEnrichmentEntries(result)
+	out.EnrichmentFailures = buildTypedEnrichmentFailures(result)
+
+	for _, check := range result.Results {
+		fc := formatterCheck{
+			Name:        check.Name,
+			Status:      check.Status,
+			Description: check.Description,
+			Duration:    check.Duration.String(),
+		}
+		if f.options.Verbose {
+			fc.Details = check.Details
+		}
+		for _, finding := range check.Findings {
+			if !isSeverityRelevant(finding.Severity, f.options.MinSeverity) {
+				continue
+			}
+			ff := formatterFinding{
+				Title:    finding.Title,
+				Severity: finding.Severity,
+			}
+			if f.options.Verbose {
+				ff.Description = finding.Description
+				ff.Impact = finding.Impact
+				ff.Resolution = finding.Resolution
+				ff.References = finding.References
+			}
+			fc.Findings = append(fc.Findings, ff)
+		}
+		out.Results = append(out.Results, fc)
+	}
+
+	return out
+}
+
+// buildTypedEnrichmentEntries converts enrichment successes to typed structs.
+func buildTypedEnrichmentEntries(result *audit.Result) []enrichmentEntry {
+	if result.Enrichment == nil {
+		return nil
+	}
+	out := make([]enrichmentEntry, 0, len(result.References.CWEs))
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		e := enrichmentEntry{
+			CWEID:        cwe,
+			WeaknessName: entry.WeaknessName,
+			NoMatches:    string(entry.Status) == "NO_MATCHES" || len(entry.MatchedCVEs) == 0,
+		}
+		for _, match := range entry.MatchedCVEs {
+			e.Matches = append(e.Matches, enrichmentMatch{
+				CVEID:          match.CVEID,
+				Source:         string(match.Source),
+				CVSSBaseScore:  match.CVSSBaseScore,
+				CVSSSeverity:   match.CVSSSeverity,
+				Description:    match.Description,
+				KnownExploited: match.KnownExploited,
+				PatchAvailable: match.PatchAvailable,
+			})
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// buildTypedEnrichmentFailures converts enrichment failures to typed structs.
+func buildTypedEnrichmentFailures(result *audit.Result) []enrichmentFailure {
+	if result.Enrichment == nil || len(result.Enrichment.Failures) == 0 {
+		return nil
+	}
+	out := make([]enrichmentFailure, 0, len(result.Enrichment.Failures))
+	for cwe, failure := range result.Enrichment.Failures {
+		out = append(out, enrichmentFailure{
+			CWEID:     cwe,
+			Source:    string(failure.Source),
+			Reason:    failure.Reason,
+			Retryable: failure.Retryable,
+		})
+	}
+	return out
+}
+
 // NewFormatter creates a new formatter with the specified options
 func NewFormatter(w io.Writer, opts FormatOptions) *Formatter {
 	return &Formatter{
@@ -62,22 +256,21 @@ func (f *Formatter) Format(result *audit.Result) error {
 	}
 }
 
-// formatJSON handles JSON output formatting
+// formatJSON serializes the audit result to JSON using typed structs.
+// Presentation fields are excluded by the type definitions.
 func (f *Formatter) formatJSON(result *audit.Result) error {
-	// Convert result to map for customization
-	data := f.prepareOutput(result)
-
+	data := f.toFormatterResult(result)
 	encoder := json.NewEncoder(f.writer)
 	if !f.options.Compact {
 		encoder.SetIndent("", "  ")
 	}
-
 	return encoder.Encode(data)
 }
 
-// formatYAML handles YAML output formatting
+// formatYAML serializes the audit result to YAML using typed structs.
+// Presentation fields are excluded by the type definitions.
 func (f *Formatter) formatYAML(result *audit.Result) error {
-	data := f.prepareOutput(result)
+	data := f.toFormatterResult(result)
 	return yaml.NewEncoder(f.writer).Encode(data)
 }
 
@@ -152,8 +345,8 @@ func (f *Formatter) prepareOutput(result *audit.Result) map[string]interface{} {
 	}
 	output["reference_cwes"] = result.References.CWEs
 	output["reference_errors"] = formatReferenceErrors(result.References.Errors)
-	output["enrichment_entries"] = buildEnrichmentEntries(result)
-	output["enrichment_failures"] = buildEnrichmentFailures(result)
+	output["enrichment_entries"] = buildTypedEnrichmentEntries(result)
+	output["enrichment_failures"] = buildTypedEnrichmentFailures(result)
 
 	return output
 }
@@ -228,57 +421,6 @@ func formatReferenceErrors(errs []error) []string {
 	out := make([]string, 0, len(errs))
 	for _, e := range errs {
 		out = append(out, e.Error())
-	}
-	return out
-}
-
-func buildEnrichmentEntries(result *audit.Result) []map[string]interface{} {
-	if result.Enrichment == nil {
-		return nil
-	}
-	out := make([]map[string]interface{}, 0, len(result.References.CWEs))
-	for _, cwe := range result.References.CWEs {
-		entry, ok := result.Enrichment.Successes[cwe]
-		if !ok {
-			continue
-		}
-		matches := make([]map[string]interface{}, 0, len(entry.MatchedCVEs))
-		for _, match := range entry.MatchedCVEs {
-			symbol, label := types.SeverityFormat(match.CVSSSeverity)
-			matches = append(matches, map[string]interface{}{
-				"cve_id":          match.CVEID,
-				"source":          string(match.Source),
-				"cvss_base_score": match.CVSSBaseScore,
-				"cvss_severity":   match.CVSSSeverity,
-				"symbol":          symbol,
-				"label":           label,
-				"description":     match.Description,
-				"known_exploited": match.KnownExploited,
-				"patch_available": match.PatchAvailable,
-			})
-		}
-		out = append(out, map[string]interface{}{
-			"cwe_id":        cwe,
-			"weakness_name": entry.WeaknessName,
-			"no_matches":    string(entry.Status) == "NO_MATCHES" || len(matches) == 0,
-			"matches":       matches,
-		})
-	}
-	return out
-}
-
-func buildEnrichmentFailures(result *audit.Result) []map[string]interface{} {
-	if result.Enrichment == nil || len(result.Enrichment.Failures) == 0 {
-		return nil
-	}
-	out := make([]map[string]interface{}, 0, len(result.Enrichment.Failures))
-	for cwe, failure := range result.Enrichment.Failures {
-		out = append(out, map[string]interface{}{
-			"cwe_id":    cwe,
-			"source":    string(failure.Source),
-			"reason":    failure.Reason,
-			"retryable": failure.Retryable,
-		})
 	}
 	return out
 }
