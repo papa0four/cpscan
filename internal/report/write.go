@@ -4,8 +4,10 @@ package report
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -79,10 +81,50 @@ func Write(path string, data []byte, opts Options) error {
 	return openAndWrite(target, data)
 }
 
-// DefaultPath returns a generated report destination in CWD
-func DefaultPath(scan, format string) string {
+// DefaultPath returns the full path for a generated report file inside dir.
+// The filename follows the pattern owatch-<scan>-<hostname>-<codes>-<timestamp>.<ext>.
+// dir must be an existing directory; the caller is responsible for validating it.
+func DefaultPath(dir, scan, hostname, codes, format string) string {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
-	return fmt.Sprintf("owatch-%s-%s.%s", scan, stamp, extension(format))
+	name := fmt.Sprintf("owatch-%s-%s-%s-%s.%s", scan, hostname, codes, stamp, extension(format))
+	return filepath.Join(dir, name)
+}
+
+// ResolveHostname returns a filename-safe host identifier using a fallback
+// chain: sanitized os.Hostname(), then unknown-<mac> using the first valid
+// non-loopback MAC address (hex, no separators), then unknown.
+func ResolveHostname() string {
+	// hostnameRe retains only characters safe in filenames across all supported
+	// platforms; anything else becomes a hyphen.
+	hostnameRe := regexp.MustCompile(`[^a-zA-Z0-9\-.]`)
+
+	if h, err := os.Hostname(); err == nil && h != "" {
+		sanitized := hostnameRe.ReplaceAllString(h, "-")
+		if len(sanitized) > 63 {
+			sanitized = sanitized[:63]
+		}
+		if sanitized != "" {
+			return sanitized
+		}
+	}
+
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			if len(iface.HardwareAddr) == 0 {
+				continue
+			}
+			mac := strings.ReplaceAll(iface.HardwareAddr.String(), ":", "")
+			if mac != "" {
+				return "unknown-" + mac
+			}
+		}
+	}
+
+	return "unknown"
 }
 
 func extension(format string) string {
