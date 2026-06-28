@@ -12,15 +12,21 @@ import "strings"
 type CheckMask uint64
 
 const (
-	CheckSSH      CheckMask = 1 << iota
+	// CheckSSH identifies the SSH configuration security check.
+	CheckSSH CheckMask = 1 << iota
+	// CheckFirewall identifies the firewall configuration security check.
 	CheckFirewall
-	CheckUsers
+	// CheckPerms identifies the file permissions security check.
 	CheckPerms
+	// CheckUsers identifies the user account security check.
+	CheckUsers
 
-	// Module bits occupy the upper 32 positions
-	ModuleOS       CheckMask = 1 << 32
+	// ModuleOS identifies the OS fingerprint module.
+	// Module bits are offset to bit 32 to avoid collision with security check bits.
+	ModuleOS CheckMask = 1 << 32
+	// ModuleSoftware identifies the software inventory module.
 	ModuleSoftware CheckMask = 1 << 33
-	// TODO: ModuleNetwork, ModuleSyslog, ModuleListeners
+	// TODO: ModuleNetwork, ModuleSyslog, ModuleListeners, etc.
 )
 
 // Codes returns a filename-safe string encoding the enabled checks within the
@@ -32,7 +38,9 @@ func Codes(mask CheckMask) string {
 	if mask&ModuleOS != 0 {
 		segments = append(segments, "os")
 	}
-	if mask&Mo
+	if mask&ModuleSoftware != 0 {
+		segments = append(segments, "soft")
+	}
 
 	var letters strings.Builder
 	if mask&CheckFirewall != 0 {
