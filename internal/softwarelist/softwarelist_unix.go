@@ -7,36 +7,122 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
-// getPlatformSoftware enumerates installed software using the appropriate
-// package manager or system tool for the current Unix-like platform.
-func getPlatformSoftware() (string, error) {
+// getPlatformSoftwareList returns installed software as a structured slice
+// by querying the platform package manager. Linux tries dpkg-query then rpm;
+// Darwin uses system_profiler; FreeBSD uses pkg info.
+func getPlatformSoftwareList() ([]SoftwareEntry, error) {
 	switch runtime.GOOS {
 	case "linux":
-		if output, err := exec.Command("dpkg-query", "-l").Output(); err == nil {
-			return string(output), nil
+		if output, err := exec.Command("dpkg-query", "-W", "-f=${Package}\t${Version}\n").Output(); err == nil {
+			return parseTabDelimited(string(output)), nil
 		}
-		if output, err := exec.Command("rpm", "-qa").Output(); err == nil {
-			return string(output), nil
+		if output, err := exec.Command("rpm", "-qa", "--queryformat", "%{NAME}\t%{VERSION}\n").Output(); err == nil {
+			return parseTabDelimited(string(output)), nil
 		}
-		return "", fmt.Errorf("no supported package manager found; try rerunning with sudo")
+		return nil, fmt.Errorf("no supported package manager found; try rerunning with sudo")
 
 	case "darwin":
-		output, err := exec.Command("system_profiler", "SPApplicationsDataType").Output()
-		if err == nil {
-			return string(output), nil
+		output, err := exec.Command("system_profiler", "SPApplicationsDataType", "-json").Output()
+		if err != nil {
+			return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
 		}
-		return "", fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
+		return parseDarwinJSON(output), nil
 
 	case "freebsd":
-		output, err := exec.Command("pkg", "info").Output()
-		if err == nil {
-			return string(output), nil
+		output, err := exec.Command("pkg", "info", "-a", "--raw-format", "json").Output()
+		if err != nil {
+			return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
 		}
-		return "", fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
+		return parseFreeBSDJSON(output), nil
 
 	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
+}
+
+// getPlatformSoftware returns installed software as a column-aligned string
+// suitable for human-readable text output and the standalone software
+// subcommand. It delegates to getPlatformSoftwareList and formats each entry
+// as a fixed-width name and version pair.
+func getPlatformSoftware() (string, error) {
+	entries, err := getPlatformSoftwareList()
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%-60s %s\n", "Name", "Version")
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "%-60s %s\n", e.Name, e.Version)
+	}
+	return sb.String(), nil
+}
+
+// parseTabDelimited parses tab-delimited name\tversion output from dpkg-query
+// and rpm into a slice of SoftwareEntry.
+func parseTabDelimited(output string) []SoftwareEntry {
+	var entries []SoftwareEntry
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 2)
+		if len(fields) == 0 || fields[0] == "" {
+			continue
+		}
+		entry := SoftwareEntry{Name: fields[0]}
+		if len(fields) == 2 {
+			entry.Version = fields[1]
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// parseDarwinJSON parses system_profiler SPApplicationsDataType -json output
+// into a slice of SoftwareEntry. This is a best-effort line-based fallback;
+// a full JSON parser will replace this when the Darwin runner lands.
+func parseDarwinJSON(output []byte) []SoftwareEntry {
+	var entries []SoftwareEntry
+	seen := make(map[string]bool)
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "\"_name\"") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				name := strings.Trim(strings.TrimSpace(parts[1]), `",`)
+				if name != "" && !seen[name] {
+					seen[name] = true
+					entries = append(entries, SoftwareEntry{Name: name})
+				}
+			}
+		}
+	}
+	return entries
+}
+
+// parseFreeBSDJSON parses pkg info -a --raw-format json output into a slice
+// of SoftwareEntry. This is a best-effort line-based fallback; a full JSON
+// parser will replace this when the FreeBSD runner lands.
+func parseFreeBSDJSON(output []byte) []SoftwareEntry {
+	var entries []SoftwareEntry
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "\"name\"") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				name := strings.Trim(strings.TrimSpace(parts[1]), `",`)
+				if name != "" {
+					entries = append(entries, SoftwareEntry{Name: name})
+				}
+			}
+		}
+	}
+	return entries
 }
