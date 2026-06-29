@@ -87,8 +87,6 @@ type (
 		Architecture  string `json:"architecture" yaml:"architecture"`
 		Hostname      string `json:"hostname" yaml:"hostname"`
 		KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
-		SoftwareInfo  string `json:"software_info,omitempty"`
-		SoftwareCount int    `json:"software_count"`
 	}
 
 	formattedCheck struct {
@@ -376,8 +374,6 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 			Architecture:  result.SystemInfo.Architecture,
 			Hostname:      result.SystemInfo.Hostname,
 			KernelVersion: result.SystemInfo.KernelVersion,
-			SoftwareInfo:  result.SystemInfo.SoftwareInfo,
-			SoftwareCount: result.SystemInfo.SoftwareCount,
 		},
 		Summary: formattedSummary{
 			TotalChecks:      result.Summary.TotalChecks,

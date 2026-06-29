@@ -53,14 +53,14 @@ type Result struct {
 	References          types.ReferenceExtraction
 }
 
-// SystemInfo contains basic system information collected at the start of an audit.
+// SystemInfo contains basic system information collected at the start of an
+// audit. Software inventory is owned by the all command and is not part of
+// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
 type SystemInfo struct {
 	OS            string `json:"os" yaml:"os"`
 	Architecture  string `json:"architecture" yaml:"architecture"`
 	Hostname      string `json:"hostname" yaml:"hostname"`
 	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
-	SoftwareInfo  string `json:"software_info,omitempty" yaml:"software_info,omitempty"`
-	SoftwareCount int    `json:"software_count" yaml:"software_count"`
 }
 
 // Summary reports the outcome of a completed audit at both check and finding

@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,12 +12,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
-	"github.com/papa0four/orkowatch/internal/security/formatter"
+	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -74,15 +76,70 @@ func init() {
 	RootCmd.AddCommand(allCmd)
 }
 
-// ScanResult represents the combined results of all scans
+// ScanResult represents the combined results of all scans. It is the
+// authoritative result type for the all command and is not shared with
+// the audit subsystem.
 type ScanResult struct {
-	Timestamp     time.Time             `json:"timestamp"`
-	Duration      time.Duration         `json:"duration"`
-	OSInfo        *osfingerprint.OSInfo `json:"os_info,omitempty"`
-	SoftwareInfo  string                `json:"software_info,omitempty"`
-	SoftwareCount int                   `json:"software_count"`
-	SecurityAudit *audit.Result         `json:"security_audit,omitempty"`
-	Errors        []string              `json:"errors,omitempty"`
+	Timestamp     time.Time                    `json:"timestamp"`
+	Duration      time.Duration                `json:"duration"`
+	OSInfo        *osfingerprint.OSInfo        `json:"os_info,omitempty"`
+	Software      []softwarelist.SoftwareEntry `json:"software,omitempty"`
+	SecurityAudit *audit.Result                `json:"security_audit,omitempty"`
+	Errors        []string                     `json:"errors,omitempty"`
+}
+
+// allResult is the typed serialization structure for all command JSON and
+// YAML output. It defines clean section boundaries between system, software,
+// and security data.
+type allResult struct {
+	Timestamp string        `json:"timestamp" yaml:"timestamp"`
+	Duration  string        `json:"duration" yaml:"duration"`
+	System    allSystemInfo `json:"system" yaml:"system"`
+	Software  allSoftware   `json:"software,omitempty" yaml:"software,omitempty"`
+	Security  *allSecurity  `json:"security,omitempty" yaml:"security,omitempty"`
+	Errors    []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
+}
+
+// allSystemInfo carries host identity fields for all command output.
+type allSystemInfo struct {
+	OS            string `json:"os" yaml:"os"`
+	Hostname      string `json:"hostname" yaml:"hostname"`
+	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+	Architecture  string `json:"architecture" yaml:"architecture"`
+}
+
+// allSoftware carries the structured software inventory for all command output.
+type allSoftware struct {
+	Count    int                          `json:"count" yaml:"count"`
+	Packages []softwarelist.SoftwareEntry `json:"packages" yaml:"packages"`
+}
+
+// allSecurity carries the security audit results for all command output.
+type allSecurity struct {
+	Summary  allSecuritySummary `json:"summary" yaml:"summary"`
+	Findings []allFinding       `json:"findings,omitempty" yaml:"findings,omitempty"`
+}
+
+// allSecuritySummary carries per-severity finding counts for all command output.
+type allSecuritySummary struct {
+	TotalChecks   int `json:"total_checks" yaml:"total_checks"`
+	PassedChecks  int `json:"passed_checks" yaml:"passed_checks"`
+	TotalFindings int `json:"total_findings" yaml:"total_findings"`
+	Critical      int `json:"critical" yaml:"critical"`
+	High          int `json:"high" yaml:"high"`
+	Medium        int `json:"medium" yaml:"medium"`
+	Low           int `json:"low" yaml:"low"`
+}
+
+// allFinding carries a single security finding for all command output.
+type allFinding struct {
+	Check       string `json:"check" yaml:"check"`
+	Title       string `json:"title" yaml:"title"`
+	Severity    string `json:"severity" yaml:"severity"`
+	CWE         string `json:"cwe,omitempty" yaml:"cwe,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Impact      string `json:"impact,omitempty" yaml:"impact,omitempty"`
+	Resolution  string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 }
 
 // allScanLabel is the scan segment used in generated report filenames for the all command
@@ -101,6 +158,79 @@ func buildAllMask() scan.CheckMask {
 		mask |= scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
 	}
 	return mask
+}
+
+// toAllResult converts a ScanResult into the typed serialization structure
+// for all command output.
+func toAllResult(scan *ScanResult) allResult {
+	out := allResult{
+		Timestamp: scan.Timestamp.UTC().Format(time.RFC3339),
+		Duration:  scan.Duration.String(),
+		Errors:    scan.Errors,
+	}
+
+	// system info -- prefer OS fingerprint data, fall back to runtime
+	if scan.OSInfo != nil {
+		out.System = allSystemInfo{
+			OS:            scan.OSInfo.Platform,
+			Hostname:      scan.OSInfo.Hostname,
+			KernelVersion: scan.OSInfo.KernelVersion,
+			Architecture:  runtime.GOARCH,
+		}
+	} else {
+		hostname, _ := os.Hostname() //nolint:errcheck // fallback to empty string on error
+		out.System = allSystemInfo{
+			OS:           runtime.GOOS,
+			Hostname:     hostname,
+			Architecture: runtime.GOARCH,
+		}
+	}
+
+	// software inventory
+	if len(scan.Software) > 0 {
+		out.Software = allSoftware{
+			Count:    len(scan.Software),
+			Packages: scan.Software,
+		}
+	}
+
+	// security audit
+	if scan.SecurityAudit != nil {
+		sec := &allSecurity{
+			Summary: allSecuritySummary{
+				TotalChecks:   scan.SecurityAudit.Summary.TotalChecks,
+				PassedChecks:  scan.SecurityAudit.Summary.PassedChecks,
+				TotalFindings: scan.SecurityAudit.Summary.TotalFindings,
+				Critical:      scan.SecurityAudit.Summary.CriticalFindings,
+				High:          scan.SecurityAudit.Summary.HighFindings,
+				Medium:        scan.SecurityAudit.Summary.MediumFindings,
+				Low:           scan.SecurityAudit.Summary.LowFindings,
+			},
+		}
+		for _, check := range scan.SecurityAudit.Results {
+			for _, finding := range check.Findings {
+				f := allFinding{
+					Check:       check.Name,
+					Title:       finding.Title,
+					Severity:    finding.Severity,
+					Description: finding.Description,
+					Impact:      finding.Impact,
+					Resolution:  finding.Resolution,
+				}
+				// extract first CWE reference if present
+				for _, ref := range finding.References {
+					if ref.Type == "CWE" {
+						f.CWE = ref.Title
+						break
+					}
+				}
+				sec.Findings = append(sec.Findings, f)
+			}
+		}
+		out.Security = sec
+	}
+
+	return out
 }
 
 // validateSkipModules rejects any --skip-modules value that is not recognized
@@ -183,13 +313,12 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		}
 
 		if !isModuleSkipped("software") {
-			softwareInfo, softwareCount, err := runSoftwareInventory()
+			software, err := runSoftwareInventory()
 			if err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Software inventory error: %v", err))
 			} else {
-				result.SoftwareInfo = softwareInfo
-				result.SoftwareCount = softwareCount
+				result.Software = software
 			}
 		}
 
@@ -216,7 +345,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 }
 
 func runOSFingerprint() (*osfingerprint.OSInfo, error) {
-	if allVerbose {
+	if allVerbose && isTerminal() {
 		fmt.Println("[*] OS Fingerprint Scan")
 	}
 
@@ -225,7 +354,7 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 		return nil, err
 	}
 
-	if allVerbose {
+	if allVerbose && isTerminal() {
 		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
 			info.OS, info.Platform, info.PlatformVersion)
 		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
@@ -237,33 +366,36 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 	return info, nil
 }
 
-func runSoftwareInventory() (string, int, error) {
-	if allVerbose {
+// runSoftwareInventory enumerates installed software packages. Verbose module
+// headers are gated behind isTerminal() to prevent duplication when piping
+// or redirecting output.
+func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
+	if allVerbose && isTerminal() {
 		fmt.Println("[*] Software Inventory Scan")
 	}
 
-	software, err := softwarelist.GetInstalledSoftware()
+	entries, err := softwarelist.GetInstalledSoftwareList()
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 
-	softwareCount := strings.Count(software, "\n") + 1
-
-	if allVerbose {
-		fmt.Printf("[*] Found %d installed packages\n\n", softwareCount)
-		fmt.Println(software)
+	if allVerbose && isTerminal() {
+		fmt.Printf("[*] Found %d installed packages\n\n", len(entries))
+		for _, e := range entries {
+			fmt.Printf("%-60s %s\n", e.Name, e.Version)
+		}
 	}
 
-	return software, softwareCount, nil
+	return entries, nil
 }
 
 func runSecurityAuditModule() (*audit.Result, error) {
-	if allVerbose {
+	if allVerbose && isTerminal() {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
 	opts := audit.Options{
-		Verbose:     allVerbose,
+		Verbose:     allVerbose && isTerminal(),
 		MinSeverity: "LOW",
 		Timeout:     allTimeout / 3,
 		Enrich:      allEnrich,
@@ -271,52 +403,6 @@ func runSecurityAuditModule() (*audit.Result, error) {
 
 	auditor := audit.NewSecurityAuditor(opts)
 	return auditor.RunAudit()
-}
-
-func convertToAuditResult(scan *ScanResult) *audit.Result {
-	var sysInfo audit.SystemInfo
-	if scan.SecurityAudit != nil {
-		sysInfo = scan.SecurityAudit.SystemInfo
-	} else {
-		sysInfo = audit.SystemInfo{
-			OS:           runtime.GOOS,
-			Architecture: runtime.GOARCH,
-		}
-		if hostname, err := os.Hostname(); err == nil {
-			sysInfo.Hostname = hostname
-		}
-	}
-
-	if scan.OSInfo != nil {
-		if scan.OSInfo.Platform != "" {
-			sysInfo.OS = scan.OSInfo.Platform
-		}
-		if scan.OSInfo.KernelVersion != "" {
-			sysInfo.KernelVersion = scan.OSInfo.KernelVersion
-		}
-	}
-	if scan.SoftwareInfo != "" {
-		sysInfo.SoftwareInfo = scan.SoftwareInfo
-		sysInfo.SoftwareCount = scan.SoftwareCount
-	}
-
-	result := &audit.Result{
-		StartTime:  scan.Timestamp,
-		EndTime:    scan.Timestamp.Add(scan.Duration),
-		Duration:   scan.Duration,
-		SystemInfo: sysInfo,
-	}
-
-	if scan.SecurityAudit != nil {
-		result.Results = scan.SecurityAudit.Results
-		result.Summary = scan.SecurityAudit.Summary
-		result.EnrichmentRequested = scan.SecurityAudit.EnrichmentRequested
-		result.EnrichmentError = scan.SecurityAudit.EnrichmentError
-		result.Enrichment = scan.SecurityAudit.Enrichment
-		result.References = scan.SecurityAudit.References
-	}
-
-	return result
 }
 
 func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) error {
@@ -327,20 +413,25 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 		format = "json"
 	}
 
-	opts := formatter.FormatOptions{
-		Format:        formatter.OutputFormat(format),
-		Verbose:       allVerbose,
-		ColorOutput:   isTerminal() && allReportFile == "",
-		IncludeSystem: true,
-		Compact:       false,
-	}
-
-	auditResult := convertToAuditResult(result)
-
 	var buf bytes.Buffer
-	f := formatter.NewFormatter(&buf, opts)
-	if err := f.Format(auditResult); err != nil {
-		return fmt.Errorf("failed to format results: %w", err)
+
+	switch format {
+	case "json":
+		data := toAllResult(result)
+		enc := json.NewEncoder(&buf)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(data); err != nil {
+			return fmt.Errorf("failed to encode JSON: %w", err)
+		}
+	case "yaml":
+		data := toAllResult(result)
+		if err := yaml.NewEncoder(&buf).Encode(data); err != nil {
+			return fmt.Errorf("failed to encode YAML: %w", err)
+		}
+	case "csv":
+		return fmt.Errorf("csv output format is not yet implemented")
+	default:
+		renderAllText(&buf, result)
 	}
 
 	if allReportFile != "" {
@@ -362,6 +453,43 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 
 	fmt.Print(buf.String())
 	return nil
+}
+
+// renderAllText writes a concise human-readable summary of the scan result
+// to w. This is the non-TUI text path; it will be replaced by the Bubbletea
+// progress display when #35 lands.
+func renderAllText(w *bytes.Buffer, result *ScanResult) {
+	fmt.Fprintf(w, "owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
+
+	// system
+	if result.OSInfo != nil {
+		fmt.Fprintf(w, "System\n")
+		fmt.Fprintf(w, "  OS:       %s\n", result.OSInfo.Platform)
+		fmt.Fprintf(w, "  Host:     %s\n", result.OSInfo.Hostname)
+		fmt.Fprintf(w, "  Kernel:   %s\n", result.OSInfo.KernelVersion)
+	}
+
+	// software
+	if len(result.Software) > 0 {
+		fmt.Fprintf(w, "  Software: %d packages installed\n", len(result.Software))
+	}
+
+	fmt.Fprintln(w)
+
+	// security findings
+	if result.SecurityAudit != nil {
+		fmt.Fprintf(w, "Security Audit\n")
+		for _, check := range result.SecurityAudit.Results {
+			for _, finding := range check.Findings {
+				symbol, _ := types.SeverityFormat(finding.Severity)
+				fmt.Fprintf(w, "  %s %-8s  %s\n", symbol, finding.Severity, finding.Title)
+			}
+		}
+		fmt.Fprintln(w)
+		s := result.SecurityAudit.Summary
+		fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings  %s\n",
+			s.TotalChecks, s.PassedChecks, s.TotalFindings, result.Duration.Round(time.Millisecond))
+	}
 }
 
 func isModuleSkipped(module string) bool {

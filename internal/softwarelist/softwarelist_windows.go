@@ -23,7 +23,7 @@ import (
 // wmic is called as a fallback for environments where registry
 // access is restricted, but its use is flagged since it is deprecated as of
 // Windows 10 21H1.
-func getPlatformSoftware() (string, error) {
+func getPlatformSoftwareList() ([]SoftwareEntry, error) {
 	const (
 		uninstallPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 		uninstallPath32 = `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
@@ -41,13 +41,8 @@ func getPlatformSoftware() (string, error) {
 		{registry.CURRENT_USER, uninstallPath32},
 	}
 
-	type entry struct {
-		name    string
-		version string
-	}
-
 	seen := make(map[string]bool)
-	var entries []entry
+	var entries []SoftwareEntry
 
 	for _, target := range targets {
 		k, err := registry.OpenKey(target.root, target.path,
@@ -89,26 +84,59 @@ func getPlatformSoftware() (string, error) {
 			}
 
 			seen[name] = true
-			entries = append(entries, entry{name: name, version: version})
+			entries = append(entries, SoftwareEntry{Name: name, Version: version})
 		}
 	}
 
 	if len(entries) > 0 {
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "%-60s %s\n", "Name", "Version")
-		for _, e := range entries {
-			fmt.Fprintf(&sb, "%-60s %s\n", e.name, e.version)
-		}
-		return sb.String(), nil
+		return entries, nil
 	}
 
 	// wmic fallback
 	fmt.Fprintln(os.Stderr,
 		"[!] WARNING: registry read returned no results; falling back to wmic (deprecated on Windows 10 21H1+)")
 	output, err := exec.Command("wmic", "product", "get", "name,version").Output()
-	if err == nil {
-		return string(output), nil
+	if err != nil {
+		return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning as Administrator")
 	}
 
-	return "", fmt.Errorf("insufficient permissions to list software packages; try rerunning as Administrator")
+	// parse wmic tab-delimited output into entries
+	var wmicEntries []SoftwareEntry
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines[1:] { //skip header
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		version := ""
+		name := line
+		if len(fields) > 1 {
+			version = fields[len(fields)-1]
+			name = strings.TrimSpace(strings.TrimSuffix(line, version))
+		}
+		wmicEntries = append(wmicEntries, SoftwareEntry{Name: name, Version: version})
+	}
+	return wmicEntries, nil
+}
+
+// getPlatformSoftware returns installed software as a column-aligned string
+// suitable for human-readable text output and the standalone software
+// subcommand. It delegates to getPlatformSoftwareList and formats each entry
+// as a fixed-width name and version pair.
+func getPlatformSoftware() (string, error) {
+	entries, err := getPlatformSoftwareList()
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%-60s %s\n", "Name", "Version")
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "%-60s %s\n", e.Name, e.Version)
+	}
+	return sb.String(), nil
 }
