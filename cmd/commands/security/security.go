@@ -123,9 +123,6 @@ type (
 	}
 )
 
-// scanLabel is the scan segment used in generated report filenames.
-const scanLabel = "audit"
-
 func init() {
 	SecurityCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Enable verbose output")
@@ -154,21 +151,34 @@ func init() {
 }
 
 // buildMask composes a CheckMask from the active flag values
-func buildMask() scan.CheckMask {
-	var mask scan.CheckMask
-	if checkSSH {
-		mask |= scan.CheckSSH
+func buildMask() (scan.CheckMask, error) {
+	mask := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+
+	if checkSSH || checkFirewall || checkUsers || checkFilePerms != "" {
+		mask = 0
+		if checkSSH {
+			mask |= scan.CheckSSH
+		}
+		if checkFirewall {
+			mask |= scan.CheckFirewall
+		}
+		if checkUsers {
+			mask |= scan.CheckUsers
+		}
+		if checkFilePerms != "" {
+			mask |= scan.CheckPerms
+		}
 	}
-	if checkFirewall {
-		mask |= scan.CheckFirewall
+
+	if len(skipChecks) > 0 {
+		skipMask, err := scan.MaskFromNames(skipChecks, scan.CategoryCheck)
+		if err != nil {
+			return 0, err
+		}
+		mask &^= skipMask
 	}
-	if checkUsers {
-		mask |= scan.CheckUsers
-	}
-	if checkFilePerms != "" {
-		mask |= scan.CheckPerms
-	}
-	return mask
+
+	return mask, nil
 }
 
 func validateFlags(cmd *cobra.Command) error {
@@ -199,16 +209,8 @@ func validateFlags(cmd *cobra.Command) error {
 		}
 	}
 
-	validChecks := map[string]bool{
-		"ssh":         true,
-		"firewall":    true,
-		"users":       true,
-		"permissions": true,
-	}
-	for _, check := range skipChecks {
-		if !validChecks[check] {
-			return fmt.Errorf("invalid check to skip: %s", check)
-		}
+	if _, err := scan.MaskFromNames(skipChecks, scan.CategoryCheck); err != nil {
+		return err
 	}
 
 	return nil
@@ -329,7 +331,7 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 	if reportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(reportFile, scanLabel, hostname, codes, format)
+		path := report.DefaultPath(reportFile, hostname, codes, format)
 		opts := report.Options{AllowElevatedWrite: allowElevatedWrite}
 		if err := report.Write(path, []byte(output), opts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
@@ -337,9 +339,9 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 			}
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
-		if verbose {
-			fmt.Printf("[+] Report saved to: %s\n", path)
-		}
+		// Always confirm the written path; this is the only stdout output
+		// when --report-file is set.
+		fmt.Printf("[+] Report saved to: %s\n", path)
 		return nil
 	}
 

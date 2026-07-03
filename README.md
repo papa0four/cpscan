@@ -45,7 +45,7 @@ owatch audit --fperms /path/to/check
 owatch all -o json --report-file report.json
 
 # Skip specific modules when running all scans
-owatch all --skip-modules software,security
+owatch all --skip-modules software,audit
 ```
 
 ## Security Audit Flags

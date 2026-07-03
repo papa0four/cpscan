@@ -28,7 +28,8 @@ var (
 	allAllowElevatedWrite bool
 	allOutputFormat       string
 	allReportFile         string
-	skipModules           []string
+	allSkipModules        []string
+	allSkipChecks         []string
 	allTimeout            time.Duration
 )
 
@@ -50,7 +51,7 @@ Results can be output in various formats and saved to a file.`,
   owatch all -v
 
   # Skip specific modules
-  owatch all --skip-modules security,software
+  owatch all --skip-modules audit,software
 
   # Save report to directory in JSON format
   owatch all -o json --report-file /path/to/reports`,
@@ -64,8 +65,10 @@ func init() {
 		"Output format (json, yaml, text, csv)")
 	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
 		"Save complete report to the specified directory; filename is generated automatically")
-	allCmd.Flags().StringSliceVar(&skipModules, "skip-modules", []string{},
-		"Modules to skip (comma-separated: os,software,security)")
+	allCmd.Flags().StringSliceVar(&allSkipModules, "skip-modules", []string{},
+		"Modules to skip (comma-separated: osinfo,software,audit)")
+	allCmd.Flags().StringSliceVar(&allSkipChecks, "skip-checks", []string{},
+		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
@@ -142,22 +145,28 @@ type allFinding struct {
 	Resolution  string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 }
 
-// allScanLabel is the scan segment used in generated report filenames for the all command
-const allScanLabel = "all"
-
 // buildAllMask composes a CheckMask from the active module and security check flags
-func buildAllMask() scan.CheckMask {
+func buildAllMask() (scan.CheckMask, error) {
 	var mask scan.CheckMask
-	if !isModuleSkipped("os") {
+	if !isModuleSkipped("osinfo") {
 		mask |= scan.ModuleOS
 	}
 	if !isModuleSkipped("software") {
 		mask |= scan.ModuleSoftware
 	}
-	if !isModuleSkipped("security") {
-		mask |= scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+	if !isModuleSkipped("audit") {
+		mask |= scan.ModuleAudit
+		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+		if len(allSkipChecks) > 0 {
+			skipMask, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck)
+			if err != nil {
+				return 0, err
+			}
+			allChecks &^= skipMask
+		}
+		mask |= allChecks
 	}
-	return mask
+	return mask, nil
 }
 
 // toAllResult converts a ScanResult into the typed serialization structure
@@ -235,15 +244,8 @@ func toAllResult(scan *ScanResult) allResult {
 
 // validateSkipModules rejects any --skip-modules value that is not recognized
 func validateSkipModules() error {
-	valid := map[string]bool{
-		"os":       true,
-		"software": true,
-		"security": true,
-	}
-	for _, module := range skipModules {
-		if !valid[strings.ToLower(module)] {
-			return fmt.Errorf("invalid module to skip: %s (valid: os, software, security)", module)
-		}
+	if _, err := scan.MaskFromNames(allSkipModules, scan.CategoryModule); err != nil {
+		return err
 	}
 	return nil
 }
@@ -259,6 +261,16 @@ func validateAllFlags(cmd *cobra.Command) error {
 
 	if cmd.Flags().Changed("report-file") {
 		if err := validateAllReportDir(allReportFile); err != nil {
+			return err
+		}
+	}
+
+	if err := validateSkipModules(); err != nil {
+		return err
+	}
+
+	if len(allSkipChecks) > 0 {
+		if _, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck); err != nil {
 			return err
 		}
 	}
@@ -283,16 +295,17 @@ func validateAllReportDir(path string) error {
 func runAllScans(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
 
-	if err := validateSkipModules(); err != nil {
-		return err
-	}
-
 	if err := validateAllFlags(cmd); err != nil {
 		return err
 	}
 
-	if isModuleSkipped("os") && isModuleSkipped("software") && isModuleSkipped("security") {
+	if isModuleSkipped("osinfo") && isModuleSkipped("software") && isModuleSkipped("audit") {
 		return fmt.Errorf("all modules have been skipped, at least one module must be run")
+	}
+
+	mask, err := buildAllMask()
+	if err != nil {
+		return err
 	}
 
 	results := make(chan *ScanResult, 1)
@@ -303,7 +316,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 			Errors:    make([]string, 0),
 		}
 
-		if !isModuleSkipped("os") {
+		if !isModuleSkipped("osinfo") {
 			if osInfo, err := runOSFingerprint(); err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("OS fingerprint error: %v", err))
@@ -322,8 +335,8 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		if !isModuleSkipped("security") {
-			if securityResult, err := runSecurityAuditModule(); err != nil {
+		if !isModuleSkipped("audit") {
+			if securityResult, err := runSecurityAuditModule(mask); err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Security audit error: %v", err))
 			} else {
@@ -335,7 +348,6 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		results <- result
 	}()
 
-	mask := buildAllMask()
 	select {
 	case result := <-results:
 		return outputResults(cmd, result, mask)
@@ -389,16 +401,17 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 	return entries, nil
 }
 
-func runSecurityAuditModule() (*audit.Result, error) {
+func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
 	if allVerbose && isTerminal() {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
 	opts := audit.Options{
-		Verbose:     allVerbose && isTerminal(),
-		MinSeverity: "LOW",
-		Timeout:     allTimeout / 3,
-		Enrich:      allEnrich,
+		Verbose:        allVerbose && isTerminal(),
+		MinSeverity:    "LOW",
+		Timeout:        allTimeout / 3,
+		Enrich:         allEnrich,
+		SpecificChecks: scan.EnabledChecks(mask),
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -437,7 +450,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 	if allReportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(allReportFile, allScanLabel, hostname, codes, format)
+		path := report.DefaultPath(allReportFile, hostname, codes, format)
 		wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
 		if err := report.Write(path, buf.Bytes(), wOpts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
@@ -445,9 +458,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 			}
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
-		if allVerbose {
-			fmt.Printf("[+] Report saved to: %s\n", path)
-		}
+		fmt.Printf("[+] Report saved to: %s\n", path)
 		return nil
 	}
 
@@ -493,11 +504,11 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) {
 }
 
 func isModuleSkipped(module string) bool {
-	if len(skipModules) == 0 {
+	if len(allSkipModules) == 0 {
 		return false
 	}
 
-	for _, skip := range skipModules {
+	for _, skip := range allSkipModules {
 		if strings.EqualFold(skip, module) {
 			return true
 		}
