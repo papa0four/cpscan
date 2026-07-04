@@ -25,7 +25,7 @@ func runUnixAudit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if verbose {
+	if verbose && reportFile == "" {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
 	logVerboseConfig(mask)

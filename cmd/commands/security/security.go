@@ -244,7 +244,7 @@ func validateFilePermsPath(cmd *cobra.Command) error {
 }
 
 func logVerboseConfig(mask scan.CheckMask) {
-	if !verbose {
+	if !verbose || reportFile != "" {
 		return
 	}
 	checks := scan.EnabledChecks(mask)
@@ -264,7 +264,7 @@ func logVerboseConfig(mask scan.CheckMask) {
 
 func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
-		Verbose:        verbose,
+		Verbose:        verbose && reportFile == "",
 		SkipChecks:     skipChecks,
 		FilePermsPath:  checkFilePerms,
 		MinSeverity:    minSeverity,

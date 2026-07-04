@@ -357,7 +357,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 }
 
 func runOSFingerprint() (*osfingerprint.OSInfo, error) {
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] OS Fingerprint Scan")
 	}
 
@@ -366,7 +366,7 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 		return nil, err
 	}
 
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
 			info.OS, info.Platform, info.PlatformVersion)
 		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
@@ -382,7 +382,7 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 // headers are gated behind isTerminal() to prevent duplication when piping
 // or redirecting output.
 func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] Software Inventory Scan")
 	}
 
@@ -391,7 +391,7 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 		return nil, err
 	}
 
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Printf("[*] Found %d installed packages\n\n", len(entries))
 		for _, e := range entries {
 			fmt.Printf("%-60s %s\n", e.Name, e.Version)
@@ -402,12 +402,12 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 }
 
 func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
 	opts := audit.Options{
-		Verbose:        allVerbose && isTerminal(),
+		Verbose:        allVerbose && isTerminal() && allReportFile == "",
 		MinSeverity:    "LOW",
 		Timeout:        allTimeout / 3,
 		Enrich:         allEnrich,
