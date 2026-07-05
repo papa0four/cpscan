@@ -31,6 +31,7 @@ var (
 	allSkipModules        []string
 	allSkipChecks         []string
 	allTimeout            time.Duration
+	allMinSeverity        string
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -71,6 +72,8 @@ func init() {
 		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
+	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", "LOW",
+		"Minimum severity level to report (LOW< MEDIUM, HIGH, CRITICAL)")
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
@@ -98,7 +101,7 @@ type allResult struct {
 	Timestamp string        `json:"timestamp" yaml:"timestamp"`
 	Duration  string        `json:"duration" yaml:"duration"`
 	System    allSystemInfo `json:"system" yaml:"system"`
-	Software  allSoftware   `json:"software,omitempty" yaml:"software,omitempty"`
+	Software  *allSoftware  `json:"software,omitempty" yaml:"software,omitempty"`
 	Security  *allSecurity  `json:"security,omitempty" yaml:"security,omitempty"`
 	Errors    []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
 }
@@ -155,7 +158,6 @@ func buildAllMask() (scan.CheckMask, error) {
 		mask |= scan.ModuleSoftware
 	}
 	if !isModuleSkipped("audit") {
-		mask |= scan.ModuleAudit
 		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
 		if len(allSkipChecks) > 0 {
 			skipMask, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck)
@@ -197,7 +199,7 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// software inventory
 	if len(scan.Software) > 0 {
-		out.Software = allSoftware{
+		out.Software = &allSoftware{
 			Count:    len(scan.Software),
 			Packages: scan.Software,
 		}
@@ -218,10 +220,14 @@ func toAllResult(scan *ScanResult) allResult {
 		}
 		for _, check := range scan.SecurityAudit.Results {
 			for _, finding := range check.Findings {
+				sev := effectiveSeverity(finding)
+				if !allMeetsMinSeverity(finding.Severity, allMinSeverity) {
+					continue
+				}
 				f := allFinding{
 					Check:       check.Name,
 					Title:       finding.Title,
-					Severity:    finding.Severity,
+					Severity:    sev,
 					Description: finding.Description,
 					Impact:      finding.Impact,
 					Resolution:  finding.Resolution,
@@ -273,6 +279,13 @@ func validateAllFlags(cmd *cobra.Command) error {
 		if _, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck); err != nil {
 			return err
 		}
+	}
+
+	switch strings.ToUpper(allMinSeverity) {
+	case "LOW", "MEDIUM", "HIGH", "CRITICAL":
+		// accepted
+	default:
+		return fmt.Errorf("invalid min-severity: %s (valid: LOW, MEDIUM, HIGH, CRITICAL)", allMinSeverity)
 	}
 
 	return nil
@@ -408,8 +421,8 @@ func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
 
 	opts := audit.Options{
 		Verbose:        allVerbose && isTerminal() && allReportFile == "",
-		MinSeverity:    "LOW",
-		Timeout:        allTimeout / 3,
+		MinSeverity:    allMinSeverity,
+		Timeout:        allTimeout,
 		Enrich:         allEnrich,
 		SpecificChecks: scan.EnabledChecks(mask),
 	}
@@ -492,8 +505,12 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) {
 		fmt.Fprintf(w, "Security Audit\n")
 		for _, check := range result.SecurityAudit.Results {
 			for _, finding := range check.Findings {
-				symbol, _ := types.SeverityFormat(finding.Severity)
-				fmt.Fprintf(w, "  %s %-8s  %s\n", symbol, finding.Severity, finding.Title)
+				sev := effectiveSeverity(finding)
+				if !allMeetsMinSeverity(finding.Severity, allMinSeverity) {
+					continue
+				}
+				symbol, _ := types.SeverityFormat(sev)
+				fmt.Fprintf(w, "  %s %-8s  %s\n", symbol, sev, finding.Title)
 			}
 		}
 		fmt.Fprintln(w)
@@ -523,4 +540,45 @@ func isTerminal() bool {
 		return false
 	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+}
+
+// allSeverityLevel returns the numeric rank of a severity string for
+// threshold comparisons. Unknown values return -1 so they are never
+// silently dropped. Mirrors security.severityLevel; kept local since all.go
+// owns its own serialization path independent of the audit formatter.
+func allSeverityLevel(s string) int {
+	switch strings.ToUpper(s) {
+	case types.SeverityLow:
+		return 0
+	case types.SeverityMedium:
+		return 1
+	case types.SeverityHigh:
+		return 2
+	case types.SeverityCritical:
+		return 3
+	default:
+		return -1
+	}
+}
+
+// allMeetsMinSeverity reports whether findingSeverity is at or above the
+// min threshold. Unrecognized severity values pass through so findings are
+// never silently dropped.
+func allMeetsMinSeverity(findingSeverity, min string) bool {
+	fl := allSeverityLevel(findingSeverity)
+	ml := allSeverityLevel(min)
+	if fl < 0 || ml < 0 {
+		return true
+	}
+	return fl >= ml
+}
+
+// effectiveSeverity returns the severity value used for filtering and
+// display. It currently always returns the finding's static registry-
+// assigned severity. Once per-finding CVE/CVSS enrichment lands, this is
+// the single point where a live CVSS-derived severity would override the
+// static value. Callers should go through this rather than reading
+// finding.Severity directly, so severity sourcing only has to change here.
+func effectiveSeverity(finding types.Finding) string {
+	return finding.Severity
 }
