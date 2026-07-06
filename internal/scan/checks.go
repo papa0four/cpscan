@@ -22,12 +22,17 @@ const (
 	// One bit per independent output-producing module.
 
 	// ModuleAudit identifies the security audit module. Skipping this module
-	// disables all audit checks regardless of individual check flags.
+	// disables all audit checks regardless of individual check flags. This
+	// bit exists solely so "audit" resolves as a valid --skip-modules name;
+	// it is deliberately never set into a CheckMask, since the presence or
+	// absence of any CategoryCheck bit already indicates unambiguously
+	// whether the audit module ran.
 	ModuleAudit CheckMask = 1 << 0
 	// ModuleHistory identifies the shell and terminal history module.
 	// Reserved until history module lands.
 	ModuleHistory CheckMask = 1 << 1
 	// ModuleLogs identifies the system and application log capture module.
+	// Reserved until log capture module lands.
 	ModuleLogs CheckMask = 1 << 2
 	// ModuleListeners identifies the local socket, port, and connection
 	// state enumeration module. Reserved until listeners module lands.
@@ -80,11 +85,11 @@ const (
 )
 
 // CheckCategory identifies which bit range a registry entry occupies.
-// The four categories map directly to the four fixes ranges in CheckMask.
+// The four categories map directly to the four fixed ranges in CheckMask.
 type CheckCategory uint8
 
 const (
-	// CategoryModule identifies an audit check bit (bits 0 - 23)
+	// CategoryModule identifies a module bit (bits 0 - 23)
 	CategoryModule CheckCategory = iota
 	// CategoryCheck identifies an audit check bit (bits 24 - 47)
 	CategoryCheck
@@ -161,13 +166,19 @@ var registry = []registryEntry{
 }
 
 // validateRegistry panics at init if any registry entry within a category
-// has a duplicate code or duplicate name. Duplicate bits across any entry
-// are also rejected. This surfaces misconfiguration immediately on startup
-// rather than producing silently wrong output.
+// has a duplicate code or duplicate name, if any entry's code sorts out of
+// ascending order relative to the prior entry in the same category, or if
+// any bit is duplicated across the entire registry. This surfaces
+// misconfiguration immediately on startup rather than producing silently
+// wrong output. Ordering validation only constrains the registry slice's
+// declared order; it has no bearing on bit values, which are assigned by
+// availability and are never reordered once permanently bound to a code.
 func validateRegistry() {
 	codes := make(map[CheckCategory]map[byte]bool)
 	names := make(map[CheckCategory]map[string]bool)
 	bits := make(map[CheckMask]bool)
+	lastCode := make(map[CheckCategory]byte)
+	seenCategory := make(map[CheckCategory]bool)
 
 	for _, e := range registry {
 		if bits[e.bit] {
@@ -182,6 +193,16 @@ func validateRegistry() {
 			panic(fmt.Sprintf("scan: registry duplicate code '%c' in category %d (name: %s)", e.code, e.category, e.name))
 		}
 		codes[e.category][e.code] = true
+
+		if seenCategory[e.category] && e.code < lastCode[e.category] {
+			panic(fmt.Sprintf(
+				"scan: registry entry '%c' (name: %s) is out of alphabetical order in category %d; "+
+					"expected code >= '%c'. Insert new entries in alphabetical position by code -- "+
+					"do not renumber bits to match",
+				e.code, e.name, e.category, lastCode[e.category]))
+		}
+		lastCode[e.category] = e.code
+		seenCategory[e.category] = true
 
 		if names[e.category] == nil {
 			names[e.category] = make(map[string]bool)

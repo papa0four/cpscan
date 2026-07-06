@@ -69,7 +69,7 @@ You can run all checks or specify individual checks to run.`,
   owatch audit --min-severity HIGH
 
   # Run checks and save report to file
-  owatch audit -v -o json --report-file audit.json`,
+  owatch audit -v -o json --report-file /path/to/reports`,
 }
 
 // Formatter types

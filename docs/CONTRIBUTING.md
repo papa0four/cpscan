@@ -21,6 +21,19 @@ Tools already present are skipped. See `scripts/install-tools.sh` for the
 full list and manual fallback instructions for tools that cannot be
 auto-installed.
 
+## Developer guides
+
+Subsystem-specific design and implementation detail lives under
+`docs/dev_guide/`, one file per subsystem. Check the relevant guide before
+extending a subsystem, so decisions already made aren't duplicated or
+contradicted. Add a row here whenever a new guide is created — this table is
+a live index, not a one-time snapshot.
+
+| Guide | Covers |
+|---|---|
+| `docs/dev_guide/enrichment.md` | CVE/CWE enrichment subsystem: types, adapter interface, orchestration sequence, reference extraction |
+| `docs/dev_guide/scan_registry.md` | `CheckMask` registry, filename derivation, `all`/`audit` composition model, package boundaries |
+
 ## Priorities
 
 Every decision is weighed in this order, and none is compromised for
