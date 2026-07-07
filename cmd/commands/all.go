@@ -108,10 +108,13 @@ type (
 	}
 
 	// allSystemInfo carries host identity fields for all command output.
+	// KernelVersion is omitted when empty -- it is only populated from
+	// osfingerprint data, not from the runtime-only fallback used when the
+	// osinfo module is skipped.
 	allSystemInfo struct {
 		OS            string `json:"os" yaml:"os"`
 		Hostname      string `json:"hostname" yaml:"hostname"`
-		KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+		KernelVersion string `json:"kernel_version,omitempty" yaml:"kernel_version,omitempty"`
 		Architecture  string `json:"architecture" yaml:"architecture"`
 	}
 
