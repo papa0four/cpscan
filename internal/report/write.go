@@ -82,11 +82,18 @@ func Write(path string, data []byte, opts Options) error {
 }
 
 // DefaultPath returns the full path for a generated report file inside dir.
-// The filename follows the pattern owatch-<scan>-<hostname>-<codes>-<timestamp>.<ext>.
+// The filename follows the pattern owatch-<hostname>-<codes>-<timestamp>.<ext>
+// where codes is the category-prefixed segment string produced by scan.Codes
+// (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller.
 // dir must be an existing directory; the caller is responsible for validating it.
-func DefaultPath(dir, scan, hostname, codes, format string) string {
+func DefaultPath(dir, hostname, codes, format string) string {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
-	name := fmt.Sprintf("owatch-%s-%s-%s-%s.%s", scan, hostname, codes, stamp, extension(format))
+	var name string
+	if codes != "" {
+		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, extension(format))
+	} else {
+		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, extension(format))
+	}
 	return filepath.Join(dir, name)
 }
 

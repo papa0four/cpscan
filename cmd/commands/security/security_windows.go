@@ -16,9 +16,12 @@ func init() {
 }
 
 func runWindowsAudit(cmd *cobra.Command, args []string) error {
-	mask := buildMask()
-
 	if err := validateFlags(cmd); err != nil {
+		return err
+	}
+
+	mask, err := buildMask()
+	if err != nil {
 		return err
 	}
 

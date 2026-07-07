@@ -28,8 +28,10 @@ var (
 	allAllowElevatedWrite bool
 	allOutputFormat       string
 	allReportFile         string
-	skipModules           []string
+	allSkipModules        []string
+	allSkipChecks         []string
 	allTimeout            time.Duration
+	allMinSeverity        string
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -50,7 +52,7 @@ Results can be output in various formats and saved to a file.`,
   owatch all -v
 
   # Skip specific modules
-  owatch all --skip-modules security,software
+  owatch all --skip-modules audit,software
 
   # Save report to directory in JSON format
   owatch all -o json --report-file /path/to/reports`,
@@ -64,10 +66,14 @@ func init() {
 		"Output format (json, yaml, text, csv)")
 	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
 		"Save complete report to the specified directory; filename is generated automatically")
-	allCmd.Flags().StringSliceVar(&skipModules, "skip-modules", []string{},
-		"Modules to skip (comma-separated: os,software,security)")
+	allCmd.Flags().StringSliceVar(&allSkipModules, "skip-modules", []string{},
+		"Modules to skip (comma-separated: osinfo,software,audit)")
+	allCmd.Flags().StringSliceVar(&allSkipChecks, "skip-checks", []string{},
+		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
+	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", "LOW",
+		"Minimum severity level to report (LOW< MEDIUM, HIGH, CRITICAL)")
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
@@ -76,88 +82,139 @@ func init() {
 	RootCmd.AddCommand(allCmd)
 }
 
-// ScanResult represents the combined results of all scans. It is the
-// authoritative result type for the all command and is not shared with
-// the audit subsystem.
-type ScanResult struct {
-	Timestamp     time.Time                    `json:"timestamp"`
-	Duration      time.Duration                `json:"duration"`
-	OSInfo        *osfingerprint.OSInfo        `json:"os_info,omitempty"`
-	Software      []softwarelist.SoftwareEntry `json:"software,omitempty"`
-	SecurityAudit *audit.Result                `json:"security_audit,omitempty"`
-	Errors        []string                     `json:"errors,omitempty"`
-}
+type (
+	// ScanResult represents the combined results of all scans. It is the
+	// authoritative result type for the all command and is not shared with
+	// the audit subsystem.
+	ScanResult struct {
+		Timestamp     time.Time                    `json:"timestamp"`
+		Duration      time.Duration                `json:"duration"`
+		OSInfo        *osfingerprint.OSInfo        `json:"os_info,omitempty"`
+		Software      []softwarelist.SoftwareEntry `json:"software,omitempty"`
+		SecurityAudit *audit.Result                `json:"security_audit,omitempty"`
+		Errors        []string                     `json:"errors,omitempty"`
+	}
 
-// allResult is the typed serialization structure for all command JSON and
-// YAML output. It defines clean section boundaries between system, software,
-// and security data.
-type allResult struct {
-	Timestamp string        `json:"timestamp" yaml:"timestamp"`
-	Duration  string        `json:"duration" yaml:"duration"`
-	System    allSystemInfo `json:"system" yaml:"system"`
-	Software  allSoftware   `json:"software,omitempty" yaml:"software,omitempty"`
-	Security  *allSecurity  `json:"security,omitempty" yaml:"security,omitempty"`
-	Errors    []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
-}
+	// allResult is the typed serialization structure for all command JSON and
+	// YAML output. It defines clean section boundaries between system, software,
+	// and security data.
+	allResult struct {
+		Timestamp string        `json:"timestamp" yaml:"timestamp"`
+		Duration  string        `json:"duration" yaml:"duration"`
+		System    allSystemInfo `json:"system" yaml:"system"`
+		Software  *allSoftware  `json:"software,omitempty" yaml:"software,omitempty"`
+		Security  *allSecurity  `json:"security,omitempty" yaml:"security,omitempty"`
+		Errors    []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
+	}
 
-// allSystemInfo carries host identity fields for all command output.
-type allSystemInfo struct {
-	OS            string `json:"os" yaml:"os"`
-	Hostname      string `json:"hostname" yaml:"hostname"`
-	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
-	Architecture  string `json:"architecture" yaml:"architecture"`
-}
+	// allSystemInfo carries host identity fields for all command output.
+	// KernelVersion is omitted when empty -- it is only populated from
+	// osfingerprint data, not from the runtime-only fallback used when the
+	// osinfo module is skipped.
+	allSystemInfo struct {
+		OS            string `json:"os" yaml:"os"`
+		Hostname      string `json:"hostname" yaml:"hostname"`
+		KernelVersion string `json:"kernel_version,omitempty" yaml:"kernel_version,omitempty"`
+		Architecture  string `json:"architecture" yaml:"architecture"`
+	}
 
-// allSoftware carries the structured software inventory for all command output.
-type allSoftware struct {
-	Count    int                          `json:"count" yaml:"count"`
-	Packages []softwarelist.SoftwareEntry `json:"packages" yaml:"packages"`
-}
+	// allSoftware carries the structured software inventory for all command output.
+	allSoftware struct {
+		Count    int                          `json:"count" yaml:"count"`
+		Packages []softwarelist.SoftwareEntry `json:"packages" yaml:"packages"`
+	}
 
-// allSecurity carries the security audit results for all command output.
-type allSecurity struct {
-	Summary  allSecuritySummary `json:"summary" yaml:"summary"`
-	Findings []allFinding       `json:"findings,omitempty" yaml:"findings,omitempty"`
-}
+	// allSecurity carries the security audit results for all command output.
+	// FindingsSuppressed and MinSeverityApplied are populated only when
+	// --min-severity filtered out at least one finding, so a consumer can tell
+	// Findings is a partial view of Summary.TotalFindings without guessing.
+	allSecurity struct {
+		Summary             allSecuritySummary     `json:"summary" yaml:"summary"`
+		FindingsSuppressed  int                    `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
+		MinSeverityApplied  string                 `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
+		EnrichmentRequested bool                   `json:"enrichment_requested,omitempty" yaml:"enrichment_requested,omitempty"`
+		EnrichmentError     string                 `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
+		ReferenceCWEs       []string               `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+		ReferenceErrors     []string               `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
+		EnrichmentEntries   []allEnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
+		EnrichmentFailures  []allEnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Findings            []allFinding           `json:"findings,omitempty" yaml:"findings,omitempty"`
+	}
 
-// allSecuritySummary carries per-severity finding counts for all command output.
-type allSecuritySummary struct {
-	TotalChecks   int `json:"total_checks" yaml:"total_checks"`
-	PassedChecks  int `json:"passed_checks" yaml:"passed_checks"`
-	TotalFindings int `json:"total_findings" yaml:"total_findings"`
-	Critical      int `json:"critical" yaml:"critical"`
-	High          int `json:"high" yaml:"high"`
-	Medium        int `json:"medium" yaml:"medium"`
-	Low           int `json:"low" yaml:"low"`
-}
+	// allSecuritySummary carries per-severity finding counts for all command output.
+	allSecuritySummary struct {
+		TotalChecks   int `json:"total_checks" yaml:"total_checks"`
+		PassedChecks  int `json:"passed_checks" yaml:"passed_checks"`
+		TotalFindings int `json:"total_findings" yaml:"total_findings"`
+		Critical      int `json:"critical" yaml:"critical"`
+		High          int `json:"high" yaml:"high"`
+		Medium        int `json:"medium" yaml:"medium"`
+		Low           int `json:"low" yaml:"low"`
+	}
 
-// allFinding carries a single security finding for all command output.
-type allFinding struct {
-	Check       string `json:"check" yaml:"check"`
-	Title       string `json:"title" yaml:"title"`
-	Severity    string `json:"severity" yaml:"severity"`
-	CWE         string `json:"cwe,omitempty" yaml:"cwe,omitempty"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	Impact      string `json:"impact,omitempty" yaml:"impact,omitempty"`
-	Resolution  string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
-}
+	// allFinding carries a single security finding for all command output.
+	allFinding struct {
+		Check       string `json:"check" yaml:"check"`
+		Title       string `json:"title" yaml:"title"`
+		Severity    string `json:"severity" yaml:"severity"`
+		CWE         string `json:"cwe,omitempty" yaml:"cwe,omitempty"`
+		Description string `json:"description,omitempty" yaml:"description,omitempty"`
+		Impact      string `json:"impact,omitempty" yaml:"impact,omitempty"`
+		Resolution  string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+	}
 
-// allScanLabel is the scan segment used in generated report filenames for the all command
-const allScanLabel = "all"
+	// allEnrichmentMatch is the typed representation of a single CVE match for
+	// all command output.
+	allEnrichmentMatch struct {
+		CVEID          string  `json:"cve_id" yaml:"cve_id"`
+		Source         string  `json:"source" yaml:"source"`
+		CVSSBaseScore  float64 `json:"cvss_base_score" yaml:"cvss_base_score"`
+		CVSSSeverity   string  `json:"cvss_severity" yaml:"cvss_severity"`
+		Description    string  `json:"description,omitempty" yaml:"description,omitempty"`
+		KnownExploited bool    `json:"known_exploited" yaml:"known_exploited"`
+		PatchAvailable bool    `json:"patch_available" yaml:"patch_available"`
+	}
+
+	// allEnrichmentEntry is the typed representation of a single CWE's
+	// enrichment result for all command output.
+	allEnrichmentEntry struct {
+		CWEID        string               `json:"cwe_id" yaml:"cwe_id"`
+		WeaknessName string               `json:"weakness_name,omitempty" yaml:"weakness_name,omitempty"`
+		NoMatches    bool                 `json:"no_matches" yaml:"no_matches"`
+		Matches      []allEnrichmentMatch `json:"matches,omitempty" yaml:"matches,omitempty"`
+	}
+
+	// allEnrichmentFailure is the typed representation of a failed per-CWE
+	// enrichment lookup for all command output.
+	allEnrichmentFailure struct {
+		CWEID     string `json:"cwe_id" yaml:"cwe_id"`
+		Source    string `json:"source" yaml:"source"`
+		Reason    string `json:"reason" yaml:"reason"`
+		Retryable bool   `json:"retryable" yaml:"retryable"`
+	}
+)
 
 // buildAllMask composes a CheckMask from the active module and security check flags
-func buildAllMask() scan.CheckMask {
+func buildAllMask() (scan.CheckMask, error) {
 	var mask scan.CheckMask
-	if !isModuleSkipped("os") {
+	if !isModuleSkipped("osinfo") {
 		mask |= scan.ModuleOS
 	}
 	if !isModuleSkipped("software") {
 		mask |= scan.ModuleSoftware
 	}
-	if !isModuleSkipped("security") {
-		mask |= scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+	if !isModuleSkipped("audit") {
+		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+		if len(allSkipChecks) > 0 {
+			skipMask, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck)
+			if err != nil {
+				return 0, err
+			}
+			allChecks &^= skipMask
+		}
+		mask |= allChecks
 	}
-	return mask
+	return mask, nil
 }
 
 // toAllResult converts a ScanResult into the typed serialization structure
@@ -188,7 +245,7 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// software inventory
 	if len(scan.Software) > 0 {
-		out.Software = allSoftware{
+		out.Software = &allSoftware{
 			Count:    len(scan.Software),
 			Packages: scan.Software,
 		}
@@ -209,10 +266,14 @@ func toAllResult(scan *ScanResult) allResult {
 		}
 		for _, check := range scan.SecurityAudit.Results {
 			for _, finding := range check.Findings {
+				sev := effectiveSeverity(finding)
+				if !allMeetsMinSeverity(sev, allMinSeverity) {
+					continue
+				}
 				f := allFinding{
 					Check:       check.Name,
 					Title:       finding.Title,
-					Severity:    finding.Severity,
+					Severity:    sev,
 					Description: finding.Description,
 					Impact:      finding.Impact,
 					Resolution:  finding.Resolution,
@@ -227,6 +288,22 @@ func toAllResult(scan *ScanResult) allResult {
 				sec.Findings = append(sec.Findings, f)
 			}
 		}
+		if suppressed := sec.Summary.TotalFindings - len(sec.Findings); suppressed > 0 {
+			sec.FindingsSuppressed = suppressed
+			sec.MinSeverityApplied = strings.ToUpper(allMinSeverity)
+		}
+		if scan.SecurityAudit.EnrichmentRequested {
+			sec.EnrichmentRequested = true
+			if scan.SecurityAudit.EnrichmentError != nil {
+				sec.EnrichmentError = scan.SecurityAudit.EnrichmentError.Error()
+			}
+			if len(scan.SecurityAudit.References.CWEs) > 0 {
+				sec.ReferenceCWEs = scan.SecurityAudit.References.CWEs
+			}
+			sec.ReferenceErrors = allFormatReferenceErrors(scan.SecurityAudit.References.Errors)
+			sec.EnrichmentEntries = buildAllEnrichmentEntries(scan.SecurityAudit)
+			sec.EnrichmentFailures = buildAllEnrichmentFailures(scan.SecurityAudit)
+		}
 		out.Security = sec
 	}
 
@@ -235,15 +312,8 @@ func toAllResult(scan *ScanResult) allResult {
 
 // validateSkipModules rejects any --skip-modules value that is not recognized
 func validateSkipModules() error {
-	valid := map[string]bool{
-		"os":       true,
-		"software": true,
-		"security": true,
-	}
-	for _, module := range skipModules {
-		if !valid[strings.ToLower(module)] {
-			return fmt.Errorf("invalid module to skip: %s (valid: os, software, security)", module)
-		}
+	if _, err := scan.MaskFromNames(allSkipModules, scan.CategoryModule); err != nil {
+		return err
 	}
 	return nil
 }
@@ -261,6 +331,23 @@ func validateAllFlags(cmd *cobra.Command) error {
 		if err := validateAllReportDir(allReportFile); err != nil {
 			return err
 		}
+	}
+
+	if err := validateSkipModules(); err != nil {
+		return err
+	}
+
+	if len(allSkipChecks) > 0 {
+		if _, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck); err != nil {
+			return err
+		}
+	}
+
+	switch strings.ToUpper(allMinSeverity) {
+	case "LOW", "MEDIUM", "HIGH", "CRITICAL":
+		// accepted
+	default:
+		return fmt.Errorf("invalid min-severity: %s (valid: LOW, MEDIUM, HIGH, CRITICAL)", allMinSeverity)
 	}
 
 	return nil
@@ -283,16 +370,17 @@ func validateAllReportDir(path string) error {
 func runAllScans(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
 
-	if err := validateSkipModules(); err != nil {
-		return err
-	}
-
 	if err := validateAllFlags(cmd); err != nil {
 		return err
 	}
 
-	if isModuleSkipped("os") && isModuleSkipped("software") && isModuleSkipped("security") {
+	if isModuleSkipped("osinfo") && isModuleSkipped("software") && isModuleSkipped("audit") {
 		return fmt.Errorf("all modules have been skipped, at least one module must be run")
+	}
+
+	mask, err := buildAllMask()
+	if err != nil {
+		return err
 	}
 
 	results := make(chan *ScanResult, 1)
@@ -303,7 +391,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 			Errors:    make([]string, 0),
 		}
 
-		if !isModuleSkipped("os") {
+		if !isModuleSkipped("osinfo") {
 			if osInfo, err := runOSFingerprint(); err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("OS fingerprint error: %v", err))
@@ -322,8 +410,8 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		if !isModuleSkipped("security") {
-			if securityResult, err := runSecurityAuditModule(); err != nil {
+		if !isModuleSkipped("audit") {
+			if securityResult, err := runSecurityAuditModule(mask); err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Security audit error: %v", err))
 			} else {
@@ -335,7 +423,6 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		results <- result
 	}()
 
-	mask := buildAllMask()
 	select {
 	case result := <-results:
 		return outputResults(cmd, result, mask)
@@ -345,7 +432,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 }
 
 func runOSFingerprint() (*osfingerprint.OSInfo, error) {
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] OS Fingerprint Scan")
 	}
 
@@ -354,7 +441,7 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 		return nil, err
 	}
 
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
 			info.OS, info.Platform, info.PlatformVersion)
 		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
@@ -370,7 +457,7 @@ func runOSFingerprint() (*osfingerprint.OSInfo, error) {
 // headers are gated behind isTerminal() to prevent duplication when piping
 // or redirecting output.
 func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] Software Inventory Scan")
 	}
 
@@ -379,7 +466,7 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 		return nil, err
 	}
 
-	if allVerbose && isTerminal() {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Printf("[*] Found %d installed packages\n\n", len(entries))
 		for _, e := range entries {
 			fmt.Printf("%-60s %s\n", e.Name, e.Version)
@@ -389,16 +476,17 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 	return entries, nil
 }
 
-func runSecurityAuditModule() (*audit.Result, error) {
-	if allVerbose && isTerminal() {
+func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
+	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
 	opts := audit.Options{
-		Verbose:     allVerbose && isTerminal(),
-		MinSeverity: "LOW",
-		Timeout:     allTimeout / 3,
-		Enrich:      allEnrich,
+		Verbose:        allVerbose && isTerminal() && allReportFile == "",
+		MinSeverity:    allMinSeverity,
+		Timeout:        allTimeout,
+		Enrich:         allEnrich,
+		SpecificChecks: scan.EnabledChecks(mask),
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -437,7 +525,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 	if allReportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(allReportFile, allScanLabel, hostname, codes, format)
+		path := report.DefaultPath(allReportFile, hostname, codes, format)
 		wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
 		if err := report.Write(path, buf.Bytes(), wOpts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
@@ -445,9 +533,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 			}
 			return fmt.Errorf("failed to write report file: %w", err)
 		}
-		if allVerbose {
-			fmt.Printf("[+] Report saved to: %s\n", path)
-		}
+		fmt.Printf("[+] Report saved to: %s\n", path)
 		return nil
 	}
 
@@ -479,25 +565,207 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) {
 	// security findings
 	if result.SecurityAudit != nil {
 		fmt.Fprintf(w, "Security Audit\n")
+		s := result.SecurityAudit.Summary
+		var shown int
 		for _, check := range result.SecurityAudit.Results {
 			for _, finding := range check.Findings {
-				symbol, _ := types.SeverityFormat(finding.Severity)
-				fmt.Fprintf(w, "  %s %-8s  %s\n", symbol, finding.Severity, finding.Title)
+				sev := effectiveSeverity(finding)
+				if !allMeetsMinSeverity(sev, allMinSeverity) {
+					continue
+				}
+				shown++
+				symbol, _ := types.SeverityFormat(sev)
+				fmt.Fprintf(w, "  %s %-8s  %s\n", symbol, sev, finding.Title)
 			}
 		}
 		fmt.Fprintln(w)
-		s := result.SecurityAudit.Summary
-		fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings  %s\n",
-			s.TotalChecks, s.PassedChecks, s.TotalFindings, result.Duration.Round(time.Millisecond))
+
+		renderAllEnrichmentBlock(w, result.SecurityAudit)
+
+		suppressed := s.TotalFindings - shown
+		if suppressed > 0 {
+			fmt.Fprintf(w, "%d of %d findings suppressed by --min-severity %s. "+
+				"Rerun with a lower threshold or without --min-severity to see all findings.\n\n",
+				suppressed, s.TotalFindings, strings.ToUpper(allMinSeverity))
+		}
+		if suppressed > 0 {
+			fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings total  %d present  %d suppressed  %s\n",
+				s.TotalChecks, s.PassedChecks, s.TotalFindings, shown, suppressed, result.Duration.Round(time.Millisecond))
+		} else {
+			fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings  %s\n",
+				s.TotalChecks, s.PassedChecks, s.TotalFindings, result.Duration.Round(time.Millisecond))
+		}
 	}
 }
 
+// buildAllEnrichmentEntries converts enrichment successes into typed
+// structs for all command output, in the same CWE order as
+// result.References.CWEs so output order is stable across runs.
+func buildAllEnrichmentEntries(result *audit.Result) []allEnrichmentEntry {
+	if result.Enrichment == nil {
+		return nil
+	}
+	out := make([]allEnrichmentEntry, 0, len(result.References.CWEs))
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		e := allEnrichmentEntry{
+			CWEID:        cwe,
+			WeaknessName: entry.WeaknessName,
+			NoMatches:    string(entry.Status) == "NO_MATCHES" || len(entry.MatchedCVEs) == 0,
+		}
+		for _, match := range entry.MatchedCVEs {
+			e.Matches = append(e.Matches, allEnrichmentMatch{
+				CVEID:          match.CVEID,
+				Source:         string(match.Source),
+				CVSSBaseScore:  match.CVSSBaseScore,
+				CVSSSeverity:   match.CVSSSeverity,
+				Description:    match.Description,
+				KnownExploited: match.KnownExploited,
+				PatchAvailable: match.PatchAvailable,
+			})
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// buildAllEnrichmentFailures converts enrichment failures into typed
+// structs for all command output.
+func buildAllEnrichmentFailures(result *audit.Result) []allEnrichmentFailure {
+	if result.Enrichment == nil || len(result.Enrichment.Failures) == 0 {
+		return nil
+	}
+	out := make([]allEnrichmentFailure, 0, len(result.Enrichment.Failures))
+	for cwe, failure := range result.Enrichment.Failures {
+		out = append(out, allEnrichmentFailure{
+			CWEID:     cwe,
+			Source:    string(failure.Source),
+			Reason:    failure.Reason,
+			Retryable: failure.Retryable,
+		})
+	}
+	return out
+}
+
+// allFormatReferenceErrors converts reference parsing errors into strings
+// for all command output.
+func allFormatReferenceErrors(errs []error) []string {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, e.Error())
+	}
+	return out
+}
+
+// renderAllEnrichmentBlock writes the six-state enrichment rendering for
+// all command text output, mirroring renderEnrichmentBlock in
+// cmd/commands/security/security.go. Kept separate since all.go owns its
+// own serialization path independent of the audit formatter.
+func renderAllEnrichmentBlock(w *bytes.Buffer, result *audit.Result) {
+	if !result.EnrichmentRequested {
+		return
+	}
+
+	fmt.Fprintf(w, "Enrichment:\n")
+
+	if result.EnrichmentError != nil {
+		fmt.Fprintf(w, "  Unavailable: %v\n\n", result.EnrichmentError)
+		renderAllReferenceErrors(w, result.References)
+		return
+	}
+
+	if len(result.References.CWEs) == 0 {
+		fmt.Fprintf(w, "  No CWE references found in current findings.\n\n")
+		renderAllReferenceErrors(w, result.References)
+		return
+	}
+
+	if result.Enrichment == nil {
+		fmt.Fprintf(w, "  No enrichment data returned.\n\n")
+		renderAllReferenceErrors(w, result.References)
+		return
+	}
+
+	rendered := 0
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		rendered++
+		fmt.Fprintf(w, "  %s", cwe)
+		if entry.WeaknessName != "" {
+			fmt.Fprintf(w, " - %s", entry.WeaknessName)
+		}
+		fmt.Fprintln(w)
+
+		if string(entry.Status) == "NO_MATCHES" || len(entry.MatchedCVEs) == 0 {
+			fmt.Fprintf(w, "    No CVE matches in queried sources.\n")
+			continue
+		}
+
+		for _, match := range entry.MatchedCVEs {
+			symbol, label := types.SeverityFormat(match.CVSSSeverity)
+			fmt.Fprintf(w, "    %s %s  %s (%.1f) [%s]\n",
+				symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
+			if allVerbose {
+				if match.Description != "" {
+					fmt.Fprintf(w, "      Description: %s\n", match.Description)
+				}
+				if match.KnownExploited {
+					fmt.Fprintf(w, "      Known Exploited: yes\n")
+				}
+				if match.PatchAvailable {
+					fmt.Fprintf(w, "      Patch Available: yes\n")
+				}
+			}
+		}
+	}
+
+	if rendered == 0 {
+		fmt.Fprintf(w, "  No enrichment data returned.\n")
+	}
+
+	if len(result.Enrichment.Failures) > 0 {
+		fmt.Fprintf(w, "\n  Failed enrichments:\n")
+		for cwe, failure := range result.Enrichment.Failures {
+			fmt.Fprintf(w, "    %s [%s]: %s", cwe, failure.Source, failure.Reason)
+			if failure.Retryable {
+				fmt.Fprintf(w, " (retryable)")
+			}
+			fmt.Fprintln(w)
+		}
+	}
+
+	fmt.Fprintln(w)
+	renderAllReferenceErrors(w, result.References)
+}
+
+// renderAllReferenceErrors writes reference parsing errors for all command
+// text output, mirroring renderReferenceErrors in security.go.
+func renderAllReferenceErrors(w *bytes.Buffer, refs types.ReferenceExtraction) {
+	if len(refs.Errors) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Reference parsing errors:\n")
+	for _, err := range refs.Errors {
+		fmt.Fprintf(w, "    %v\n", err)
+	}
+	fmt.Fprintln(w)
+}
+
 func isModuleSkipped(module string) bool {
-	if len(skipModules) == 0 {
+	if len(allSkipModules) == 0 {
 		return false
 	}
 
-	for _, skip := range skipModules {
+	for _, skip := range allSkipModules {
 		if strings.EqualFold(skip, module) {
 			return true
 		}
@@ -512,4 +780,45 @@ func isTerminal() bool {
 		return false
 	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+}
+
+// allSeverityLevel returns the numeric rank of a severity string for
+// threshold comparisons. Unknown values return -1 so they are never
+// silently dropped. Mirrors security.severityLevel; kept local since all.go
+// owns its own serialization path independent of the audit formatter.
+func allSeverityLevel(s string) int {
+	switch strings.ToUpper(s) {
+	case types.SeverityLow:
+		return 0
+	case types.SeverityMedium:
+		return 1
+	case types.SeverityHigh:
+		return 2
+	case types.SeverityCritical:
+		return 3
+	default:
+		return -1
+	}
+}
+
+// allMeetsMinSeverity reports whether findingSeverity is at or above the
+// min threshold. Unrecognized severity values pass through so findings are
+// never silently dropped.
+func allMeetsMinSeverity(findingSeverity, min string) bool {
+	fl := allSeverityLevel(findingSeverity)
+	ml := allSeverityLevel(min)
+	if fl < 0 || ml < 0 {
+		return true
+	}
+	return fl >= ml
+}
+
+// effectiveSeverity returns the severity value used for filtering and
+// display. It currently always returns the finding's static registry-
+// assigned severity. Once per-finding CVE/CVSS enrichment lands, this is
+// the single point where a live CVSS-derived severity would override the
+// static value. Callers should go through this rather than reading
+// finding.Severity directly, so severity sourcing only has to change here.
+func effectiveSeverity(finding types.Finding) string {
+	return finding.Severity
 }

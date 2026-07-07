@@ -1,4 +1,5 @@
 # Orko Watch (owatch) [README REQUIRES UPDATE]
+## Updated as of July 5, 2026
 
 ![Orko Watch][logo]
 
@@ -10,6 +11,38 @@ enumeration and security auditing across Linux, Unix, macOS, and Windows.
 
 ---
 
+## Current Status
+
+`owatch` is currently pre-MVP. Every command below runs and produces real
+results, but the following gaps exist today and will close as development
+continues. This section will be trimmed as each item is resolved; if something
+below isn't true anymore, treat the code's actual behavior as authoritative
+and open an issue against this doc.
+
+- **Windows audit findings may be incomplete or inaccurate.** Permissions
+  checking doesn't yet default to `C:\` with full recursive traversal, the
+  users check has known false negatives on Microsoft accounts, some scans
+  return zero findings when findings are expected, and some failures fail
+  silently instead of surfacing an error. Tracked as a single fix (#111).
+  Linux/Unix audit checks are not affected.
+- **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
+  (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
+  nothing; findings are not annotated with CVE data.
+- **`--mitre` does not exist yet.** MITRE ATT&CK mapping is planned but not
+  implemented; passing it will fail as an unknown flag.
+- **macOS and BSD are not supported yet.** Audit checkers are implemented
+  for Windows and Linux/Unix only. macOS and BSD support is blocked on
+  dedicated test runners and has no timeline yet.
+- **Filename and report structure may still change.** The naming convention
+  and JSON/YAML report shape are considered stable for the fields that exist
+  today, but new segments (enrichment, MITRE) will be added as those features
+  land.
+- **No log capture, listener enumeration, or history modules yet.** Only OS
+  fingerprinting, software inventory, and the four audit checks (SSH,
+  firewall, users, permissions) exist today.
+
+---
+
 ## Commands
 
 | Command | Description |
@@ -18,13 +51,23 @@ enumeration and security auditing across Linux, Unix, macOS, and Windows.
 | `owatch software` | List installed software packages |
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
+| `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
+| `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch version` | Display current version |
+
+> `-V`/`--version` on any invocation is equivalent to running `owatch version`.
+> `owatch help` alone is equivalent to `owatch --help`/`-h`. `owatch help
+> <command>` (e.g. `owatch help audit`) is equivalent to `owatch <command>
+> --help`.
 
 ## Quick Start
 
 ```bash
 # See all available commands and flags
 owatch --help
+
+# Display current version
+owatch version
 
 # Gather OS information
 owatch osinfo
@@ -41,14 +84,23 @@ owatch audit --fwall
 owatch audit --users
 owatch audit --fperms /path/to/check
 
-# Run all scans and save report as JSON
-owatch all -o json --report-file report.json
+# Run all scans and save report as JSON to a directory (filename is generated automatically)
+owatch all -o json --report-file /path/to/reports
 
 # Skip specific modules when running all scans
-owatch all --skip-modules software,security
+owatch all --skip-modules software,audit
+
+# Skip specific audit checks (composes with --skip-modules)
+owatch all --skip-checks permissions
+
+# Filter findings to HIGH severity and above
+owatch all --min-severity HIGH
 ```
 
-## Security Audit Flags
+## Audit Flags (`owatch audit`, alias `owatch security_audit`)
+
+`audit` runs one or more checks directly, selected explicitly via boolean flags.
+With no check flags given, all checks run by default.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -56,12 +108,103 @@ owatch all --skip-modules software,security
 | `--fwall` | Run firewall configuration check | false |
 | `--users` | Run user accounts check | false |
 | `--fperms` | Check permissions of specified path | — |
+| `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
 | `-o, --output` | Output format: text, json, yaml | text |
-| `--report-file` | Save report to file | — |
+| `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
-| `--skip-checks` | Comma-separated checks to skip | — |
 | `--timeout` | Maximum audit duration | 10m |
+| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
 | `-v, --verbose` | Enable verbose output | false |
+
+## `all` Flags (`owatch all`)
+
+`all` runs every module (osinfo, software, audit) in one consolidated report.
+There's no way to invoke multiple modules explicitly and select others — the
+underlying CLI framework doesn't support that yet — so composition happens by
+skipping what you don't want, in either direction: skip whole modules, or skip
+individual audit checks within the audit module, or both together.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--skip-modules` | Comma-separated modules to skip (osinfo, software, audit) | — |
+| `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
+| `-o, --output` | Output format: text, json, yaml, csv (csv not yet implemented) | text |
+| `--report-file` | Save report to directory; filename is generated automatically | — |
+| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--timeout` | Maximum time to run all scans | 30m |
+| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
+| `-v, --verbose` | Enable verbose output for all scans | false |
+
+There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
+to run only specific checks as part of a full scan, skip the others instead:
+
+```bash
+# Equivalent to running only the SSH check, but as part of the all pipeline
+owatch all --skip-checks firewall,users,permissions
+```
+
+## Report Output
+
+`--report-file` accepts a destination **directory**, not a file path. `owatch`
+generates the filename automatically:
+
+```text
+owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<flag_codes>-<timestamp>.<ext>
+```
+
+- Segments are omitted entirely when empty — there are never double hyphens.
+- Format resolution: an explicit `-o/--output` value always wins; if
+  `--report-file` is given without `-o`, JSON is used; if neither is given,
+  output goes to stdout as text.
+
+### `m.` — Modules
+
+| Letter | Module | Status |
+|---|---|---|
+| `h` | Shell/terminal history | reserved, not yet implemented |
+| `l` | Log capture (syslog, Event Log, unified logging) | reserved, not yet implemented |
+| `n` | Local listener enumeration | reserved, not yet implemented |
+| `o` | OS fingerprint | implemented |
+| `r` | Remote network scanning | reserved, not yet implemented |
+| `s` | Software inventory | implemented |
+
+The audit module itself has a reserved letter (`a`) used only to validate
+`--skip-modules audit`; it never appears in a filename. Whether the audit
+module ran is shown entirely through the presence or absence of the `c.`
+segment below — a module code would be redundant with that.
+
+### `c.` — Audit checks
+
+| Letter | Check | Status |
+|---|---|---|
+| `f` | Firewall configuration | implemented |
+| `p` | File permissions | implemented |
+| `s` | SSH configuration | implemented |
+| `u` | User accounts | implemented |
+
+### `e.` — Enrichment adapters
+
+| Letter | Adapter | Status |
+|---|---|---|
+| `g` | GHSA advisories | reserved, not yet implemented |
+| `k` | CISA KEV | reserved, not yet implemented |
+| `n` | NVD (CVE lookup) | reserved, not yet implemented |
+| `p` | EPSS scoring | reserved, not yet implemented |
+
+No `e.` segment appears in any filename yet, since no adapter is wired.
+
+### Composing flags
+
+| Letter | Flag | Status |
+|---|---|---|
+| `m` | `--mitre` (MITRE ATT&CK mapping) | reserved, not yet implemented |
+
+This segment is unprefixed and always terminal when present. It will not
+appear in any filename until `--mitre` lands.
+
+Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all four). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
 ## Shell Completion
 

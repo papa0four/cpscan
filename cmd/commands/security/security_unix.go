@@ -16,13 +16,16 @@ func init() {
 }
 
 func runUnixAudit(cmd *cobra.Command, args []string) error {
-	mask := buildMask()
-
 	if err := validateFlags(cmd); err != nil {
 		return err
 	}
 
-	if verbose {
+	mask, err := buildMask()
+	if err != nil {
+		return err
+	}
+
+	if verbose && reportFile == "" {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
 	logVerboseConfig(mask)
