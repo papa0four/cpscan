@@ -356,25 +356,31 @@ a generated NVD URL. Other types populate only `Title`.
 
 ## Rendering
 
-Rendering lives in two places.
+Rendering lives entirely in `cmd/commands/security/security.go`. The
+`internal/security/formatter` package that previously handled JSON/YAML
+output was removed (#119) after confirmation it had no live caller anywhere
+in the CLI -- `security.go` has always used its own local
+`convertToFormattedResult`/`formattedResult` types for JSON and YAML,
+independent of that package. Its removal also surfaced that JSON/YAML output
+had never actually included enrichment data at all, since `formattedResult`
+carried no enrichment fields; this is fixed as of the same change.
 
-**`internal/security/formatter/formatter.go`** handles JSON and YAML output
-via `prepareOutput`, which populates the following template keys when
-`enrichment_requested` is true:
+**JSON and YAML output** is produced by `convertToFormattedResult`, which
+populates the following fields on `formattedResult` when enrichment was
+requested:
 
-| Key                   | Source                                          |
-|-----------------------|-------------------------------------------------|
-| `enrichment_requested`| `audit.Result.EnrichmentRequested`             |
-| `enrichment_error`    | `audit.Result.EnrichmentError.Error()` or `""` |
-| `reference_cwes`      | `audit.Result.References.CWEs`                 |
+| Field                 | Source                                            |
+|-----------------------|----------------------------------------------------|
+| `enrichment_requested`| `audit.Result.EnrichmentRequested`                |
+| `enrichment_error`    | `audit.Result.EnrichmentError.Error()` or omitted |
+| `reference_cwes`      | `audit.Result.References.CWEs`                    |
 | `reference_errors`    | `formatReferenceErrors(result.References.Errors)` |
-| `enrichment_entries`  | `buildEnrichmentEntries(result)`               |
-| `enrichment_failures` | `buildEnrichmentFailures(result)`              |
+| `enrichment_entries`  | `buildFormattedEnrichmentEntries(result)`         |
+| `enrichment_failures` | `buildFormattedEnrichmentFailures(result)`        |
 
-**`cmd/commands/security/security.go`** handles plain-text output via
-`renderEnrichmentBlock` and `renderReferenceErrors`. These are called from
-`formatText` (the text-mode output path) and implement the six rendering states
-described in the output design.
+**Plain-text output** is produced via `renderEnrichmentBlock` and
+`renderReferenceErrors`, called from `formatText` (the text-mode output
+path), implementing the six rendering states described below.
 
 ### Rendering states (text mode)
 
