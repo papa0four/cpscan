@@ -264,7 +264,7 @@ func toAllResult(scan *ScanResult) allResult {
 		for _, check := range scan.SecurityAudit.Results {
 			for _, finding := range check.Findings {
 				sev := effectiveSeverity(finding)
-				if !allMeetsMinSeverity(finding.Severity, allMinSeverity) {
+				if !allMeetsMinSeverity(sev, allMinSeverity) {
 					continue
 				}
 				f := allFinding{

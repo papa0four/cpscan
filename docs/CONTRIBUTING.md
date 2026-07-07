@@ -33,6 +33,7 @@ a live index, not a one-time snapshot.
 |---|---|
 | `docs/dev_guide/enrichment.md` | CVE/CWE enrichment subsystem: types, adapter interface, orchestration sequence, reference extraction |
 | `docs/dev_guide/scan_registry.md` | `CheckMask` registry, filename derivation, `all`/`audit` composition model, package boundaries |
+| `docs/dev_guide/audit_output_rendering.md` | `all`/`audit` output rendering: why they're independent, min-severity suppression pattern, enrichment six-state rendering, verifying rendering code has a live caller before extending it |
 
 ## Priorities
 
@@ -159,6 +160,22 @@ citation behind the registry entry. No entry ships without a citation.
 - Comments explain why, not what. Naming carries meaning. Verbose explanation
   lives in docs, not in function bodies.
 - Use merge/merged/merging, not promote/promoted/promoting.
+
+## Code quality: no dead or duplicate code
+
+Dead code is not merged, under any circumstance -- exported or unexported,
+finished feature or abandoned attempt. If a package, type, or function has
+no demonstrable live caller, it is removed, not left in place "in case it's
+useful." The same standard applies to duplicate implementations: if two
+pieces of code solve the same problem, one is removed or they are
+consolidated with a stated reason for keeping both.
+
+This is enforced, not assumed. Before extending or documenting any existing
+code, confirm it is actually called from somewhere real -- a passing build
+and clean lint output are not evidence of that. The goal is to keep the
+codebase's actual surface area matched to what's genuinely in use, which
+keeps throughput high and both attack surface and maintenance burden as
+small as the feature set actually requires.
 
 ## Tests
 

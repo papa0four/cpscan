@@ -250,11 +250,13 @@ authoring time, derived from CVSS v3.1 score ranges:
 `--min-severity` filters the findings list to that threshold and above.
 Summary counts (total findings, and the per-severity breakdown) are **not**
 filtered -- they always reflect every finding the audit actually produced,
-regardless of `--min-severity`. This means the summary's total can be
-larger than the number of findings actually listed when a threshold above
-LOW is used. There is currently no explicit indication in the output of how
-many findings were suppressed or why -- tracked as a known gap, not
-intended behavior.
+regardless of `--min-severity`. When filtering removes at least one
+finding, this is disclosed rather than left implicit: text output prints a
+line stating how many findings were suppressed and by which threshold, plus
+an expanded Summary line showing total/present/suppressed counts; JSON and
+YAML output gain `findings_suppressed` and `min_severity_applied` fields on
+the security block. At the default threshold (`LOW`), nothing is
+suppressed and output is unchanged in every format.
 
 Severity sourcing has a single point of change (`effectiveSeverity` in
 `all.go`) for when per-finding CVE/CVSS enrichment lands, at which point a
@@ -275,9 +277,11 @@ close as development continues:
   return zero findings when findings are expected, and some failures fail
   silently instead of surfacing an error. Tracked as a single fix (#111).
   Linux/Unix audit checks are not affected.
-- **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
-  (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
-  nothing.
+- **`--enrich` has no enrichment adapter to query yet.** No CVE/CWE
+  enrichment source (NVD, CISA KEV, EPSS, GHSA) is wired yet, so no CVE data
+  is ever added to a finding. The flag is fully wired end to end otherwise --
+  passing it correctly reports that no source is configured, in both text
+  and JSON/YAML output, rather than silently doing nothing.
 - **`--mitre` does not exist yet.** Passing it fails as an unknown flag.
 - **macOS and BSD are not supported yet.** Audit checkers exist for Windows
   and Linux/Unix only.
