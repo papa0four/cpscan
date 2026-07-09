@@ -200,6 +200,12 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 
 // DetectOS identifies the current platform and, for Linux, resolves
 // the full distribution family chain from /etc/os-release.
+//
+// Deliberately independent of internal/osfingerprint: this resolves which
+// registry YAML files apply to the host (family-chain precision from
+// ID/ID_LIKE), not host identity for reporting, and wiring it to
+// osfingerprint would violate the pinned import direction (registry
+// imports types only).
 func DetectOS() OSContext {
 	switch platform := detectPlatform(); platform {
 	case PlatformLinux:

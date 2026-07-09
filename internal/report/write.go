@@ -100,6 +100,11 @@ func DefaultPath(dir, hostname, codes, format string) string {
 // ResolveHostname returns a filename-safe host identifier using a fallback
 // chain: sanitized os.Hostname(), then unknown-<mac> using the first valid
 // non-loopback MAC address (hex, no separators), then unknown.
+//
+// Exempt from the single-reader rule that makes internal/osfingerprint the
+// sole source of host identity: report naming must succeed even when
+// fingerprinting was skipped or failed, so it cannot depend on fingerprint
+// data existing.
 func ResolveHostname() string {
 	// hostnameRe retains only characters safe in filenames across all supported
 	// platforms; anything else becomes a hyphen.
