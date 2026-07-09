@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -99,12 +98,12 @@ type (
 	// YAML output. It defines clean section boundaries between system, software,
 	// and security data.
 	allResult struct {
-		Timestamp string        `json:"timestamp" yaml:"timestamp"`
-		Duration  string        `json:"duration" yaml:"duration"`
-		System    allSystemInfo `json:"system" yaml:"system"`
-		Software  *allSoftware  `json:"software,omitempty" yaml:"software,omitempty"`
-		Security  *allSecurity  `json:"security,omitempty" yaml:"security,omitempty"`
-		Errors    []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
+		Timestamp string         `json:"timestamp" yaml:"timestamp"`
+		Duration  string         `json:"duration" yaml:"duration"`
+		System    *allSystemInfo `json:"system,omitempty" yaml:"system,omitempty"`
+		Software  *allSoftware   `json:"software,omitempty" yaml:"software,omitempty"`
+		Security  *allSecurity   `json:"security,omitempty" yaml:"security,omitempty"`
+		Errors    []string       `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
 
 	// allSystemInfo carries host identity fields for all command output.
@@ -226,20 +225,13 @@ func toAllResult(scan *ScanResult) allResult {
 		Errors:    scan.Errors,
 	}
 
-	// system info -- prefer OS fingerprint data, fall back to runtime
+	// system info
 	if scan.OSInfo != nil {
-		out.System = allSystemInfo{
+		out.System = &allSystemInfo{
 			OS:            scan.OSInfo.Platform,
 			Hostname:      scan.OSInfo.Hostname,
 			KernelVersion: scan.OSInfo.KernelVersion,
-			Architecture:  runtime.GOARCH,
-		}
-	} else {
-		hostname, _ := os.Hostname() //nolint:errcheck // fallback to empty string on error
-		out.System = allSystemInfo{
-			OS:           runtime.GOOS,
-			Hostname:     hostname,
-			Architecture: runtime.GOARCH,
+			Architecture:  scan.OSInfo.Architecture,
 		}
 	}
 
@@ -411,7 +403,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		}
 
 		if !isModuleSkipped("audit") {
-			if securityResult, err := runSecurityAuditModule(mask); err != nil {
+			if securityResult, err := runSecurityAuditModule(mask, result.OSInfo); err != nil {
 				result.Errors = append(result.Errors,
 					fmt.Sprintf("Security audit error: %v", err))
 			} else {
@@ -476,7 +468,7 @@ func runSoftwareInventory() ([]softwarelist.SoftwareEntry, error) {
 	return entries, nil
 }
 
-func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
+func runSecurityAuditModule(mask scan.CheckMask, hostInfo *osfingerprint.OSInfo) (*audit.Result, error) {
 	if allVerbose && isTerminal() && allReportFile == "" {
 		fmt.Println("[*] Security Audit Scan")
 	}
@@ -487,6 +479,7 @@ func runSecurityAuditModule(mask scan.CheckMask) (*audit.Result, error) {
 		Timeout:        allTimeout,
 		Enrich:         allEnrich,
 		SpecificChecks: scan.EnabledChecks(mask),
+		HostInfo:       hostInfo,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)

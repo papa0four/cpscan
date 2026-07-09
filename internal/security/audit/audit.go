@@ -4,13 +4,12 @@ package audit
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -37,6 +36,7 @@ type Options struct {
 	MinSeverity    string
 	Timeout        time.Duration
 	Enrich         bool
+	HostInfo       *osfingerprint.OSInfo
 }
 
 // Result represents the complete audit results
@@ -114,9 +114,17 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 
 // RunAudit performs the security audit with the specified options
 func (sa *SecurityAuditor) RunAudit() (*Result, error) {
+	fingerprint := sa.options.HostInfo
+	if fingerprint == nil {
+		var err error
+		if fingerprint, err = osfingerprint.GetOSFingerprint(); err != nil && sa.verbose {
+			fmt.Printf("[!] OS fingerprint unavailable: %v\n", err)
+		}
+	}
+
 	result := &Result{
 		StartTime:           time.Now(),
-		SystemInfo:          getSystemInfo(),
+		SystemInfo:          systemInfoFrom(fingerprint),
 		Results:             make([]types.AuditResult, 0),
 		EnrichmentRequested: sa.options.Enrich,
 	}
@@ -309,36 +317,21 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 	return summary
 }
 
-func getSystemInfo() SystemInfo {
-	info := SystemInfo{
-		OS:           runtime.GOOS,
-		Architecture: runtime.GOARCH,
+// systemInfoFrom converts a host fingerprint into the audit's SystemInfo.
+// A nil fingerprint (fetch failed) yields identity fields left empty except
+// Architecture, which falls back to runtime.GOARCH as a fact about the
+// running binary rather than re-derived host identity: osfingerprint is the
+// single source of host identity, and a local fallback would reintroduce
+// the divergence this consolidation removes.
+func systemInfoFrom(info *osfingerprint.OSInfo) SystemInfo {
+	if info == nil {
+		return SystemInfo{Architecture: runtime.GOARCH}
 	}
-
-	if hostname, err := os.Hostname(); err == nil {
-		info.Hostname = hostname
-	}
-
-	if kernel, err := getKernelVersion(); err == nil {
-		info.KernelVersion = kernel
-	}
-	return info
-}
-
-func getKernelVersion() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		output, err := exec.Command("cmd", "/c", "ver").CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(output)), nil
-	default:
-		output, err := exec.Command("uname", "-r").CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(output)), nil
+	return SystemInfo{
+		OS:            info.OS,
+		Architecture:  info.Architecture,
+		Hostname:      info.Hostname,
+		KernelVersion: info.KernelVersion,
 	}
 }
 
