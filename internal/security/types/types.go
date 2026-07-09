@@ -3,6 +3,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
@@ -89,6 +90,45 @@ type ReferenceExtraction struct {
 
 func (e *ValidationError) Error() string {
 	return fmt.Sprintf("validation error in %s: %s - %s", e.Checker, e.Field, e.Message)
+}
+
+// SeverityLevel returns the numeric rank of a severity string for threshold
+// comparisons. Unknown values return -1 so they are never silently dropped.
+func SeverityLevel(s string) int {
+	switch strings.ToUpper(s) {
+	case SeverityLow:
+		return 0
+	case SeverityMedium:
+		return 1
+	case SeverityHigh:
+		return 2
+	case SeverityCritical:
+		return 3
+	default:
+		return -1
+	}
+}
+
+// MeetsMinSeverity reports whether findingSeverity is at or above the min
+// threshold. Unrecognized severity values pass through so findings are
+// never silently dropped.
+func MeetsMinSeverity(findingSeverity, min string) bool {
+	fl := SeverityLevel(findingSeverity)
+	ml := SeverityLevel(min)
+	if fl < 0 || ml < 0 {
+		return true
+	}
+	return fl >= ml
+}
+
+// EffectiveSeverity returns the severity value used for filtering and
+// display. It currently always returns the finding's static registry-
+// assigned severity. Once per-finding CVE/CVSS enrichment lands, this is
+// the single point where a live CVSS-derived severity would override the
+// static value. Callers should go through this rather than reading
+// finding.Severity directly, so severity sourcing only has to change here.
+func EffectiveSeverity(f Finding) string {
+	return f.Severity
 }
 
 // SeverityFormat returns the display symbol and fixed-width padded severity label

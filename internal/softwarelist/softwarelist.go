@@ -3,7 +3,11 @@
 // formatted string for human-readable text output.
 package softwarelist
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+	"strings"
+)
 
 // SoftwareEntry represents a single installed software package with its
 // display name and version string as reported by the host platform.
@@ -29,9 +33,32 @@ func GetInstalledSoftwareList() ([]SoftwareEntry, error) {
 // formatted human-readable string. Used for text output and the standalone
 // software subcommand.
 func GetInstalledSoftware() (string, error) {
-	result, err := getPlatformSoftware()
+	entries, err := getPlatformSoftwareList()
 	if err != nil {
 		return "", fmt.Errorf("software enumeration failed: %w", err)
 	}
-	return result, nil
+	var sb strings.Builder
+	if err := WriteTable(&sb, entries, true); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
+// WriteTable writes entries to w as fixed-width name and version columns,
+// one package per line. withHeader controls the leading column header row:
+// the standalone software subcommand prints it, while the all command's
+// verbose listing omits it. This is the single definition of the software
+// table row format.
+func WriteTable(w io.Writer, entries []SoftwareEntry, withHeader bool) error {
+	if withHeader {
+		if _, err := fmt.Fprintf(w, "%-60s %s\n", "Name", "Version"); err != nil {
+			return fmt.Errorf("software table write failed: %w", err)
+		}
+	}
+	for _, e := range entries {
+		if _, err := fmt.Fprintf(w, "%-60s %s\n", e.Name, e.Version); err != nil {
+			return fmt.Errorf("software table write failed: %w", err)
+		}
+	}
+	return nil
 }

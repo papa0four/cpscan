@@ -43,24 +43,6 @@ func getPlatformSoftwareList() ([]SoftwareEntry, error) {
 	}
 }
 
-// getPlatformSoftware returns installed software as a column-aligned string
-// suitable for human-readable text output and the standalone software
-// subcommand. It delegates to getPlatformSoftwareList and formats each entry
-// as a fixed-width name and version pair.
-func getPlatformSoftware() (string, error) {
-	entries, err := getPlatformSoftwareList()
-	if err != nil {
-		return "", err
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "%-60s %s\n", "Name", "Version")
-	for _, e := range entries {
-		fmt.Fprintf(&sb, "%-60s %s\n", e.Name, e.Version)
-	}
-	return sb.String(), nil
-}
-
 // parseTabDelimited parses tab-delimited name\tversion output from dpkg-query
 // and rpm into a slice of SoftwareEntry.
 func parseTabDelimited(output string) []SoftwareEntry {
