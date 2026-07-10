@@ -4,6 +4,7 @@
 package softwarelist
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -20,9 +21,10 @@ type SoftwareEntry struct {
 
 // GetInstalledSoftwareList returns the installed software packages as a
 // structured slice. Each entry carries a discrete name and version field
-// suitable for enrichment lookups and structured report output.
-func GetInstalledSoftwareList() ([]SoftwareEntry, error) {
-	entries, err := getPlatformSoftwareList()
+// suitable for enrichment lookups and structured report output. ctx bounds
+// the platform package-manager invocations.
+func GetInstalledSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
+	entries, err := getPlatformSoftwareList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("software enumeration failed: %w", err)
 	}
@@ -31,9 +33,9 @@ func GetInstalledSoftwareList() ([]SoftwareEntry, error) {
 
 // GetInstalledSoftware returns the installed software packages as a
 // formatted human-readable string. Used for text output and the standalone
-// software subcommand.
-func GetInstalledSoftware() (string, error) {
-	entries, err := getPlatformSoftwareList()
+// software subcommand. ctx bounds the platform package-manager invocations.
+func GetInstalledSoftware(ctx context.Context) (string, error) {
+	entries, err := getPlatformSoftwareList(ctx)
 	if err != nil {
 		return "", fmt.Errorf("software enumeration failed: %w", err)
 	}

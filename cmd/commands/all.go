@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,7 +64,7 @@ func init() {
 	allCmd.Flags().BoolVarP(&allVerbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
 	allCmd.Flags().StringVarP(&allOutputFormat, "output", "o", "text",
-		"Output format (json, yaml, text, csv)")
+		"Output format (json, yaml, text)")
 	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
 		"Save complete report to the specified directory; filename is generated automatically")
 	allCmd.Flags().StringSliceVar(&allSkipModules, "skip-modules", []string{},
@@ -284,10 +285,10 @@ func validateSkipModules() error {
 // validateAllFlags rejects invalid flag combinations for the all command.
 func validateAllFlags(cmd *cobra.Command) error {
 	switch allOutputFormat {
-	case "json", "yaml", "text", "csv":
+	case "json", "yaml", "text":
 		// accepted
 	default:
-		return fmt.Errorf("invalid output format: %s (valid: json, yaml, text, csv)", allOutputFormat)
+		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", allOutputFormat)
 	}
 
 	if cmd.Flags().Changed("report-file") {
@@ -352,52 +353,53 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	// point for the whole run.
 	verboseHeaders := allVerbose && render.StdoutIsTerminal() && allReportFile == ""
 
-	results := make(chan *ScanResult, 1)
+	// The whole scan runs synchronously under one deadline. Cancellation
+	// reaches the audit's checkers and the software module's package-manager
+	// invocations, so a timed-out scan leaves nothing running -- the prior
+	// goroutine-and-select pattern reported the timeout but abandoned the
+	// scan to keep executing against the host.
+	ctx, cancel := context.WithTimeout(cmd.Context(), allTimeout)
+	defer cancel()
 
-	go func() {
-		result := &ScanResult{
-			Timestamp: startTime,
-			Errors:    make([]string, 0),
+	result := &ScanResult{
+		Timestamp: startTime,
+		Errors:    make([]string, 0),
+	}
+
+	if !isModuleSkipped("osinfo") {
+		if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("OS fingerprint error: %v", err))
+		} else {
+			result.OSInfo = osInfo
 		}
+	}
 
-		if !isModuleSkipped("osinfo") {
-			if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
-				result.Errors = append(result.Errors,
-					fmt.Sprintf("OS fingerprint error: %v", err))
-			} else {
-				result.OSInfo = osInfo
-			}
+	if !isModuleSkipped("software") {
+		software, err := runSoftwareInventory(ctx, verboseHeaders)
+		if err != nil {
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("Software inventory error: %v", err))
+		} else {
+			result.Software = software
 		}
+	}
 
-		if !isModuleSkipped("software") {
-			software, err := runSoftwareInventory(verboseHeaders)
-			if err != nil {
-				result.Errors = append(result.Errors,
-					fmt.Sprintf("Software inventory error: %v", err))
-			} else {
-				result.Software = software
-			}
+	if !isModuleSkipped("audit") {
+		if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("Security audit error: %v", err))
+		} else {
+			result.SecurityAudit = securityResult
 		}
+	}
 
-		if !isModuleSkipped("audit") {
-			if securityResult, err := runSecurityAuditModule(mask, result.OSInfo, verboseHeaders); err != nil {
-				result.Errors = append(result.Errors,
-					fmt.Sprintf("Security audit error: %v", err))
-			} else {
-				result.SecurityAudit = securityResult
-			}
-		}
-
-		result.Duration = time.Since(startTime)
-		results <- result
-	}()
-
-	select {
-	case result := <-results:
-		return outputResults(cmd, result, mask)
-	case <-time.After(allTimeout):
+	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("scan timed out after %v", allTimeout)
 	}
+
+	result.Duration = time.Since(startTime)
+	return outputResults(cmd, result, mask)
 }
 
 func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
@@ -425,12 +427,12 @@ func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
 // runSoftwareInventory enumerates installed software packages. Verbose module
 // headers are gated behind verboseHeaders to prevent duplication when piping
 // or redirecting output.
-func runSoftwareInventory(verboseHeaders bool) ([]softwarelist.SoftwareEntry, error) {
+func runSoftwareInventory(ctx context.Context, verboseHeaders bool) ([]softwarelist.SoftwareEntry, error) {
 	if verboseHeaders {
 		fmt.Println("[*] Software Inventory Scan")
 	}
 
-	entries, err := softwarelist.GetInstalledSoftwareList()
+	entries, err := softwarelist.GetInstalledSoftwareList(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +449,7 @@ func runSoftwareInventory(verboseHeaders bool) ([]softwarelist.SoftwareEntry, er
 	return entries, nil
 }
 
-func runSecurityAuditModule(mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
+func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
 	if verboseHeaders {
 		fmt.Println("[*] Security Audit Scan")
 	}
@@ -455,14 +457,13 @@ func runSecurityAuditModule(mask scan.CheckMask, hostInfo *osfingerprint.OSInfo,
 	opts := audit.Options{
 		Verbose:        verboseHeaders,
 		MinSeverity:    allMinSeverity,
-		Timeout:        allTimeout,
 		Enrich:         allEnrich,
 		SpecificChecks: scan.EnabledChecks(mask),
 		HostInfo:       hostInfo,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
-	return auditor.RunAudit()
+	return auditor.RunAudit(ctx)
 }
 
 func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) error {
@@ -488,8 +489,6 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 		if err := yaml.NewEncoder(&buf).Encode(data); err != nil {
 			return fmt.Errorf("failed to encode YAML: %w", err)
 		}
-	case "csv":
-		return fmt.Errorf("csv output format is not yet implemented")
 	default:
 		if err := renderAllText(&buf, result); err != nil {
 			return fmt.Errorf("failed to render text output: %w", err)

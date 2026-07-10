@@ -3,6 +3,7 @@ package checker
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,7 @@ import (
 
 // SSHChecker defines interface for SSH configuration checking
 type SSHChecker interface {
-	Check() types.AuditResult
+	Check(ctx context.Context) types.AuditResult
 }
 
 // UnixSSHChecker implements SSHChecker for Unix-like systems
@@ -57,7 +58,7 @@ type sshConfig struct {
 }
 
 // Check implements SSHChecker interface for Unix systems
-func (s *UnixSSHChecker) Check() types.AuditResult {
+func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        "SSH Configuration",
 		Status:      "CHECKING",
@@ -207,7 +208,7 @@ func (s *UnixSSHChecker) Check() types.AuditResult {
 }
 
 // Check implements SSHChecker interface for Windows systems
-func (s *WindowsSSHChecker) Check() types.AuditResult {
+func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        "Windows SSH Configuration",
 		Status:      "CHECKING",
@@ -219,7 +220,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 	sshdInstalled := false
 
 	// Check OpenSSH installation
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 		"(Get-Service -Name sshd -ErrorAction SilentlyContinue).Status")
 	output, err := cmd.CombinedOutput()
 	serviceStatus := strings.TrimSpace(string(output))
@@ -362,7 +363,7 @@ func (s *WindowsSSHChecker) Check() types.AuditResult {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s PuTTY is installed", types.SymbolInfo))
 
-		cmd = exec.Command("reg", "query", `HKCU\Software\SimonTatham\PuTTY\Sessions`)
+		cmd = exec.CommandContext(ctx, "reg", "query", `HKCU\Software\SimonTatham\PuTTY\Sessions`)
 		output, err := cmd.CombinedOutput()
 		if err == nil && len(output) > 0 {
 			sessions := strings.Split(string(output), "\n")

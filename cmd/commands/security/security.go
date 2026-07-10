@@ -2,6 +2,7 @@
 package security
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -196,10 +197,10 @@ func buildMask() (scan.CheckMask, error) {
 
 func validateFlags(cmd *cobra.Command) error {
 	switch outputFormat {
-	case "json", "yaml", "text", "csv":
+	case "json", "yaml", "text":
 		// accepted
 	default:
-		return fmt.Errorf("invalid output format: %s (valid: json, yaml, text)", outputFormat)
+		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", outputFormat)
 	}
 
 	validSeverities := map[string]bool{
@@ -275,39 +276,35 @@ func logVerboseConfig(mask scan.CheckMask) {
 	fmt.Println()
 }
 
+// runAuditWithTimeout executes the audit synchronously under a deadline.
+// Cancellation propagates through RunAudit into checker exec and filesystem
+// work, so on timeout nothing owatch started is left running -- the prior
+// goroutine-and-select pattern reported the timeout but abandoned the scan
+// to keep executing against the host.
 func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
 		Verbose:        verbose && reportFile == "",
 		SkipChecks:     skipChecks,
 		FilePermsPath:  checkFilePerms,
 		MinSeverity:    minSeverity,
-		Timeout:        timeout,
 		SpecificChecks: scan.EnabledChecks(mask),
 		Enrich:         enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
 
-	resultChan := make(chan *audit.Result, 1)
-	errorChan := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
 
-	go func() {
-		result, err := auditor.RunAudit()
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		resultChan <- result
-	}()
-
-	select {
-	case result := <-resultChan:
-		return outputResults(cmd, result, mask)
-	case err := <-errorChan:
-		return fmt.Errorf("audit failed: %w", err)
-	case <-time.After(timeout):
+	result, err := auditor.RunAudit(ctx)
+	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("audit timeout after %v", timeout)
 	}
+	if err != nil {
+		return fmt.Errorf("audit failed: %w", err)
+	}
+
+	return outputResults(cmd, result, mask)
 }
 
 func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
@@ -331,8 +328,6 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 		output, err = formatJSON(result)
 	case "yaml":
 		output, err = formatYAML(result)
-	case "csv":
-		return fmt.Errorf("csv output format is not yet implemented")
 	default:
 		output, err = formatText(result)
 	}

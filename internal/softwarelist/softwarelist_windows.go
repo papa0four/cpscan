@@ -4,6 +4,7 @@
 package softwarelist
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +24,7 @@ import (
 // wmic is called as a fallback for environments where registry
 // access is restricted, but its use is flagged since it is deprecated as of
 // Windows 10 21H1.
-func getPlatformSoftwareList() ([]SoftwareEntry, error) {
+func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	const (
 		uninstallPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 		uninstallPath32 = `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
@@ -95,7 +96,7 @@ func getPlatformSoftwareList() ([]SoftwareEntry, error) {
 	// wmic fallback
 	fmt.Fprintln(os.Stderr,
 		"[!] WARNING: registry read returned no results; falling back to wmic (deprecated on Windows 10 21H1+)")
-	output, err := exec.Command("wmic", "product", "get", "name,version").Output()
+	output, err := exec.CommandContext(ctx, "wmic", "product", "get", "name,version").Output()
 	if err != nil {
 		return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning as Administrator")
 	}

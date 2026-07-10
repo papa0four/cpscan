@@ -16,75 +16,78 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// SecurityAuditor handles the orchestration of security checks
-type SecurityAuditor struct {
-	sshChecker        checker.SSHChecker
-	firewallChecker   checker.FirewallChecker
-	userChecker       checker.UserChecker
-	permissionChecker checker.PermissionChecker
-	verbose           bool
-	options           Options
-	osContext         registry.OSContext
-}
+type (
+	// SecurityAuditor handles the orchestration of security checks
+	SecurityAuditor struct {
+		sshChecker        checker.SSHChecker
+		firewallChecker   checker.FirewallChecker
+		userChecker       checker.UserChecker
+		permissionChecker checker.PermissionChecker
+		verbose           bool
+		options           Options
+		osContext         registry.OSContext
+	}
 
-// Options configures the audit process
-type Options struct {
-	Verbose        bool
-	SpecificChecks []string
-	SkipChecks     []string
-	FilePermsPath  string
-	MinSeverity    string
-	Timeout        time.Duration
-	Enrich         bool
-	HostInfo       *osfingerprint.OSInfo
-}
+	// Options configures the audit process. The run's deadline is not part of
+	// Options: it arrives as the context passed to RunAudit, owned by the
+	// command layer, and bounds checks and enrichment together as one budget.
+	Options struct {
+		Verbose        bool
+		SpecificChecks []string
+		SkipChecks     []string
+		FilePermsPath  string
+		MinSeverity    string
+		Enrich         bool
+		HostInfo       *osfingerprint.OSInfo
+	}
 
-// Result represents the complete audit results
-type Result struct {
-	StartTime           time.Time
-	EndTime             time.Time
-	Duration            time.Duration
-	Results             []types.AuditResult
-	SystemInfo          SystemInfo
-	Summary             Summary
-	EnrichmentRequested bool
-	EnrichmentError     error
-	Enrichment          *enrichment.Result
-	References          types.ReferenceExtraction
-}
+	// Result represents the complete audit results
+	Result struct {
+		StartTime           time.Time
+		EndTime             time.Time
+		Duration            time.Duration
+		Results             []types.AuditResult
+		SystemInfo          SystemInfo
+		Summary             Summary
+		EnrichmentRequested bool
+		EnrichmentError     error
+		Enrichment          *enrichment.Result
+		References          types.ReferenceExtraction
+	}
 
-// SystemInfo contains basic system information collected at the start of an
-// audit. Software inventory is owned by the all command and is not part of
-// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
-type SystemInfo struct {
-	OS            string `json:"os" yaml:"os"`
-	Architecture  string `json:"architecture" yaml:"architecture"`
-	Hostname      string `json:"hostname" yaml:"hostname"`
-	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
-}
+	// SystemInfo contains basic system information collected at the start of an
+	// audit. Software inventory is owned by the all command and is not part of
+	// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
+	SystemInfo struct {
+		OS            string `json:"os" yaml:"os"`
+		Architecture  string `json:"architecture" yaml:"architecture"`
+		Hostname      string `json:"hostname" yaml:"hostname"`
+		KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+	}
 
-// Summary reports the outcome of a completed audit at both check and finding
-// level. PassedChecks counts checks that completed with zero findings.
-// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
-// broken down by severity so the analyst can assess exposure at a glance
-// without reading individual check output. TotalFindings is the sum of all
-// severity buckets.
-type Summary struct {
-	TotalChecks      int
-	PassedChecks     int
-	SkippedChecks    int
-	TotalFindings    int
-	CriticalFindings int
-	HighFindings     int
-	MediumFindings   int
-	LowFindings      int
-}
+	// Summary reports the outcome of a completed audit at both check and finding
+	// level. PassedChecks counts checks that completed with zero findings.
+	// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
+	// broken down by severity so the analyst can assess exposure at a glance
+	// without reading individual check output. TotalFindings is the sum of all
+	// severity buckets.
+	Summary struct {
+		TotalChecks      int
+		PassedChecks     int
+		SkippedChecks    int
+		TotalFindings    int
+		CriticalFindings int
+		HighFindings     int
+		MediumFindings   int
+		LowFindings      int
+	}
 
-// checkRunner pairs a check's canonical name with its execution function
-type checkRunner struct {
-	name string
-	run  func() types.AuditResult
-}
+	// checkRunner pairs a check's canonical name with its execution function
+	checkRunner struct {
+		name string
+		run  func(ctx context.Context) types.AuditResult
+	}
+)
 
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
@@ -112,8 +115,10 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	return auditor
 }
 
-// RunAudit performs the security audit with the specified options
-func (sa *SecurityAuditor) RunAudit() (*Result, error) {
+// RunAudit performs the security audit with the specified options. ctx
+// bounds the entire run -- checks and enrichment share its deadline -- and
+// cancellation propagates into checker exec and filesystem work.
+func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	fingerprint := sa.options.HostInfo
 	if fingerprint == nil {
 		var err error
@@ -138,27 +143,27 @@ func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 			var checkResult types.AuditResult
 			switch check {
 			case "ssh":
-				checkResult = timeCheck(sa.sshChecker.Check)
+				checkResult = timeCheck(ctx, sa.sshChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "firewall":
-				checkResult = timeCheck(sa.firewallChecker.Check)
+				checkResult = timeCheck(ctx, sa.firewallChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "users":
-				checkResult = timeCheck(sa.userChecker.Check)
+				checkResult = timeCheck(ctx, sa.userChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "permissions":
-				checkResult = timeCheck(sa.permissionChecker.Check)
+				checkResult = timeCheck(ctx, sa.permissionChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			}
 		}
-		sa.finalize(result)
+		sa.finalize(ctx, result)
 		return result, nil
 	}
 
-	return sa.runAllChecks(result)
+	return sa.runAllChecks(ctx, result)
 }
 
-func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
+func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*Result, error) {
 	if sa.verbose {
 		fmt.Println("[*] Starting comprehensive security audit...")
 	}
@@ -178,7 +183,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 			if sa.verbose {
 				fmt.Printf("[*] Running %s check...\n", c.name)
 			}
-			resultsChan <- timeCheck(c.run)
+			resultsChan <- timeCheck(ctx, c.run)
 		}(check)
 	}
 
@@ -191,7 +196,7 @@ func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 		result.Results = append(result.Results, checkResult)
 	}
 
-	sa.finalize(result)
+	sa.finalize(ctx, result)
 	return result, nil
 }
 
@@ -222,7 +227,11 @@ func (sa *SecurityAuditor) activeChecks() []checkRunner {
 	return active
 }
 
-func (sa *SecurityAuditor) finalize(result *Result) {
+// finalize computes duration, summary, and reference aggregation, then runs
+// enrichment when requested. Enrichment shares the caller's ctx rather than
+// opening a fresh deadline: --timeout is one budget for the whole run, not
+// a separate window per phase.
+func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 	result.Summary = sa.calculateSummary(result.Results)
@@ -241,9 +250,6 @@ func (sa *SecurityAuditor) finalize(result *Result) {
 	if len(result.References.CWEs) == 0 {
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), sa.options.Timeout)
-	defer cancel()
 
 	req := enrichment.EnrichRequest{
 		CWEs:        result.References.CWEs,
@@ -335,9 +341,9 @@ func systemInfoFrom(info *osfingerprint.OSInfo) SystemInfo {
 	}
 }
 
-func timeCheck(fn func() types.AuditResult) types.AuditResult {
+func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) types.AuditResult {
 	start := time.Now()
-	result := fn()
+	result := fn(ctx)
 	end := time.Now()
 	result.StartTime = start
 	result.EndTime = end
