@@ -41,11 +41,15 @@ var (
 	allowElevatedWrite bool
 )
 
-// SecurityCmd represents the security audit command
+// SecurityCmd represents the security audit command. RunE is assigned at the
+// declaration site from platformRunE, a symbol provided by exactly one
+// build-tagged platform file per compiled target. A target missing its
+// platform file fails to compile rather than shipping a nil RunE.
 var SecurityCmd = &cobra.Command{
 	Use:     "audit [flags] [check...]",
 	Aliases: []string{"security_audit"},
 	Short:   "Perform a security audit of the system",
+	RunE:    platformRunE,
 	Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
