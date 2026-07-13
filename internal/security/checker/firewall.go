@@ -175,7 +175,10 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	if activeProfiles > 0 {
 		cmd = exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose")
 		output, err := cmd.CombinedOutput()
-		if err == nil {
+		if err != nil {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s Error enumerating firewall rules: %v", types.SymbolError, err))
+		} else {
 			rules := parseWindowsFirewallRules(string(output))
 			result.Details = append(result.Details, "\nActive Firewall Rules:")
 			for _, rule := range rules {
