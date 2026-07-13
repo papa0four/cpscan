@@ -4,6 +4,7 @@
 package softwarelist
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -13,26 +14,26 @@ import (
 // getPlatformSoftwareList returns installed software as a structured slice
 // by querying the platform package manager. Linux tries dpkg-query then rpm;
 // Darwin uses system_profiler; FreeBSD uses pkg info.
-func getPlatformSoftwareList() ([]SoftwareEntry, error) {
+func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	switch runtime.GOOS {
 	case "linux":
-		if output, err := exec.Command("dpkg-query", "-W", "-f=${Package}\t${Version}\n").Output(); err == nil {
+		if output, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Package}\t${Version}\n").Output(); err == nil {
 			return parseTabDelimited(string(output)), nil
 		}
-		if output, err := exec.Command("rpm", "-qa", "--queryformat", "%{NAME}\t%{VERSION}\n").Output(); err == nil {
+		if output, err := exec.CommandContext(ctx, "rpm", "-qa", "--queryformat", "%{NAME}\t%{VERSION}\n").Output(); err == nil {
 			return parseTabDelimited(string(output)), nil
 		}
 		return nil, fmt.Errorf("no supported package manager found; try rerunning with sudo")
 
 	case "darwin":
-		output, err := exec.Command("system_profiler", "SPApplicationsDataType", "-json").Output()
+		output, err := exec.CommandContext(ctx, "system_profiler", "SPApplicationsDataType", "-json").Output()
 		if err != nil {
 			return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
 		}
 		return parseDarwinJSON(output), nil
 
 	case "freebsd":
-		output, err := exec.Command("pkg", "info", "-a", "--raw-format", "json").Output()
+		output, err := exec.CommandContext(ctx, "pkg", "info", "-a", "--raw-format", "json").Output()
 		if err != nil {
 			return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
 		}

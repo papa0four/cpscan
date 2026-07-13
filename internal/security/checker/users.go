@@ -3,6 +3,7 @@ package checker
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -20,55 +21,57 @@ const windowsUserCSVFields = 8
 
 // UserChecker defines interface for user account checking
 type UserChecker interface {
-	Check() types.AuditResult
+	Check(ctx context.Context) types.AuditResult
 }
 
-// platformConfig holds OS-specific configuration for user checking
-type platformConfig struct {
-	userSources []string
-	minUID      int
-}
+type (
+	// platformConfig holds OS-specific configuration for user checking
+	platformConfig struct {
+		userSources []string
+		minUID      int
+	}
 
-// UnixUserChecker implements UserChecker for Unix-like systems.
-// shadowReadable is set to true when /etc/shadow was successfully opened
-// during getLinuxUsers; it gates the no-password finding and surfaces a
-// diagnostic when the check runs without sufficient privileges.
-type UnixUserChecker struct {
-	config         platformConfig
-	osType         string
-	ctx            registry.OSContext
-	shadowReadable bool
-}
+	// UnixUserChecker implements UserChecker for Unix-like systems.
+	// shadowReadable is set to true when /etc/shadow was successfully opened
+	// during getLinuxUsers; it gates the no-password finding and surfaces a
+	// diagnostic when the check runs without sufficient privileges.
+	UnixUserChecker struct {
+		config         platformConfig
+		osType         string
+		osCtx          registry.OSContext
+		shadowReadable bool
+	}
 
-// WindowsUserChecker implements UserChecker for Windows systems
-type WindowsUserChecker struct {
-	ctx registry.OSContext
-}
+	// WindowsUserChecker implements UserChecker for Windows systems
+	WindowsUserChecker struct {
+		osCtx registry.OSContext
+	}
 
-// userAccount represents a parsed user account from /etc/passwd and,
-// where available, /etc/shadow. isSystem is true when the UID falls
-// below the platform minimum for regular user accounts. isLocked is
-// true when the shadow password field begins with ! or *. hasPassword
-// is true when a non-empty, non-placeholder password hash is present
-// in /etc/shadow; false indicates no credential is set.
-type userAccount struct {
-	username    string
-	uid         int
-	gid         int
-	homeDir     string
-	shell       string
-	isSystem    bool
-	isLocked    bool
-	isAdmin     bool
-	isDisabled  bool
-	hasPassword bool
-}
+	// userAccount represents a parsed user account from /etc/passwd and,
+	// where available, /etc/shadow. isSystem is true when the UID falls
+	// below the platform minimum for regular user accounts. isLocked is
+	// true when the shadow password field begins with ! or *. hasPassword
+	// is true when a non-empty, non-placeholder password hash is present
+	// in /etc/shadow; false indicates no credential is set.
+	userAccount struct {
+		username    string
+		uid         int
+		gid         int
+		homeDir     string
+		shell       string
+		isSystem    bool
+		isLocked    bool
+		isAdmin     bool
+		isDisabled  bool
+		hasPassword bool
+	}
 
-// authConfigResult holds the outcome of auth configuration detection.
-type authConfigResult struct {
-	Details []string
-	Keys    []registry.FindingKey
-}
+	// authConfigResult holds the outcome of auth configuration detection.
+	authConfigResult struct {
+		Details []string
+		Keys    []registry.FindingKey
+	}
+)
 
 // getPlatformConfig returns the appropriate configuration for the current OS
 func getPlatformConfig() platformConfig {
@@ -106,21 +109,21 @@ func getPlatformConfig() platformConfig {
 }
 
 // NewUnixUserChecker creates a new Unix user checker with OS-specific settings
-func NewUnixUserChecker(ctx registry.OSContext) *UnixUserChecker {
+func NewUnixUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 	return &UnixUserChecker{
 		config: getPlatformConfig(),
 		osType: runtime.GOOS,
-		ctx:    ctx,
+		osCtx:  osCtx,
 	}
 }
 
 // NewWindowsUserChecker creates a new Windows user checker
-func NewWindowsUserChecker(ctx registry.OSContext) *WindowsUserChecker {
-	return &WindowsUserChecker{ctx: ctx}
+func NewWindowsUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
+	return &WindowsUserChecker{osCtx: osCtx}
 }
 
 // Check implements UserChecker interface for Unix systems
-func (u *UnixUserChecker) Check() types.AuditResult {
+func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        "User Account Security",
 		Status:      "CHECKING",
@@ -132,7 +135,7 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 	authResult := u.checkAuthConfig()
 	result.Details = append(result.Details, authResult.Details...)
 	for _, key := range authResult.Keys {
-		if def, ok := registry.Lookup(u.ctx, key); ok {
+		if def, ok := registry.Lookup(u.osCtx, key); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -144,7 +147,7 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 		}
 	}
 
-	users, err := u.getUsers()
+	users, err := u.getUsers(ctx)
 	if err != nil {
 		result.Status = "ERROR"
 		result.Description = fmt.Sprintf("Failed to analyze users: %v", err)
@@ -152,35 +155,35 @@ func (u *UnixUserChecker) Check() types.AuditResult {
 	}
 
 	u.analyzeUsers(users, &result)
-	u.checkSecurityConcerns(&result)
+	u.checkSecurityConcerns(ctx, &result)
 
 	result.Status = "COMPLETED"
 	return result
 }
 
 // getUsers retrieves user accounts based on OS type
-func (u *UnixUserChecker) getUsers() ([]userAccount, error) {
+func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
 	switch u.osType {
 	case "darwin":
-		return u.getMacOSUsers()
+		return u.getMacOSUsers(ctx)
 	case "freebsd", "openbsd":
-		return u.getBSDUsers()
+		return u.getBSDUsers(ctx)
 	default:
-		return u.getLinuxUsers()
+		return u.getLinuxUsers(ctx)
 	}
 }
 
-func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
+func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, error) {
 	var users []userAccount
 
-	cmd := exec.Command("dscl", ".", "list", "/Users")
+	cmd := exec.CommandContext(ctx, "dscl", ".", "list", "/Users")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get macOS users: %v", err)
 	}
 
 	adminUsers := make(map[string]bool)
-	adminCmd := exec.Command("dscacheutil", "-q", "group", "-a", "name", "admin")
+	adminCmd := exec.CommandContext(ctx, "dscacheutil", "-q", "group", "-a", "name", "admin")
 	if adminOutput, err := adminCmd.CombinedOutput(); err == nil {
 		for _, line := range strings.Split(string(adminOutput), "\n") {
 			if strings.HasPrefix(line, "users:") {
@@ -202,7 +205,7 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 			continue
 		}
 
-		infoCmd := exec.Command("dscl", ".", "read", "/Users/"+username, // #nosec G204 -- username validated by isSafeUsername before use
+		infoCmd := exec.CommandContext(ctx, "dscl", ".", "read", "/Users/"+username, // #nosec G204 -- username validated by isSafeUsername before use
 			"UniqueID", "PrimaryGroupID", "NFSHomeDirectory", "UserShell")
 		infoOutput, err := infoCmd.CombinedOutput()
 		if err != nil {
@@ -240,12 +243,13 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 			continue
 		}
 
-		authCmd := exec.Command("dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority") // #nosec G204 -- username validated by isSafeUsername before use
-		authOutput, err := authCmd.CombinedOutput()
-		if err != nil {
+		authCmd := exec.CommandContext(ctx, "dscl", ".", "read", "/Users/"+username, "AuthenticationAuthority") // #nosec G204 -- username validated by isSafeUsername before use
+		// A dscl failure means the account's disabled state is unknown, not
+		// enabled -- leave isDisabled false only when the read succeeded and
+		// the DisabledUser marker is genuinely absent.
+		if authOutput, err := authCmd.CombinedOutput(); err == nil {
 			account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
 		}
-		account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
 
 		users = append(users, account)
 	}
@@ -253,12 +257,12 @@ func (u *UnixUserChecker) getMacOSUsers() ([]userAccount, error) {
 	return users, nil
 }
 
-func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
+func (u *UnixUserChecker) getBSDUsers(ctx context.Context) ([]userAccount, error) {
 	var users []userAccount
 
 	if u.osType == "openbsd" {
 		// pwd_mkdb consistency check — failure is non-fatal, read proceeds regardless
-		if err := exec.Command("pwd_mkdb", "-c", "/etc/master.passwd").Run(); err != nil {
+		if err := exec.CommandContext(ctx, "pwd_mkdb", "-c", "/etc/master.passwd").Run(); err != nil {
 			// non-fatal: continue regardless of outcome
 			_ = err
 		}
@@ -304,7 +308,7 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 			continue
 		}
 
-		groupCmd := exec.Command("id", "-Gn", account.username) // #nosec G204 -- username validated by isSafeUsername before use
+		groupCmd := exec.CommandContext(ctx, "id", "-Gn", account.username) // #nosec G204 -- username validated by isSafeUsername before use
 		if output, err := groupCmd.CombinedOutput(); err == nil {
 			for _, group := range strings.Fields(string(output)) {
 				if group == "wheel" {
@@ -324,7 +328,7 @@ func (u *UnixUserChecker) getBSDUsers() ([]userAccount, error) {
 	return users, nil
 }
 
-func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
+func (u *UnixUserChecker) getLinuxUsers(ctx context.Context) ([]userAccount, error) {
 	var users []userAccount
 
 	passwdFile, err := os.Open("/etc/passwd")
@@ -355,7 +359,7 @@ func (u *UnixUserChecker) getLinuxUsers() ([]userAccount, error) {
 	// lookup to fail and silently zero out the sudoers map.
 	sudoers := make(map[string]bool)
 	for _, group := range []string{"sudo", "wheel", "admin"} {
-		cmd := exec.Command("getent", "group", group) // #nosec G204 -- group names are hardcoded literals, not user input
+		cmd := exec.CommandContext(ctx, "getent", "group", group) // #nosec G204 -- group names are hardcoded literals, not user input
 		if output, err := cmd.CombinedOutput(); err == nil {
 			for _, line := range strings.Split(string(output), "\n") {
 				if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
@@ -454,7 +458,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s CRITICAL: Account %s has UID 0 (root-equivalent)",
 					types.SymbolCritical, user.username))
 			if _, dup := seen["users.uid_zero_non_root"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -475,7 +479,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s WARNING: Account %s has no password and an interactive login shell",
 					types.SymbolWarning, user.username))
 			if _, dup := seen["users.no_password_login_shell"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.no_password_login_shell"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.no_password_login_shell"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -494,7 +498,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s WARNING: Regular user %s has administrative privileges",
 					types.SymbolWarning, user.username))
 			if _, dup := seen["users.regular_user_admin_privileges"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.regular_user_admin_privileges"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.regular_user_admin_privileges"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -513,7 +517,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s User %s has an interactive login shell: %s",
 					types.SymbolWarning, user.username, user.shell))
 			if _, dup := seen["users.login_shell_present"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.login_shell_present"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.login_shell_present"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -623,7 +627,7 @@ func (u *UnixUserChecker) checkAuthConfig() authConfigResult {
 	return r
 }
 
-func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
+func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *types.AuditResult) {
 	if u.osType != "darwin" {
 		if shadow, err := os.Open("/etc/shadow"); err == nil {
 			defer shadow.Close() // nolint:errcheck // read-only shadow file; close error does not affect scan results
@@ -634,7 +638,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 					result.Details = append(result.Details,
 						fmt.Sprintf("%s CRITICAL: User %s has no password set",
 							types.SymbolCritical, fields[passwdFieldUsername]))
-					if def, ok := registry.Lookup(u.ctx, "users.empty_password_hash"); ok {
+					if def, ok := registry.Lookup(u.osCtx, "users.empty_password_hash"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -654,7 +658,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 			}
 		}
 
-		out, err := exec.Command("passwd", "-S", "root").CombinedOutput()
+		out, err := exec.CommandContext(ctx, "passwd", "-S", "root").CombinedOutput()
 		if err == nil {
 			if strings.Contains(string(out), "NP") || strings.Contains(string(out), "L") {
 				result.Details = append(result.Details,
@@ -662,7 +666,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 			} else {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
-				if def, ok := registry.Lookup(u.ctx, "users.root_account_unlocked"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.root_account_unlocked"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -688,7 +692,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
-						if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+						if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
 							result.Findings = append(result.Findings, types.Finding{
 								Title:       def.Title,
 								Severity:    def.Severity,
@@ -712,7 +716,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(result *types.AuditResult) {
 }
 
 // Check implements UserChecker interface for Windows systems
-func (w *WindowsUserChecker) Check() types.AuditResult {
+func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        "Windows User Account Security",
 		Status:      "CHECKING",
@@ -721,7 +725,7 @@ func (w *WindowsUserChecker) Check() types.AuditResult {
 		Findings:    make([]types.Finding, 0),
 	}
 
-	users, err := w.getWindowsUsers()
+	users, err := w.getWindowsUsers(ctx)
 	if err != nil {
 		result.Status = "ERROR"
 		result.Description = fmt.Sprintf("Failed to get user information: %v", err)
@@ -729,25 +733,25 @@ func (w *WindowsUserChecker) Check() types.AuditResult {
 	}
 
 	w.analyzeWindowsUsers(users, &result)
-	w.checkSecurityPolicies(&result)
+	w.checkSecurityPolicies(ctx, &result)
 
 	result.Status = "COMPLETED"
 	return result
 }
 
-func (w *WindowsUserChecker) getWindowsUsers() ([]windowsUserInfo, error) {
+func (w *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUserInfo, error) {
 	var users []windowsUserInfo
 
 	psCmd := `Get-LocalUser | ` +
 		`Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description,PrincipalSource | ` +
 		`ConvertTo-Csv -NoTypeInformation`
-	cmd := exec.Command("powershell", "-Command", psCmd)
+	cmd := exec.CommandContext(ctx, "powershell", "-Command", psCmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, err
 	}
 
-	adminCmd := exec.Command("powershell", "-Command",
+	adminCmd := exec.CommandContext(ctx, "powershell", "-Command",
 		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-Csv -NoTypeInformation`)
 	adminOutput, err := adminCmd.CombinedOutput()
 	if err != nil {
@@ -808,7 +812,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			if def, ok := registry.Lookup(w.ctx, "users.administrator_account_active"); ok {
+			if def, ok := registry.Lookup(w.osCtx, "users.administrator_account_active"); ok {
 				result.Findings = append(result.Findings, types.Finding{
 					Title:       def.Title,
 					Severity:    def.Severity,
@@ -829,7 +833,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !msAccountFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "user.microsoft_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.microsoft_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -846,7 +850,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !azureADFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.azure_ad_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.azure_ad_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -863,7 +867,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !domainFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.domain_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.domain_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -880,7 +884,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
 				if !unknownPrincipalFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.unknown_principal_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.unknown_principal_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -898,7 +902,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
 				if !noPasswordFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.no_password_required"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -918,8 +922,8 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 	}
 }
 
-func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
-	cmd := exec.Command("net", "accounts")
+func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *types.AuditResult) {
+	cmd := exec.CommandContext(ctx, "net", "accounts")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		result.Details = append(result.Details, "\nPassword Policies:")
@@ -932,7 +936,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
 		}
 	}
 
-	uacCmd := exec.Command("powershell", "-Command",
+	uacCmd := exec.CommandContext(ctx, "powershell", "-Command",
 		`Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System -Name EnableLUA`)
 	uacOutput, err := uacCmd.CombinedOutput()
 	if err == nil {
@@ -942,7 +946,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(result *types.AuditResult) {
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-			if def, ok := registry.Lookup(w.ctx, "users.uac_disabled"); ok {
+			if def, ok := registry.Lookup(w.osCtx, "users.uac_disabled"); ok {
 				result.Findings = append(result.Findings, types.Finding{
 					Title:       def.Title,
 					Severity:    def.Severity,

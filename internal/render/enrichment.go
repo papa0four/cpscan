@@ -3,6 +3,7 @@ package render
 
 import (
 	"io"
+	"sort"
 
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/types"
@@ -124,7 +125,8 @@ func EnrichmentBlock(w io.Writer, d EnrichmentData) error {
 
 	if len(d.Result.Failures) > 0 {
 		ew.printf("\n  Failed enrichments:\n")
-		for cwe, failure := range d.Result.Failures {
+		for _, cwe := range sortedFailureKeys(d.Result.Failures) {
+			failure := d.Result.Failures[cwe]
 			ew.printf("    %s [%s]: %s", cwe, failure.Source, failure.Reason)
 			if failure.Retryable {
 				ew.printf(" (retryable)")
@@ -136,6 +138,18 @@ func EnrichmentBlock(w io.Writer, d EnrichmentData) error {
 	ew.printf("\n")
 	referenceErrors(ew, d.References)
 	return ew.err
+}
+
+// sortedFailureKeys returns the failure map's CWE keys in ascending order,
+// giving both the text block and the serialization converters one shared
+// definition of failure ordering.
+func sortedFailureKeys(failures map[string]enrichment.Failure) []string {
+	keys := make([]string, 0, len(failures))
+	for cwe := range failures {
+		keys = append(keys, cwe)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // referenceErrors writes reference parsing errors as an indented block,
@@ -187,13 +201,16 @@ func EnrichmentEntries(refs types.ReferenceExtraction, res *enrichment.Result) [
 }
 
 // EnrichmentFailures converts enrichment failures into typed serialization
-// structs.
+// structs, sorted by CWE ID so serialized output order is stable across
+// runs -- Go map iteration order is randomized and would otherwise produce
+// nondeterministic diffs in reports.
 func EnrichmentFailures(res *enrichment.Result) []EnrichmentFailure {
 	if res == nil || len(res.Failures) == 0 {
 		return nil
 	}
 	out := make([]EnrichmentFailure, 0, len(res.Failures))
-	for cwe, failure := range res.Failures {
+	for _, cwe := range sortedFailureKeys(res.Failures) {
+		failure := res.Failures[cwe]
 		out = append(out, EnrichmentFailure{
 			CWEID:     cwe,
 			Source:    string(failure.Source),

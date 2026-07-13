@@ -1,4 +1,4 @@
-// cmd/orkowatch/main.go
+// cmd/owatch/main.go
 package main
 
 import (
