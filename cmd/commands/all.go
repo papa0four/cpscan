@@ -109,9 +109,9 @@ type (
 	}
 
 	// allSystemInfo carries host identity fields for all command output.
-	// KernelVersion is omitted when empty -- it is only populated from
-	// osfingerprint data, not from the runtime-only fallback used when the
-	// osinfo module is skipped.
+	// Populated exclusively from osfingerprint data; absent entirely when the
+	// osinfo module is skipped, matching how software and security sections
+	// behave. A present system block always means fingerprinting ran.
 	allSystemInfo struct {
 		OS            string `json:"os" yaml:"os"`
 		Hostname      string `json:"hostname" yaml:"hostname"`
@@ -254,7 +254,7 @@ func toAllResult(scan *ScanResult) allResult {
 		}
 		if suppressed := sec.Summary.TotalFindings - len(sec.Findings); suppressed > 0 {
 			sec.FindingsSuppressed = suppressed
-			sec.MinSeverityApplied = strings.ToUpper(allMinSeverity)
+			sec.MinSeverityApplied = allMinSeverity
 		}
 		if scan.SecurityAudit.EnrichmentRequested {
 			sec.EnrichmentRequested = true
@@ -307,7 +307,10 @@ func validateAllFlags(cmd *cobra.Command) error {
 		}
 	}
 
-	switch strings.ToUpper(allMinSeverity) {
+	// Normalize once at the boundary so every downstream consumer sees the
+	// canonical form; validation and storage happen in the same step.
+	allMinSeverity = strings.ToUpper(allMinSeverity)
+	switch allMinSeverity {
 	case "LOW", "MEDIUM", "HIGH", "CRITICAL":
 		// accepted
 	default:

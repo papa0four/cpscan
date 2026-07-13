@@ -18,22 +18,22 @@ type FirewallChecker interface {
 
 // UnixFirewallChecker implements FirewallChecker for Unix-like systems
 type UnixFirewallChecker struct {
-	ctx registry.OSContext
+	osCtx registry.OSContext
 }
 
 // WindowsFirewallChecker implements FirewallChecker for Windows systems
 type WindowsFirewallChecker struct {
-	ctx registry.OSContext
+	osCtx registry.OSContext
 }
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
-func NewUnixFirewallChecker(ctx registry.OSContext) *UnixFirewallChecker {
-	return &UnixFirewallChecker{ctx: ctx}
+func NewUnixFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
+	return &UnixFirewallChecker{osCtx: osCtx}
 }
 
 // NewWindowsFirewallChecker creates a new Windows firewall checker
-func NewWindowsFirewallChecker(ctx registry.OSContext) *WindowsFirewallChecker {
-	return &WindowsFirewallChecker{ctx: ctx}
+func NewWindowsFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
+	return &WindowsFirewallChecker{osCtx: osCtx}
 }
 
 // firewallTool represents a firewall management tool
@@ -97,7 +97,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		result.Description = "No active firewall detected"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
-		if def, ok := registry.Lookup(f.ctx, "firewall.no_active_manager"); ok {
+		if def, ok := registry.Lookup(f.osCtx, "firewall.no_active_manager"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -159,7 +159,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	// One finding per inactive profile
 	if inactiveProfiles > 0 && activeProfiles > 0 {
-		if def, ok := registry.Lookup(f.ctx, "firewall.profile_inactive"); ok {
+		if def, ok := registry.Lookup(f.osCtx, "firewall.profile_inactive"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -191,7 +191,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		result.Description = "Windows Firewall is disabled for all profiles"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
-		if def, ok := registry.Lookup(f.ctx, "firewall.all_profiles_disabled"); ok {
+		if def, ok := registry.Lookup(f.osCtx, "firewall.all_profiles_disabled"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,

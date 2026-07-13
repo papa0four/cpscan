@@ -21,6 +21,12 @@ var (
 	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is writable by other users")
 )
 
+// maxOperatorHomes bounds the operator identities a write is judged
+// against: the effective user's and, on Unix under sudo, the invoking
+// user's. Windows has no effective/invoking split, but the same bound
+// covers its cwd-plus-home allowlist roots.
+const maxOperatorHomes = 2
+
 // Options carries caller decisions that affect write policy.
 type Options struct {
 	// AllowElevatedWrite is set when --allow-elevated-write is passed

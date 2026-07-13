@@ -2,6 +2,8 @@ module github.com/papa0four/orkowatch
 
 go 1.26.3
 
+toolchain go1.26.5
+
 require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.10.2

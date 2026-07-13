@@ -91,25 +91,25 @@ type (
 
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
-	ctx := registry.DetectOS()
+	osCtx := registry.DetectOS()
 
 	auditor := &SecurityAuditor{
 		verbose:   opts.Verbose,
 		options:   opts,
-		osContext: ctx,
+		osContext: osCtx,
 	}
 
 	switch runtime.GOOS {
 	case "windows":
-		auditor.sshChecker = checker.NewWindowsSSHChecker(ctx)
-		auditor.firewallChecker = checker.NewWindowsFirewallChecker(ctx)
-		auditor.userChecker = checker.NewWindowsUserChecker(ctx)
-		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx, opts.FilePermsPath)
+		auditor.sshChecker = checker.NewWindowsSSHChecker(osCtx)
+		auditor.firewallChecker = checker.NewWindowsFirewallChecker(osCtx)
+		auditor.userChecker = checker.NewWindowsUserChecker(osCtx)
+		auditor.permissionChecker = checker.NewWindowsPermissionChecker(osCtx, opts.FilePermsPath)
 	default:
-		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
-		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
-		auditor.userChecker = checker.NewUnixUserChecker(ctx)
-		auditor.permissionChecker = checker.NewUnixPermissionChecker(ctx, opts.FilePermsPath)
+		auditor.sshChecker = checker.NewUnixSSHChecker(osCtx)
+		auditor.firewallChecker = checker.NewUnixFirewallChecker(osCtx)
+		auditor.userChecker = checker.NewUnixUserChecker(osCtx)
+		auditor.permissionChecker = checker.NewUnixPermissionChecker(osCtx, opts.FilePermsPath)
 	}
 
 	return auditor
@@ -277,7 +277,6 @@ func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction 
 			ext.CWEs = append(ext.CWEs, id)
 		}
 		ext.Errors = append(ext.Errors, sub.Errors...)
-		ext.Other = append(ext.Other, sub.Other...)
 	}
 	return ext
 }

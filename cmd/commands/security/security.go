@@ -203,13 +203,16 @@ func validateFlags(cmd *cobra.Command) error {
 		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", outputFormat)
 	}
 
+	// Normalize once at the boundary so every downstream consumer sees the
+	// canonical form; validation and storage happen in the same step.
+	minSeverity = strings.ToUpper(minSeverity)
 	validSeverities := map[string]bool{
 		"LOW":      true,
 		"MEDIUM":   true,
 		"HIGH":     true,
 		"CRITICAL": true,
 	}
-	if !validSeverities[strings.ToUpper(minSeverity)] {
+	if !validSeverities[minSeverity] {
 		return fmt.Errorf("invalid severity level: %s", minSeverity)
 	}
 
@@ -309,8 +312,7 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 
 func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
-		fmt.Println("No results to display.")
-		return nil
+		return fmt.Errorf("audit produced no results")
 	}
 
 	format := "text"

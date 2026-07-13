@@ -7,13 +7,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-// getPlatformSoftware reads installed software directly from the Windows
+// getPlatformSoftwareList reads installed software directly from the Windows
 // registry. Four locations are checked for complete coverage:
 //   - HKLM 64-bit uninstall path (system-wide 64-bit installs)
 //   - HKLM 32-bit Wow6432Node path (system-wide 32-bit installs)
@@ -21,9 +19,13 @@ import (
 //   - HKCU 32-bit Wow6432Node path (current user 32-bit installs)
 //
 // A display name map deduplicates entries that appear in multiple paths.
-// wmic is called as a fallback for environments where registry
-// access is restricted, but its use is flagged since it is deprecated as of
-// Windows 10 21H1.
+// There is deliberately no exec fallback: the former wmic path queried
+// Win32_Product, whose enumeration triggers MSI consistency checks that can
+// reconfigure installed packages -- a read that mutates target state has no
+// place in an auditing tool. All four hives yielding nothing means the token
+// or host is broken, and the honest behavior is the error path. ctx is
+// accepted for cross-platform signature parity; the registry API offers no
+// cancellation point.
 func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	const (
 		uninstallPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
@@ -93,33 +95,5 @@ func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 		return entries, nil
 	}
 
-	// wmic fallback
-	fmt.Fprintln(os.Stderr,
-		"[!] WARNING: registry read returned no results; falling back to wmic (deprecated on Windows 10 21H1+)")
-	output, err := exec.CommandContext(ctx, "wmic", "product", "get", "name,version").Output()
-	if err != nil {
-		return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning as Administrator")
-	}
-
-	// parse wmic tab-delimited output into entries
-	var wmicEntries []SoftwareEntry
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines[1:] { //skip header
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		version := ""
-		name := line
-		if len(fields) > 1 {
-			version = fields[len(fields)-1]
-			name = strings.TrimSpace(strings.TrimSuffix(line, version))
-		}
-		wmicEntries = append(wmicEntries, SoftwareEntry{Name: name, Version: version})
-	}
-	return wmicEntries, nil
+	return nil, fmt.Errorf("no software entries readable from any registry uninstall hive; verify registry access or rerun as Administrator")
 }

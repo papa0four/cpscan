@@ -25,40 +25,6 @@ func NormalizeCWEID(input string) (string, error) {
 	return validateCanonicalCWE(input)
 }
 
-// ValidateCWEID returns nil if input is a valid CWE identifier in
-// canonical or URL form. Use NormalizeCWEID when the canonical form
-// is needed for downstream use.
-func ValidateCWEID(input string) error {
-	_, err := NormalizeCWEID(input)
-	return err
-}
-
-// NormalizeCWEIDs normalizes a slice of CWE identifiers. Returns the
-// canonical IDs that validated successfully and errors for the rest.
-// Rejects bulk input above the documented limit. Does not deduplicate.
-func NormalizeCWEIDs(inputs []string) (valid []string, errs []error) {
-	if len(inputs) == 0 {
-		return nil, nil
-	}
-	if len(inputs) > maxBulkValidateInput {
-		return nil, []error{
-			fmt.Errorf("%w: input size %d exceeds limit %d",
-				ErrInvalidCWEID, len(inputs), maxBulkValidateInput),
-		}
-	}
-
-	valid = make([]string, 0, len(inputs))
-	for _, input := range inputs {
-		id, err := NormalizeCWEID(input)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		valid = append(valid, id)
-	}
-	return valid, errs
-}
-
 func extractCWEFromURL(input string) (string, bool) {
 	if !strings.HasPrefix(input, cweURLPrefix) {
 		return "", false

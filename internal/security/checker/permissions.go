@@ -26,15 +26,11 @@ const (
 	permStandardDir    os.FileMode = 0755
 	permPrivateDir     os.FileMode = 0700
 	permReadOnlyDir    os.FileMode = 0555
-)
 
-// Permission bit masks
-const (
+	// Permission bit masks
 	bitWorldWritable os.FileMode = 0002
-)
 
-// find command permission arguments
-const (
+	// find command permission arguments
 	findPermSUID          = "-4000"
 	findPermSGID          = "-2000"
 	findPermWorldWritable = "-0002"
@@ -56,13 +52,13 @@ type (
 		paths    []criticalPath
 		osType   string
 		scanRoot string
-		ctx      registry.OSContext
+		osCtx    registry.OSContext
 	}
 
 	// WindowsPermissionChecker implements PermissionChecker for Windows systems
 	WindowsPermissionChecker struct {
 		Paths    []string
-		ctx      registry.OSContext
+		osCtx    registry.OSContext
 		scanRoot string
 	}
 
@@ -139,11 +135,11 @@ func appendSkippedNote(result *types.AuditResult, scan string, skipped int) {
 }
 
 // NewUnixPermissionChecker creates a new Unix permission checker
-func NewUnixPermissionChecker(ctx registry.OSContext, scanRoot string) *UnixPermissionChecker {
+func NewUnixPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermissionChecker {
 	checker := &UnixPermissionChecker{
 		osType:   runtime.GOOS,
 		scanRoot: scanRoot,
-		ctx:      ctx,
+		osCtx:    osCtx,
 	}
 
 	// Set default critical paths based on OS
@@ -152,7 +148,7 @@ func NewUnixPermissionChecker(ctx registry.OSContext, scanRoot string) *UnixPerm
 }
 
 // NewWindowsPermissionChecker creates a new Windows permission checker
-func NewWindowsPermissionChecker(ctx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
+func NewWindowsPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
 		Paths: []string{
 			"C:\\Windows\\System32",
@@ -161,7 +157,7 @@ func NewWindowsPermissionChecker(ctx registry.OSContext, scanRoot string) *Windo
 			"C:\\ProgramData",
 			"C:\\Users",
 		},
-		ctx:      ctx,
+		osCtx:    osCtx,
 		scanRoot: scanRoot,
 	}
 }
@@ -254,7 +250,7 @@ func (p *UnixPermissionChecker) checkPathPermissions(ctx context.Context, cp cri
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: %s (%s) has permissions %v, expected %v",
 				types.SymbolWarning, cp.path, cp.description, mode.Perm(), cp.expected))
-		if def, ok := registry.Lookup(p.ctx, "permissions.path_exceeds_expected_mode"); ok {
+		if def, ok := registry.Lookup(p.osCtx, "permissions.path_exceeds_expected_mode"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -313,7 +309,7 @@ func (p *UnixPermissionChecker) checkSUIDFiles(ctx context.Context, result *type
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.ctx, "permissions.suid_sgid_binary"); ok {
+		if def, ok := registry.Lookup(p.osCtx, "permissions.suid_sgid_binary"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -348,7 +344,7 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(ctx context.Context, res
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.ctx, "permissions.world_writable_file"); ok {
+		if def, ok := registry.Lookup(p.osCtx, "permissions.world_writable_file"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -381,7 +377,7 @@ func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *t
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.ctx, "permissions.unowned_file"); ok {
+		if def, ok := registry.Lookup(p.osCtx, "permissions.unowned_file"); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -408,7 +404,7 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 	if p.scanRoot != "" {
 		if err := p.checkWindowsPermissions(ctx, p.scanRoot, true, &result); err != nil {
 			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error checking %s, %v",
+				fmt.Sprintf("%s Error checking %s: %v",
 					types.SymbolError, p.scanRoot, err))
 		}
 		result.Status = "COMPLETED"
@@ -454,7 +450,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 				fmt.Sprintf("%s WARNING: Full control granted to Everyone group on %s",
 					types.SymbolWarning, line))
 			if !everyoneFindingAdded {
-				if def, ok := registry.Lookup(p.ctx, "permissions.everyone_full_control"); ok {
+				if def, ok := registry.Lookup(p.osCtx, "permissions.everyone_full_control"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -472,7 +468,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 				fmt.Sprintf("%s WARNING: Full control granted to Users group on %s",
 					types.SymbolWarning, line))
 			if !usersFindingAdded {
-				if def, ok := registry.Lookup(p.ctx, "permissions.users_full_control"); ok {
+				if def, ok := registry.Lookup(p.osCtx, "permissions.users_full_control"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -510,6 +506,11 @@ func runICACLS(ctx context.Context, path string, recursive bool) (output []byte,
 
 	runErr := cmd.Run()
 
+	// icacls exits nonzero when any subtree entry is denied while still
+	// emitting valid ACL lines for everything it could read. An ExitError is
+	// therefore deliberately tolerated: partial output plus the denied-path
+	// count is the correct result, and only non-exit failures (binary
+	// missing, ctx kill) abort.
 	var exitErr *exec.ExitError
 	if runErr != nil && !errors.As(runErr, &exitErr) {
 		return nil, 0, runErr
@@ -533,7 +534,7 @@ func countDeniedPaths(stderr []byte) int {
 }
 
 func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult) {
-	cmd := exec.Command("net", "share")
+	cmd := exec.CommandContext(ctx, "net", "share")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		result.Details = append(result.Details,
@@ -560,7 +561,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, resul
 				fmt.Sprintf("%s Administrative share: %s",
 					types.SymbolWarning, share))
 			if !adminShareFindingAdded {
-				if def, ok := registry.Lookup(p.ctx, "permissions.admin_share_present"); ok {
+				if def, ok := registry.Lookup(p.osCtx, "permissions.admin_share_present"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,

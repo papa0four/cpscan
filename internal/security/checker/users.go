@@ -38,13 +38,13 @@ type (
 	UnixUserChecker struct {
 		config         platformConfig
 		osType         string
-		ctx            registry.OSContext
+		osCtx          registry.OSContext
 		shadowReadable bool
 	}
 
 	// WindowsUserChecker implements UserChecker for Windows systems
 	WindowsUserChecker struct {
-		ctx registry.OSContext
+		osCtx registry.OSContext
 	}
 
 	// userAccount represents a parsed user account from /etc/passwd and,
@@ -109,17 +109,17 @@ func getPlatformConfig() platformConfig {
 }
 
 // NewUnixUserChecker creates a new Unix user checker with OS-specific settings
-func NewUnixUserChecker(ctx registry.OSContext) *UnixUserChecker {
+func NewUnixUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 	return &UnixUserChecker{
 		config: getPlatformConfig(),
 		osType: runtime.GOOS,
-		ctx:    ctx,
+		osCtx:  osCtx,
 	}
 }
 
 // NewWindowsUserChecker creates a new Windows user checker
-func NewWindowsUserChecker(ctx registry.OSContext) *WindowsUserChecker {
-	return &WindowsUserChecker{ctx: ctx}
+func NewWindowsUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
+	return &WindowsUserChecker{osCtx: osCtx}
 }
 
 // Check implements UserChecker interface for Unix systems
@@ -135,7 +135,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	authResult := u.checkAuthConfig()
 	result.Details = append(result.Details, authResult.Details...)
 	for _, key := range authResult.Keys {
-		if def, ok := registry.Lookup(u.ctx, key); ok {
+		if def, ok := registry.Lookup(u.osCtx, key); ok {
 			result.Findings = append(result.Findings, types.Finding{
 				Title:       def.Title,
 				Severity:    def.Severity,
@@ -458,7 +458,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s CRITICAL: Account %s has UID 0 (root-equivalent)",
 					types.SymbolCritical, user.username))
 			if _, dup := seen["users.uid_zero_non_root"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -479,7 +479,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s WARNING: Account %s has no password and an interactive login shell",
 					types.SymbolWarning, user.username))
 			if _, dup := seen["users.no_password_login_shell"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.no_password_login_shell"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.no_password_login_shell"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -498,7 +498,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s WARNING: Regular user %s has administrative privileges",
 					types.SymbolWarning, user.username))
 			if _, dup := seen["users.regular_user_admin_privileges"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.regular_user_admin_privileges"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.regular_user_admin_privileges"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -517,7 +517,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 				fmt.Sprintf("%s User %s has an interactive login shell: %s",
 					types.SymbolWarning, user.username, user.shell))
 			if _, dup := seen["users.login_shell_present"]; !dup {
-				if def, ok := registry.Lookup(u.ctx, "users.login_shell_present"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.login_shell_present"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -638,7 +638,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 					result.Details = append(result.Details,
 						fmt.Sprintf("%s CRITICAL: User %s has no password set",
 							types.SymbolCritical, fields[passwdFieldUsername]))
-					if def, ok := registry.Lookup(u.ctx, "users.empty_password_hash"); ok {
+					if def, ok := registry.Lookup(u.osCtx, "users.empty_password_hash"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -666,7 +666,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 			} else {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
-				if def, ok := registry.Lookup(u.ctx, "users.root_account_unlocked"); ok {
+				if def, ok := registry.Lookup(u.osCtx, "users.root_account_unlocked"); ok {
 					result.Findings = append(result.Findings, types.Finding{
 						Title:       def.Title,
 						Severity:    def.Severity,
@@ -692,7 +692,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
-						if def, ok := registry.Lookup(u.ctx, "users.uid_zero_non_root"); ok {
+						if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
 							result.Findings = append(result.Findings, types.Finding{
 								Title:       def.Title,
 								Severity:    def.Severity,
@@ -812,7 +812,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			if def, ok := registry.Lookup(w.ctx, "users.administrator_account_active"); ok {
+			if def, ok := registry.Lookup(w.osCtx, "users.administrator_account_active"); ok {
 				result.Findings = append(result.Findings, types.Finding{
 					Title:       def.Title,
 					Severity:    def.Severity,
@@ -833,7 +833,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !msAccountFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "user.microsoft_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.microsoft_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -850,7 +850,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !azureADFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.azure_ad_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.azure_ad_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -867,7 +867,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
 				if !domainFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.domain_account_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.domain_account_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -884,7 +884,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
 				if !unknownPrincipalFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.unknown_principal_no_local_password"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.unknown_principal_no_local_password"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -902,7 +902,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
 				if !noPasswordFindingAdded {
-					if def, ok := registry.Lookup(w.ctx, "users.no_password_required"); ok {
+					if def, ok := registry.Lookup(w.osCtx, "users.no_password_required"); ok {
 						result.Findings = append(result.Findings, types.Finding{
 							Title:       def.Title,
 							Severity:    def.Severity,
@@ -946,7 +946,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-			if def, ok := registry.Lookup(w.ctx, "users.uac_disabled"); ok {
+			if def, ok := registry.Lookup(w.osCtx, "users.uac_disabled"); ok {
 				result.Findings = append(result.Findings, types.Finding{
 					Title:       def.Title,
 					Severity:    def.Severity,
