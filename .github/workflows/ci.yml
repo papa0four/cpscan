@@ -20,7 +20,7 @@ on:
 jobs:
   classify:
     name: Classify Branch
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     outputs:
       run_vet:   ${{ steps.classify.outputs.run_vet }}
       run_lint:  ${{ steps.classify.outputs.run_lint }}
