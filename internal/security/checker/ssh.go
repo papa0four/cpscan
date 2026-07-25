@@ -13,22 +13,25 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// SSHChecker defines interface for SSH configuration checking
-type SSHChecker interface {
-	Check(ctx context.Context) types.AuditResult
-}
 
-// UnixSSHChecker implements SSHChecker for Unix-like systems
-type UnixSSHChecker struct {
-	ConfigPaths []string
-	osCtx       registry.OSContext
-}
+type (
+	// SSHChecker defines interface for SSH configuration checking
+	SSHChecker interface {
+		Check(ctx context.Context) types.AuditResult
+	}
 
-// WindowsSSHChecker implements SSHChecker for Windows systems
-type WindowsSSHChecker struct {
-	ConfigPath string
-	osCtx      registry.OSContext
-}
+	// UnixSSHChecker implements SSHChecker for Unix-like systems
+	UnixSSHChecker struct {
+		ConfigPaths []string
+		osCtx       registry.OSContext
+	}
+
+	// WindowsSSHChecker implements SSHChecker for Windows systems
+	WindowsSSHChecker struct {
+		ConfigPath string
+		osCtx      registry.OSContext
+	}
+)
 
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths
 func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
