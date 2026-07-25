@@ -190,16 +190,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 		case "Stopped":
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s OpenSSH Server is installed but not running", types.SymbolWarning))
-			if def, ok := registry.Lookup(s.osCtx, "ssh.server_not_running"); ok {
-				result.Findings = append(result.Findings, types.Finding{
-					Title:       def.Title,
-					Severity:    def.Severity,
-					Description: def.Description,
-					Impact:      def.Impact,
-					Resolution:  def.Resolution,
-					References:  def.ToReferences(),
-				})
-			}
+			emitFinding(&result, s.osCtx, "ssh.server_not_running")
 		default:
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s OpenSSH Server service state: %s", types.SymbolInfo, serviceStatus))
@@ -263,16 +254,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 					if config.rootLogin {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s WARNING: Root login is permitted", types.SymbolWarning))
-						if def, ok := registry.Lookup(s.osCtx, "ssh.root_login_permitted"); ok {
-							result.Findings = append(result.Findings, types.Finding{
-								Title:       def.Title,
-								Severity:    def.Severity,
-								Description: def.Description,
-								Impact:      def.Impact,
-								Resolution:  def.Resolution,
-								References:  def.ToReferences(),
-							})
-						}
+						emitFinding(&result, s.osCtx, "ssh.root_login_permitted")
 					} else {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s Root login is disabled", types.SymbolOK))
@@ -283,16 +265,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 					if config.passwordAuth {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s WARNING: Password authentication is enabled", types.SymbolWarning))
-						if def, ok := registry.Lookup(s.osCtx, "ssh.password_auth_enabled"); ok {
-							result.Findings = append(result.Findings, types.Finding{
-								Title:       def.Title,
-								Severity:    def.Severity,
-								Description: def.Description,
-								Impact:      def.Impact,
-								Resolution:  def.Resolution,
-								References:  def.ToReferences(),
-							})
-						}
+						emitFinding(&result, s.osCtx, "ssh.password_auth_enabled")
 					} else {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s Password authentication is disabled", types.SymbolOK))
@@ -302,16 +275,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: OpenSSH configuration file not found", types.SymbolWarning))
-			if def, ok := registry.Lookup(s.osCtx, "ssh.config_missing"); ok {
-				result.Findings = append(result.Findings, types.Finding{
-					Title:       def.Title,
-					Severity:    def.Severity,
-					Description: def.Description,
-					Impact:      def.Impact,
-					Resolution:  def.Resolution,
-					References:  def.ToReferences(),
-				})
-			}
+			emitFinding(&result, s.osCtx, "ssh.config_missing")
 		}
 	}
 
