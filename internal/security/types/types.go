@@ -48,26 +48,25 @@ const (
 	SeverityCritical = "CRITICAL"
 )
 
-// AuditResult represents the result of a security check
-type AuditResult struct {
-	Name        string         // Name of the check
-	Status      string         // Status of the check (using Status constants)
-	Description string         // Description of what was checked
-	Details     []string       // Detailed findings
-	Findings    []Finding      // Structured findings
-	StartTime   time.Time      // When the check started
-	EndTime     time.Time      // When the check completed
-	Duration    time.Duration  // How long the check took
-	Metadata    map[string]any // Additional check-specific metadata
-}
-
 type (
+	// AuditResult represents the result of a security check
+	AuditResult struct {
+		Name        string        // Name of the check
+		Status      string        // Status of the check (using Status constants)
+		Description string        // Description of what was checked
+		Details     []string      // Detailed findings
+		Findings    []Finding     // Structured findings
+		StartTime   time.Time     // When the check started
+		EndTime     time.Time     // When the check completed
+		Duration    time.Duration // How long the check took
+	}
+
 	// Finding represents a specific security finding
 	Finding struct {
 		Title       string
 		Description string
 		Severity    string
-		Category    string
+		Categories  []string
 		Impact      string
 		Resolution  string
 		References  []Reference

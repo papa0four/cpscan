@@ -97,16 +97,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		result.Description = "No active firewall detected"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
-		if def, ok := registry.Lookup(f.osCtx, "firewall.no_active_manager"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(&result, f.osCtx, "firewall.no_active_manager")
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)
@@ -159,16 +150,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	// One finding per inactive profile
 	if inactiveProfiles > 0 && activeProfiles > 0 {
-		if def, ok := registry.Lookup(f.osCtx, "firewall.profile_inactive"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(&result, f.osCtx, "firewall.profile_inactive")
 	}
 
 	// Check firewall rules if at least one profile is active
@@ -194,16 +176,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		result.Description = "Windows Firewall is disabled for all profiles"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
-		if def, ok := registry.Lookup(f.osCtx, "firewall.all_profiles_disabled"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(&result, f.osCtx, "firewall.all_profiles_disabled")
 	} else {
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Windows Firewall is active on %d profile(s)", activeProfiles)

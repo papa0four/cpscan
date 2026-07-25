@@ -4,7 +4,9 @@ package registry
 import (
 	"bufio"
 	_ "embed"
+	"fmt"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -126,6 +128,12 @@ var (
 
 	//go:embed data/unix_openbsd.yaml
 	unixOpenBSDData []byte
+
+	// nistFamilyPattern matches a NIST SP 800-53 Rev 5 control-family citation
+	// and captures the two-letter family code. Enhancement suffixes such as
+	// "(1)" and the trailing parenthetical control name are not part of the
+	// capture and are not required to be present.
+	nistFamilyPattern = regexp.MustCompile(`^NIST SP 800-53 Rev 5 ([A-Z]{2})-\d+`)
 )
 
 func init() {
@@ -133,29 +141,36 @@ func init() {
 	linuxRegistry = make(familyRegistry)
 	unixRegistry = make(familyRegistry)
 
-	registry[PlatformWindows] = mustLoad(windowsData)
-	registry[PlatformDarwin] = mustLoad(darwinData)
+	registry[PlatformWindows] = mustLoad("windows.yaml", windowsData)
+	registry[PlatformDarwin] = mustLoad("darwin.yaml", darwinData)
 
-	linuxRegistry[DistroGeneric] = mustLoad(linuxCommonData)
-	linuxRegistry[DistroDebian] = mustLoad(linuxDebianData)
-	linuxRegistry[DistroRHEL] = mustLoad(linuxRHELData)
-	linuxRegistry[DistroArch] = mustLoad(linuxArchData)
-	linuxRegistry[DistroFedora] = mustLoad(linuxFedoraData)
-	linuxRegistry[DistroSUSE] = mustLoad(linuxSUSEData)
-	linuxRegistry[DistroAlpine] = mustLoad(linuxAlpineData)
+	linuxRegistry[DistroGeneric] = mustLoad("linux_common.yaml", linuxCommonData)
+	linuxRegistry[DistroDebian] = mustLoad("linux_debian.yaml", linuxDebianData)
+	linuxRegistry[DistroRHEL] = mustLoad("linux_rhel.yaml", linuxRHELData)
+	linuxRegistry[DistroArch] = mustLoad("linux_arch.yaml", linuxArchData)
+	linuxRegistry[DistroFedora] = mustLoad("linux_fedora.yaml", linuxFedoraData)
+	linuxRegistry[DistroSUSE] = mustLoad("linux_suse.yaml", linuxSUSEData)
+	linuxRegistry[DistroAlpine] = mustLoad("linux_alpine.yaml", linuxAlpineData)
 
-	unixRegistry[DistroFreeBSD] = mustLoad(unixFreeBSDData)
-	unixRegistry[DistroOpenBSD] = mustLoad(unixOpenBSDData)
+	unixRegistry[DistroFreeBSD] = mustLoad("unix_freebsd.yaml", unixFreeBSDData)
+	unixRegistry[DistroOpenBSD] = mustLoad("unix_openbsd.yaml", unixOpenBSDData)
 }
 
-// mustLoad parses a byte slice into a finding map
-func mustLoad(data []byte) map[FindingKey]FindingDefinition {
+// mustLoad parses a byte slice into a finding map. name identifies the
+// source YAML file in panic messages, since embed.FS collapses every
+// source into an anonymous []byte and a bare parse or validation failure
+// would otherwise give no indication which of the eleven embedded files is
+// malformed.
+func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 	var raw map[string]FindingDefinition
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		panic("registry: failed to parse embedded YAML: " + err.Error())
+		panic("registry: failed to parse embedded YAML " + name + ": " + err.Error())
 	}
 	out := make(map[FindingKey]FindingDefinition, len(raw))
 	for k, v := range raw {
+		if err := v.validateCategories(); err != nil {
+			panic("registry: " + name + ": finding \"" + k + "\": " + err.Error())
+		}
 		out[FindingKey(k)] = v
 	}
 	return out
@@ -382,4 +397,53 @@ func cveURL(s string) string {
 		return s
 	}
 	return "https://nvd.nist.gov/vuln/detail/" + s
+}
+
+// validateCategories confirms every NIST-classified reference in d resolves
+// to a control-family code. Called once per finding at registry load time
+// so ToCategories can extract categories at finding-construction sites
+// without an error return: a malformed citation is a registry data defect
+// and must fail the build, not silently produce a finding with no category
+// or a wrong one.
+func (d FindingDefinition) validateCategories() error {
+	for _, raw := range d.References {
+		ref := classifyReference(raw)
+		if ref.Type != RefTypeNIST {
+			continue
+		}
+		if !nistFamilyPattern.MatchString(ref.Title) {
+			return fmt.Errorf("malformed NIST control-family reference: %q", ref.Title)
+		}
+	}
+	return nil
+}
+
+// ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
+// codes from d's NIST-classified references, in first-occurrence order.
+// Every reference has already passed validateCategories at registry load
+// time, so a pattern mismatch here indicates the two functions have gone
+// out of sync with each other, not a data defect.
+func (d FindingDefinition) ToCategories() []string {
+	if len(d.References) == 0 {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]struct{})
+	for _, raw := range d.References {
+		ref := classifyReference(raw)
+		if ref.Type != RefTypeNIST {
+			continue
+		}
+		match := nistFamilyPattern.FindStringSubmatch(ref.Title)
+		if match == nil {
+			panic("registry: NIST reference passed validateCategories but failed extraction: " + ref.Title)
+		}
+		family := match[1]
+		if _, dup := seen[family]; dup {
+			continue
+		}
+		seen[family] = struct{}{}
+		out = append(out, family)
+	}
+	return out
 }

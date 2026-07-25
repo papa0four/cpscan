@@ -34,10 +34,12 @@ const (
 	findPermSUID          = "-4000"
 	findPermSGID          = "-2000"
 	findPermWorldWritable = "-0002"
+
+	// findScanTimeout bounds each FS-wide find operation to prevent audit hang
+	findScanTimeout = 60 * time.Second
 )
 
-// findScanTimeout bounds each FS-wide find operation to prevent audit hang
-const findScanTimeout = 60 * time.Second
+
 
 type (
 	// PermissionChecker defines interface for permission checking. Check
@@ -250,16 +252,7 @@ func (p *UnixPermissionChecker) checkPathPermissions(ctx context.Context, cp cri
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: %s (%s) has permissions %v, expected %v",
 				types.SymbolWarning, cp.path, cp.description, mode.Perm(), cp.expected))
-		if def, ok := registry.Lookup(p.osCtx, "permissions.path_exceeds_expected_mode"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(result, p.osCtx, "permissions.path_exceeds_expected_mode")
 	} else {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s %s has correct permissions: %v",
@@ -309,16 +302,7 @@ func (p *UnixPermissionChecker) checkSUIDFiles(ctx context.Context, result *type
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.osCtx, "permissions.suid_sgid_binary"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(result, p.osCtx, "permissions.suid_sgid_binary")
 	}
 	appendSkippedNote(result, scan, skipped)
 }
@@ -344,16 +328,7 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(ctx context.Context, res
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.osCtx, "permissions.world_writable_file"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(result, p.osCtx, "permissions.world_writable_file")
 	}
 	appendSkippedNote(result, scan, skipped)
 }
@@ -377,16 +352,7 @@ func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *t
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
 		}
-		if def, ok := registry.Lookup(p.osCtx, "permissions.unowned_file"); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(result, p.osCtx, "permissions.unowned_file")
 	}
 	appendSkippedNote(result, scan, skipped)
 }
@@ -433,8 +399,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 		return fmt.Errorf("failed to check permissions: %w", err)
 	}
 
-	everyoneFindingAdded := false
-	usersFindingAdded := false
+	seen := make(map[registry.FindingKey]struct{})
 
 	// Analyze permissions
 	lines := strings.Split(string(output), "\n")
@@ -449,37 +414,13 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Full control granted to Everyone group on %s",
 					types.SymbolWarning, line))
-			if !everyoneFindingAdded {
-				if def, ok := registry.Lookup(p.osCtx, "permissions.everyone_full_control"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-				}
-				everyoneFindingAdded = true
-			}
+			emitFindingOnce(result, p.osCtx, "permissions.everyone_full_control", seen)
 		} else if strings.Contains(line, "Users:(OI)(CI)(F)") ||
 			strings.Contains(line, "Users:(F)") {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Full control granted to Users group on %s",
 					types.SymbolWarning, line))
-			if !usersFindingAdded {
-				if def, ok := registry.Lookup(p.osCtx, "permissions.users_full_control"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-				}
-				usersFindingAdded = true
-			}
+			emitFindingOnce(result, p.osCtx, "permissions.users_full_control", seen)
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolInfo, line))
@@ -488,6 +429,41 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 
 	appendSkippedNote(result, scan, skipped)
 	return nil
+}
+
+func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult) {
+	cmd := exec.CommandContext(ctx, "net", "share")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Error checking network shares: %v",
+				types.SymbolError, err))
+		return
+	}
+
+	shares := strings.Split(string(output), "\n")
+	result.Details = append(result.Details, "\nNetwork Shares:")
+
+	seen := make(map[registry.FindingKey]struct{})
+
+	for _, share := range shares {
+		share = strings.TrimSpace(share)
+		if share == "" || strings.HasPrefix(share, "Share name") ||
+			strings.HasPrefix(share, "---") {
+			continue
+		}
+
+		shareName := strings.Fields(share)[0]
+		if shareName == "ADMIN$" || shareName == "C$" || shareName == "IPC$" {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s Administrative share: %s",
+					types.SymbolWarning, share))
+			emitFindingOnce(result, p.osCtx, "permissions.admin_share_present", seen)
+		} else {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolInfo, share))
+		}
+	}
 }
 
 // runICACLS executes against the given path with optional recursion for tree
@@ -531,51 +507,4 @@ func countDeniedPaths(stderr []byte) int {
 		}
 	}
 	return count
-}
-
-func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult) {
-	cmd := exec.CommandContext(ctx, "net", "share")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking network shares: %v",
-				types.SymbolError, err))
-		return
-	}
-
-	shares := strings.Split(string(output), "\n")
-	result.Details = append(result.Details, "\nNetwork Shares:")
-
-	adminShareFindingAdded := false
-
-	for _, share := range shares {
-		share = strings.TrimSpace(share)
-		if share == "" || strings.HasPrefix(share, "Share name") ||
-			strings.HasPrefix(share, "---") {
-			continue
-		}
-
-		shareName := strings.Fields(share)[0]
-		if shareName == "ADMIN$" || shareName == "C$" || shareName == "IPC$" {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Administrative share: %s",
-					types.SymbolWarning, share))
-			if !adminShareFindingAdded {
-				if def, ok := registry.Lookup(p.osCtx, "permissions.admin_share_present"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-				}
-				adminShareFindingAdded = true
-			}
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolInfo, share))
-		}
-	}
 }
