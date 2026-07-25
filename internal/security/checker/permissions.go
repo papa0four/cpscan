@@ -39,8 +39,6 @@ const (
 	findScanTimeout = 60 * time.Second
 )
 
-
-
 type (
 	// PermissionChecker defines interface for permission checking. Check
 	// honors ctx cancellation: exec invocations and filesystem walks stop

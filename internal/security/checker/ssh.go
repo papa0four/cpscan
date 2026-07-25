@@ -13,7 +13,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-
 type (
 	// SSHChecker defines interface for SSH configuration checking
 	SSHChecker interface {
