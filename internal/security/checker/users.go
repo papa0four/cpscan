@@ -19,12 +19,12 @@ import (
 // windowsUserCSVFields is the number of columns produced by Get-LocalUser
 const windowsUserCSVFields = 8
 
-// UserChecker defines interface for user account checking
-type UserChecker interface {
-	Check(ctx context.Context) types.AuditResult
-}
-
 type (
+	// UserChecker defines interface for user account checking
+	UserChecker interface {
+		Check(ctx context.Context) types.AuditResult
+	}
+
 	// platformConfig holds OS-specific configuration for user checking
 	platformConfig struct {
 		userSources []string
@@ -135,16 +135,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	authResult := u.checkAuthConfig()
 	result.Details = append(result.Details, authResult.Details...)
 	for _, key := range authResult.Keys {
-		if def, ok := registry.Lookup(u.osCtx, key); ok {
-			result.Findings = append(result.Findings, types.Finding{
-				Title:       def.Title,
-				Severity:    def.Severity,
-				Description: def.Description,
-				Impact:      def.Impact,
-				Resolution:  def.Resolution,
-				References:  def.ToReferences(),
-			})
-		}
+		emitFinding(&result, u.osCtx, key)
 	}
 
 	users, err := u.getUsers(ctx)
@@ -457,19 +448,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s CRITICAL: Account %s has UID 0 (root-equivalent)",
 					types.SymbolCritical, user.username))
-			if _, dup := seen["users.uid_zero_non_root"]; !dup {
-				if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-					seen["users.uid_zero_non_root"] = struct{}{}
-				}
-			}
+			emitFindingOnce(result, u.osCtx, "users.uid_zero_non_root", seen)
 		}
 
 		// An account with no password and an interactive shell can be accessed
@@ -478,57 +457,21 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Account %s has no password and an interactive login shell",
 					types.SymbolWarning, user.username))
-			if _, dup := seen["users.no_password_login_shell"]; !dup {
-				if def, ok := registry.Lookup(u.osCtx, "users.no_password_login_shell"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-					seen["users.no_password_login_shell"] = struct{}{}
-				}
-			}
+			emitFindingOnce(result, u.osCtx, "users.no_password_login_shell", seen)
 		}
 
 		if user.isAdmin && !user.isSystem {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: Regular user %s has administrative privileges",
 					types.SymbolWarning, user.username))
-			if _, dup := seen["users.regular_user_admin_privileges"]; !dup {
-				if def, ok := registry.Lookup(u.osCtx, "users.regular_user_admin_privileges"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-					seen["users.regular_user_admin_privileges"] = struct{}{}
-				}
-			}
+			emitFindingOnce(result, u.osCtx, "users.regular_user_admin_privileges", seen)
 		}
 
 		if isInteractiveShell(user.shell) && !user.isSystem {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s User %s has an interactive login shell: %s",
 					types.SymbolWarning, user.username, user.shell))
-			if _, dup := seen["users.login_shell_present"]; !dup {
-				if def, ok := registry.Lookup(u.osCtx, "users.login_shell_present"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-					seen["users.login_shell_present"] = struct{}{}
-				}
-			}
+			emitFindingOnce(result, u.osCtx, "users. login_shell_present", seen)
 		}
 	}
 
@@ -638,16 +581,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 					result.Details = append(result.Details,
 						fmt.Sprintf("%s CRITICAL: User %s has no password set",
 							types.SymbolCritical, fields[passwdFieldUsername]))
-					if def, ok := registry.Lookup(u.osCtx, "users.empty_password_hash"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
+					emitFinding(result, u.osCtx, "users.empty_password_hash")
 				}
 			}
 
@@ -666,16 +600,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 			} else {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
-				if def, ok := registry.Lookup(u.osCtx, "users.root_account_unlocked"); ok {
-					result.Findings = append(result.Findings, types.Finding{
-						Title:       def.Title,
-						Severity:    def.Severity,
-						Description: def.Description,
-						Impact:      def.Impact,
-						Resolution:  def.Resolution,
-						References:  def.ToReferences(),
-					})
-				}
+				emitFinding(result, u.osCtx, "users.root_account_unlocked")
 			}
 		}
 	}
@@ -692,16 +617,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
-						if def, ok := registry.Lookup(u.osCtx, "users.uid_zero_non_root"); ok {
-							result.Findings = append(result.Findings, types.Finding{
-								Title:       def.Title,
-								Severity:    def.Severity,
-								Description: def.Description,
-								Impact:      def.Impact,
-								Resolution:  def.Resolution,
-								References:  def.ToReferences(),
-							})
-						}
+						emitFinding(result, u.osCtx, "users.uid_zero_non_root")
 					}
 				}
 			}
@@ -799,12 +715,7 @@ func (w *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUser
 }
 
 func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
-	noPasswordFindingAdded := false
-	msAccountFindingAdded := false
-	azureADFindingAdded := false
-	domainFindingAdded := false
-	unknownPrincipalFindingAdded := false
-
+	seen := make(map[registry.FindingKey]struct{})
 	for _, user := range users {
 		details := user.Name
 
@@ -812,16 +723,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			if def, ok := registry.Lookup(w.osCtx, "users.administrator_account_active"); ok {
-				result.Findings = append(result.Findings, types.Finding{
-					Title:       def.Title,
-					Severity:    def.Severity,
-					Description: def.Description,
-					Impact:      def.Impact,
-					Resolution:  def.Resolution,
-					References:  def.ToReferences(),
-				})
-			}
+			emitFinding(result, w.osCtx, "users.administrator_account_active")
 		} else if !user.Enabled {
 			details += " (Disabled)"
 			result.Details = append(result.Details,
@@ -832,88 +734,28 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				details += " (Microsoft Account -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				if !msAccountFindingAdded {
-					if def, ok := registry.Lookup(w.osCtx, "users.microsoft_account_no_local_password"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
-					msAccountFindingAdded = true
-				}
+				emitFindingOnce(result, w.osCtx, "users.microsoft_account_no_local_password", seen)
 			case "AzureAD":
 				details += " (Azure AD -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				if !azureADFindingAdded {
-					if def, ok := registry.Lookup(w.osCtx, "users.azure_ad_account_no_local_password"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
-					azureADFindingAdded = true
-				}
+				emitFindingOnce(result, w.osCtx, "users.azure_ad_account_no_local_password", seen)
 			case "ActiveDirectory":
 				details += " (Active Directory -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				if !domainFindingAdded {
-					if def, ok := registry.Lookup(w.osCtx, "users.domain_account_no_local_password"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
-					domainFindingAdded = true
-				}
+				emitFindingOnce(result, w.osCtx, "users.domain_account_no_local_password", seen)
 			case "Unknown":
 				details += " (Unknown principal source -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				if !unknownPrincipalFindingAdded {
-					if def, ok := registry.Lookup(w.osCtx, "users.unknown_principal_no_local_password"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
-					unknownPrincipalFindingAdded = true
-				}
+				emitFindingOnce(result, w.osCtx, "users.unknown_principal_no_local_password", seen)
 			default:
 				// Local account or unrecognized source with no password required
 				details += " (No Password Required)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				if !noPasswordFindingAdded {
-					if def, ok := registry.Lookup(w.osCtx, "users.no_password_required"); ok {
-						result.Findings = append(result.Findings, types.Finding{
-							Title:       def.Title,
-							Severity:    def.Severity,
-							Description: def.Description,
-							Impact:      def.Impact,
-							Resolution:  def.Resolution,
-							References:  def.ToReferences(),
-						})
-					}
-					noPasswordFindingAdded = true
-				}
+				emitFindingOnce(result, w.osCtx, "users.no_password_required", seen)
 			}
 		} else {
 			result.Details = append(result.Details,
@@ -946,16 +788,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-			if def, ok := registry.Lookup(w.osCtx, "users.uac_disabled"); ok {
-				result.Findings = append(result.Findings, types.Finding{
-					Title:       def.Title,
-					Severity:    def.Severity,
-					Description: def.Description,
-					Impact:      def.Impact,
-					Resolution:  def.Resolution,
-					References:  def.ToReferences(),
-				})
-			}
+			emitFinding(result, w.osCtx, "users.uac_disabled")
 		}
 	}
 }
