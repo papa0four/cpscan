@@ -155,13 +155,14 @@ type (
 
 	// allFinding carries a single security finding for all command output.
 	allFinding struct {
-		Check       string `json:"check" yaml:"check"`
-		Title       string `json:"title" yaml:"title"`
-		Severity    string `json:"severity" yaml:"severity"`
-		CWE         string `json:"cwe,omitempty" yaml:"cwe,omitempty"`
-		Description string `json:"description,omitempty" yaml:"description,omitempty"`
-		Impact      string `json:"impact,omitempty" yaml:"impact,omitempty"`
-		Resolution  string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+		Check       string   `json:"check" yaml:"check"`
+		Title       string   `json:"title" yaml:"title"`
+		Severity    string   `json:"severity" yaml:"severity"`
+		Categories  []string `json:"categories,omitempty" yaml:"categories,omitempty"`
+		CWE         string   `json:"cwe,omitempty" yaml:"cwe,omitempty"`
+		Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+		Impact      string   `json:"impact,omitempty" yaml:"impact,omitempty"`
+		Resolution  string   `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 	}
 )
 
@@ -238,6 +239,7 @@ func toAllResult(scan *ScanResult) allResult {
 					Check:       check.Name,
 					Title:       finding.Title,
 					Severity:    sev,
+					Categories:  finding.Categories,
 					Description: finding.Description,
 					Impact:      finding.Impact,
 					Resolution:  finding.Resolution,

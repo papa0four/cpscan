@@ -97,10 +97,12 @@ type (
 	}
 
 	formattedSystemInfo struct {
-		OS            string `json:"os" yaml:"os"`
-		Architecture  string `json:"architecture" yaml:"architecture"`
-		Hostname      string `json:"hostname" yaml:"hostname"`
-		KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+		OS              string `json:"os" yaml:"os"`
+		Platform        string `json:"platform,omitempty" yaml:"platform,omitempty"`
+		PlatformVersion string `json:"platform_version,omitempty" yaml:"platform_version,omitempty"`
+		Architecture    string `json:"architecture" yaml:"architecture"`
+		Hostname        string `json:"hostname" yaml:"hostname"`
+		KernelVersion   string `json:"kernel_version" yaml:"kernel_version"`
 	}
 
 	formattedCheck struct {
@@ -115,6 +117,7 @@ type (
 	formattedFinding struct {
 		Title       string            `json:"title" yaml:"title"`
 		Severity    string            `json:"severity" yaml:"severity"`
+		Categories  []string          `json:"categories,omitempty" yaml:"categories,omitempty"`
 		Description string            `json:"description,omitempty" yaml:"description,omitempty"`
 		Impact      string            `json:"impact,omitempty" yaml:"impact,omitempty"`
 		Resolution  string            `json:"resolution,omitempty" yaml:"resolution,omitempty"`
@@ -382,10 +385,12 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 		Timestamp: result.StartTime.Format(time.RFC3339),
 		Duration:  result.Duration.String(),
 		SystemInfo: formattedSystemInfo{
-			OS:            result.SystemInfo.OS,
-			Architecture:  result.SystemInfo.Architecture,
-			Hostname:      result.SystemInfo.Hostname,
-			KernelVersion: result.SystemInfo.KernelVersion,
+			OS:              result.SystemInfo.OS,
+			Platform:        result.SystemInfo.Platform,
+			PlatformVersion: result.SystemInfo.PlatformVersion,
+			Architecture:    result.SystemInfo.Architecture,
+			Hostname:        result.SystemInfo.Hostname,
+			KernelVersion:   result.SystemInfo.KernelVersion,
 		},
 		Summary: formattedSummary{
 			TotalChecks:      result.Summary.TotalChecks,
@@ -429,6 +434,7 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 			fc.Findings = append(fc.Findings, formattedFinding{
 				Title:       finding.Title,
 				Severity:    sev,
+				Categories:  finding.Categories,
 				Description: finding.Description,
 				Impact:      finding.Impact,
 				Resolution:  finding.Resolution,

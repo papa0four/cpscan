@@ -75,9 +75,9 @@ type (
 
 	// Reference provides additional information about a finding
 	Reference struct {
-		Title string
-		URL   string
-		Type  string // e.g., "CVE", "CWE", "NIST", "MITRE", etc.
+		Title string `json:"title" yaml:"title"`
+		URL   string `json:"url,omitempty" yaml:"url,omitempty"`
+		Type  string `json:"type" yaml:"type"` // e.g., "CVE", "CWE", "NIST", "MITRE", etc.
 	}
 
 	// ReferenceExtraction separates valid CWEs from malformed CWE attempts
