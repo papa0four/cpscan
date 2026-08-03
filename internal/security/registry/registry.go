@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -419,7 +420,7 @@ func (d FindingDefinition) validateCategories() error {
 }
 
 // ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
-// codes from d's NIST-classified references, in first-occurrence order.
+// codes from d's NIST-classified references, in alphabetical order.
 // Every reference has already passed validateCategories at registry load
 // time, so a pattern mismatch here indicates the two functions have gone
 // out of sync with each other, not a data defect.
@@ -445,5 +446,6 @@ func (d FindingDefinition) ToCategories() []string {
 		seen[family] = struct{}{}
 		out = append(out, family)
 	}
+	sort.Strings(out)
 	return out
 }

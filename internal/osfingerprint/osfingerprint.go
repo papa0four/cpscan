@@ -21,6 +21,34 @@ type OSInfo struct {
 	AdditionalInfo  map[string]string // store any additional OS-Specific details
 }
 
+// DistinctPlatform returns Platform when it differs from OS, and the empty
+// string when they are equal. A caller renders the Platform line only when
+// this returns non-empty. OS is the anchor because it is the more general,
+// always-meaningful identifier; Platform is the refinement worth showing only
+// when it adds information. On darwin the two are identical, so Platform is
+// omitted.
+func (o *OSInfo) DistinctPlatform() string {
+	if o.Platform == o.OS {
+		return ""
+	}
+	return o.Platform
+}
+
+// DistinctKernelVersion returns KernelVersion when it differs from
+// PlatformVersion, and the empty string when they are equal. A caller renders
+// the platform version unconditionally and renders a kernel line only when
+// this returns non-empty. PlatformVersion is the anchor: on Windows it and
+// KernelVersion are the same build string, and "version" describes that string
+// more truthfully than "kernel version," which carries a distinct meaning only
+// on Linux where the kernel is versioned separately from the platform. On
+// those systems the two differ and both lines appear.
+func (o *OSInfo) DistinctKernelVersion() string {
+	if o.KernelVersion == o.PlatformVersion {
+		return ""
+	}
+	return o.KernelVersion
+}
+
 // GetOSFingerprint retrieves OS-Specific fingerprinting information
 func GetOSFingerprint() (*OSInfo, error) {
 	info, err := host.Info()
@@ -66,7 +94,7 @@ func WriteText(w io.Writer, o *OSInfo) error {
 		return fmt.Errorf("osfingerprint: cannot render nil OSInfo")
 	}
 
-	if _, err := fmt.Fprintf(w, "OS: %s\nHostname:%s\nPlatform: %s\nVersion: %s\nKernel Version: %s\nArchitecture: %s\n",
+	if _, err := fmt.Fprintf(w, "OS: %s\nHostname: %s\nPlatform: %s\nVersion: %s\nKernel Version: %s\nArchitecture: %s\n",
 		o.OS, o.Hostname, o.Platform, o.PlatformVersion, o.KernelVersion, o.Architecture); err != nil {
 		return fmt.Errorf("osfingerprint: write failed: %w", err)
 	}
