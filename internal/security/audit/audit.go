@@ -47,26 +47,12 @@ type (
 		EndTime             time.Time
 		Duration            time.Duration
 		Results             []types.AuditResult
-		SystemInfo          SystemInfo
+		HostInfo            *osfingerprint.OSInfo
 		Summary             Summary
 		EnrichmentRequested bool
 		EnrichmentError     error
 		Enrichment          *enrichment.Result
 		References          types.ReferenceExtraction
-	}
-
-	// SystemInfo contains basic system information collected at the start of an
-	// audit. Software inventory is owned by the all command and is not part of
-	// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
-	// Platform and PlatformVersion are empty when their values duplicate OS and
-	// KernelVersion respectively; see systemInfoFrom.
-	SystemInfo struct {
-		OS              string `json:"os" yaml:"os"`
-		Platform        string `json:"platform,omitempty" yaml:"platform,omitempty"`
-		PlatformVersion string `json:"platform_version,omitempty" yaml:"platform_version,omitempty"`
-		Architecture    string `json:"architecture" yaml:"architecture"`
-		Hostname        string `json:"hostname" yaml:"hostname"`
-		KernelVersion   string `json:"kernel_version" yaml:"kernel_version"`
 	}
 
 	// Summary reports the outcome of a completed audit at both check and finding
@@ -133,7 +119,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	result := &Result{
 		StartTime:           time.Now(),
-		SystemInfo:          systemInfoFrom(fingerprint),
+		HostInfo:            fingerprint,
 		Results:             make([]types.AuditResult, 0),
 		EnrichmentRequested: sa.options.Enrich,
 	}
@@ -324,36 +310,6 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 		}
 	}
 	return summary
-}
-
-// systemInfoFrom converts a host fingerprint into the audit's SystemInfo.
-// A nil fingerprint (fetch failed) yields identity fields left empty except
-// Architecture, which falls back to runtime.GOARCH as a fact about the
-// running binary rather than re-derived host identity: osfingerprint is the
-// single source of host identity, and a local fallback would reintroduce
-// the divergence this consolidation removes.
-//
-// Platform and PlatformVersion are dropped when they duplicate OS and
-// KernelVersion respectively (darwin reports Platform == OS; Windows reports
-// PlatformVersion == KernelVersion), so no block ever carries the same value
-// under two names.
-func systemInfoFrom(info *osfingerprint.OSInfo) SystemInfo {
-	if info == nil {
-		return SystemInfo{Architecture: runtime.GOARCH}
-	}
-	out := SystemInfo{
-		OS:            info.OS,
-		Architecture:  info.Architecture,
-		Hostname:      info.Hostname,
-		KernelVersion: info.KernelVersion,
-	}
-	if info.Platform != info.OS {
-		out.Platform = info.Platform
-	}
-	if info.PlatformVersion != info.KernelVersion {
-		out.PlatformVersion = info.PlatformVersion
-	}
-	return out
 }
 
 func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) types.AuditResult {

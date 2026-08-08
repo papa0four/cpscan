@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
@@ -83,7 +84,7 @@ type (
 	formattedResult struct {
 		Timestamp           string                     `json:"timestamp" yaml:"timestamp"`
 		Duration            string                     `json:"duration" yaml:"duration"`
-		SystemInfo          formattedSystemInfo        `json:"system_info" yaml:"system_info"`
+		SystemInfo          *osfingerprint.SystemView  `json:"system_info,omitempty" yaml:"system_info,omitempty"`
 		Results             []formattedCheck           `json:"results" yaml:"results"`
 		Summary             formattedSummary           `json:"summary" yaml:"summary"`
 		FindingsSuppressed  int                        `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
@@ -94,15 +95,6 @@ type (
 		ReferenceErrors     []string                   `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		EnrichmentEntries   []render.EnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
 		EnrichmentFailures  []render.EnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
-	}
-
-	formattedSystemInfo struct {
-		OS              string `json:"os" yaml:"os"`
-		Platform        string `json:"platform,omitempty" yaml:"platform,omitempty"`
-		PlatformVersion string `json:"platform_version,omitempty" yaml:"platform_version,omitempty"`
-		Architecture    string `json:"architecture" yaml:"architecture"`
-		Hostname        string `json:"hostname" yaml:"hostname"`
-		KernelVersion   string `json:"kernel_version" yaml:"kernel_version"`
 	}
 
 	formattedCheck struct {
@@ -384,14 +376,6 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 	formatted := formattedResult{
 		Timestamp: result.StartTime.Format(time.RFC3339),
 		Duration:  result.Duration.String(),
-		SystemInfo: formattedSystemInfo{
-			OS:              result.SystemInfo.OS,
-			Platform:        result.SystemInfo.Platform,
-			PlatformVersion: result.SystemInfo.PlatformVersion,
-			Architecture:    result.SystemInfo.Architecture,
-			Hostname:        result.SystemInfo.Hostname,
-			KernelVersion:   result.SystemInfo.KernelVersion,
-		},
 		Summary: formattedSummary{
 			TotalChecks:      result.Summary.TotalChecks,
 			PassedChecks:     result.Summary.PassedChecks,
@@ -403,6 +387,11 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 			LowFindings:      result.Summary.LowFindings,
 		},
 		EnrichmentRequested: result.EnrichmentRequested,
+	}
+
+	if result.HostInfo != nil {
+		view := result.HostInfo.View()
+		formatted.SystemInfo = &view
 	}
 
 	if result.EnrichmentError != nil {
@@ -462,14 +451,14 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 // disclosure, summary) come from internal/render.
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
-	isComprehensive := len(result.Results) > 1
 
-	if isComprehensive {
-		builder.WriteString("Security Audit Report\n")
-		builder.WriteString("====================\n\n")
-		fmt.Fprintf(&builder, "System: %s %s\n", result.SystemInfo.OS, result.SystemInfo.Architecture)
-		fmt.Fprintf(&builder, "Hostname: %s\n", result.SystemInfo.Hostname)
-		fmt.Fprintf(&builder, "Kernel: %s\n\n", result.SystemInfo.KernelVersion)
+	builder.WriteString("Security Audit Report\n")
+	builder.WriteString("====================\n\n")
+	if result.HostInfo != nil {
+		if err := osfingerprint.WriteText(&builder, result.HostInfo); err != nil {
+			return "", err
+		}
+		builder.WriteString("\n")
 	}
 
 	hasFindings := false
