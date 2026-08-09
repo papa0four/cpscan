@@ -100,23 +100,12 @@ type (
 	// YAML output. It defines clean section boundaries between system, software,
 	// and security data.
 	allResult struct {
-		Timestamp string         `json:"timestamp" yaml:"timestamp"`
-		Duration  string         `json:"duration" yaml:"duration"`
-		System    *allSystemInfo `json:"system,omitempty" yaml:"system,omitempty"`
-		Software  *allSoftware   `json:"software,omitempty" yaml:"software,omitempty"`
-		Security  *allSecurity   `json:"security,omitempty" yaml:"security,omitempty"`
-		Errors    []string       `json:"errors,omitempty" yaml:"errors,omitempty"`
-	}
-
-	// allSystemInfo carries host identity fields for all command output.
-	// Populated exclusively from osfingerprint data; absent entirely when the
-	// osinfo module is skipped, matching how software and security sections
-	// behave. A present system block always means fingerprinting ran.
-	allSystemInfo struct {
-		OS            string `json:"os" yaml:"os"`
-		Hostname      string `json:"hostname" yaml:"hostname"`
-		KernelVersion string `json:"kernel_version,omitempty" yaml:"kernel_version,omitempty"`
-		Architecture  string `json:"architecture" yaml:"architecture"`
+		Timestamp string                    `json:"timestamp" yaml:"timestamp"`
+		Duration  string                    `json:"duration" yaml:"duration"`
+		System    *osfingerprint.SystemView `json:"system,omitempty" yaml:"system,omitempty"`
+		Software  *allSoftware              `json:"software,omitempty" yaml:"software,omitempty"`
+		Security  *allSecurity              `json:"security,omitempty" yaml:"security,omitempty"`
+		Errors    []string                  `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
 
 	// allSoftware carries the structured software inventory for all command output.
@@ -200,12 +189,8 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// system info
 	if scan.OSInfo != nil {
-		out.System = &allSystemInfo{
-			OS:            scan.OSInfo.Platform,
-			Hostname:      scan.OSInfo.Hostname,
-			KernelVersion: scan.OSInfo.KernelVersion,
-			Architecture:  scan.OSInfo.Architecture,
-		}
+		view := scan.OSInfo.View()
+		out.System = &view
 	}
 
 	// software inventory
@@ -530,14 +515,14 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	// system
 	if result.OSInfo != nil {
 		fmt.Fprintf(w, "System\n")
-		fmt.Fprintf(w, "  OS:       %s\n", result.OSInfo.Platform)
-		fmt.Fprintf(w, "  Host:     %s\n", result.OSInfo.Hostname)
-		fmt.Fprintf(w, "  Kernel:   %s\n", result.OSInfo.KernelVersion)
+		if err := osfingerprint.WriteText(w, result.OSInfo); err != nil {
+			return err
+		}
 	}
 
 	// software
 	if len(result.Software) > 0 {
-		fmt.Fprintf(w, "  Software: %d packages installed\n", len(result.Software))
+		fmt.Fprintf(w, "Software: %d packages installed\n", len(result.Software))
 	}
 
 	fmt.Fprintln(w)
