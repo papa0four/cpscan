@@ -71,6 +71,19 @@ type (
 		Details []string
 		Keys    []registry.FindingKey
 	}
+
+	// windowsUserInfo holds parsed Windows user account data
+	windowsUserInfo struct {
+		Name             string
+		Enabled          bool
+		PasswordRequired bool
+		PasswordLastSet  string
+		LastLogon        string
+		AccountExpires   string
+		Description      string
+		PrincipalSource  string
+		IsAdmin          bool
+	}
 )
 
 // getPlatformConfig returns the appropriate configuration for the current OS
@@ -791,19 +804,6 @@ func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *
 			emitFinding(result, w.osCtx, "users.uac_disabled")
 		}
 	}
-}
-
-// windowsUserInfo holds parsed Windows user account data
-type windowsUserInfo struct {
-	Name             string
-	Enabled          bool
-	PasswordRequired bool
-	PasswordLastSet  string
-	LastLogon        string
-	AccountExpires   string
-	Description      string
-	PrincipalSource  string
-	IsAdmin          bool
 }
 
 func isSuspiciousUser(user userAccount) bool {
