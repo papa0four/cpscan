@@ -1,13 +1,14 @@
 // Package render provides the shared output machinery for owatch commands:
 // parameterized text rendering for the blocks that appear in more than one
-// command's output (the enrichment six-state block, reference parsing
-// errors, finding lines, suppression disclosure, and summaries), the typed
-// serialization structures for enrichment data in JSON and YAML output, and
-// the single TTY detection helper.
+// command's output (finding lines, suppression disclosure, and summaries),
+// and the single TTY detection helper. ErrWriter is exported so any package
+// that owns a text renderer, not only this one, can share one implementation
+// of the accumulate-first-error write pattern.
 //
 // Text rendering functions take data and an io.Writer only; the package has
-// no dependency on cobra or on the audit engine. Command output schemas
-// remain owned by their commands under the additive-only output contract --
-// this package consolidates the logic beneath them, not the schemas
-// themselves.
+// no dependency on cobra or on the audit engine. It defines no serialization
+// types of its own -- a package that owns domain data (internal/osfingerprint,
+// internal/security/enrichment) owns that data's serializable projection and
+// its text renderer together, and calls into this package only for the
+// generic verbs above.
 package render

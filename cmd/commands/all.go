@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
@@ -119,16 +120,16 @@ type (
 	// --min-severity filtered out at least one finding, so a consumer can tell
 	// Findings is a partial view of Summary.TotalFindings without guessing.
 	allSecurity struct {
-		Summary             allSecuritySummary         `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                        `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                     `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                       `json:"enrichment_requested,omitempty" yaml:"enrichment_requested,omitempty"`
-		EnrichmentError     string                     `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                   `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                   `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
-		EnrichmentEntries   []render.EnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		EnrichmentFailures  []render.EnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
-		Findings            []allFinding               `json:"findings,omitempty" yaml:"findings,omitempty"`
+		Summary             allSecuritySummary       `json:"summary" yaml:"summary"`
+		FindingsSuppressed  int                      `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
+		MinSeverityApplied  string                   `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
+		EnrichmentRequested bool                     `json:"enrichment_requested,omitempty" yaml:"enrichment_requested,omitempty"`
+		EnrichmentError     string                   `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
+		ReferenceCWEs       []string                 `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+		ReferenceErrors     []string                 `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
+		Entries             []enrichment.EntryView   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
+		FailureViews        []enrichment.FailureView `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Findings            []allFinding             `json:"findings,omitempty" yaml:"findings,omitempty"`
 	}
 
 	// allSecuritySummary carries per-severity finding counts for all command output.
@@ -251,9 +252,9 @@ func toAllResult(scan *ScanResult) allResult {
 			if len(scan.SecurityAudit.References.CWEs) > 0 {
 				sec.ReferenceCWEs = scan.SecurityAudit.References.CWEs
 			}
-			sec.ReferenceErrors = render.ReferenceErrorStrings(scan.SecurityAudit.References.Errors)
-			sec.EnrichmentEntries = render.EnrichmentEntries(scan.SecurityAudit.References, scan.SecurityAudit.Enrichment)
-			sec.EnrichmentFailures = render.EnrichmentFailures(scan.SecurityAudit.Enrichment)
+			sec.ReferenceErrors = enrichment.ReferenceErrorStrings(scan.SecurityAudit.References.Errors)
+			sec.Entries = enrichment.Entries(scan.SecurityAudit.References.CWEs, scan.SecurityAudit.Enrichment)
+			sec.FailureViews = enrichment.Failures(scan.SecurityAudit.Enrichment)
 		}
 		out.Security = sec
 	}
@@ -546,7 +547,7 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 		}
 		fmt.Fprintln(w)
 
-		if err := render.EnrichmentBlock(w, render.EnrichmentData{
+		if err := enrichment.Block(w, enrichment.Data{
 			Requested:  result.SecurityAudit.EnrichmentRequested,
 			Err:        result.SecurityAudit.EnrichmentError,
 			References: result.SecurityAudit.References,

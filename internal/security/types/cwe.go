@@ -21,7 +21,7 @@ const (
 
 // NormalizeCWEID returns the canonical CWE-N form for an identifier
 // supplied in canonical or URL form. Returns an error wrapping
-// ErrInvalidCWE for input that does not match either form.
+// ErrInvalidCWEID for input that does not match either form.
 func NormalizeCWEID(input string) (string, error) {
 	if id, ok := extractCWEFromURL(input); ok {
 		return validateCanonicalCWE(id)

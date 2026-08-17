@@ -60,21 +60,21 @@ func CompactSummary(w io.Writer, d SummaryData) error {
 // command, with per-severity finding counts and check-level totals. The
 // first write error, if any, is returned.
 func DetailedSummary(w io.Writer, d SummaryData) error {
-	ew := &errWriter{w: w}
-	ew.printf("Summary:\n")
-	ew.printf("Checks Run:      %d\n", d.TotalChecks)
-	ew.printf("Passed:          %d\n", d.PassedChecks)
-	ew.printf("Skipped:         %d\n", d.SkippedChecks)
+	ew := &ErrWriter{w: w}
+	ew.Printf("Summary:\n")
+	ew.Printf("Checks Run:      %d\n", d.TotalChecks)
+	ew.Printf("Passed:          %d\n", d.PassedChecks)
+	ew.Printf("Skipped:         %d\n", d.SkippedChecks)
 	if s := d.suppressed(); s > 0 {
-		ew.printf("Total Findings:  %d (%d present, %d suppressed)\n",
+		ew.Printf("Total Findings:  %d (%d present, %d suppressed)\n",
 			d.TotalFindings, d.Shown, s)
 	} else {
-		ew.printf("Total Findings:  %d\n", d.TotalFindings)
+		ew.Printf("Total Findings:  %d\n", d.TotalFindings)
 	}
-	ew.printf("  Critical:      %d\n", d.Critical)
-	ew.printf("  High:          %d\n", d.High)
-	ew.printf("  Medium:        %d\n", d.Medium)
-	ew.printf("  Low:           %d\n", d.Low)
-	ew.printf("Duration:        %v\n", d.Duration)
+	ew.Printf("  Critical:      %d\n", d.Critical)
+	ew.Printf("  High:          %d\n", d.High)
+	ew.Printf("  Medium:        %d\n", d.Medium)
+	ew.Printf("  Low:           %d\n", d.Low)
+	ew.Printf("Duration:        %v\n", d.Duration)
 	return ew.err
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
@@ -82,19 +83,19 @@ You can run all checks or specify individual checks to run.`,
 // Formatter types
 type (
 	formattedResult struct {
-		Timestamp           string                     `json:"timestamp" yaml:"timestamp"`
-		Duration            string                     `json:"duration" yaml:"duration"`
-		SystemInfo          *osfingerprint.SystemView  `json:"system_info,omitempty" yaml:"system_info,omitempty"`
-		Results             []formattedCheck           `json:"results" yaml:"results"`
-		Summary             formattedSummary           `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                        `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                     `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                       `json:"enrichment_requested" yaml:"enrichment_requested"`
-		EnrichmentError     string                     `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                   `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                   `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
-		EnrichmentEntries   []render.EnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		EnrichmentFailures  []render.EnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Timestamp           string                    `json:"timestamp" yaml:"timestamp"`
+		Duration            string                    `json:"duration" yaml:"duration"`
+		SystemInfo          *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
+		Results             []formattedCheck          `json:"results" yaml:"results"`
+		Summary             formattedSummary          `json:"summary" yaml:"summary"`
+		FindingsSuppressed  int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
+		MinSeverityApplied  string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
+		EnrichmentRequested bool                      `json:"enrichment_requested" yaml:"enrichment_requested"`
+		EnrichmentError     string                    `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
+		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
+		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
+		FailureViews        []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 	}
 
 	formattedCheck struct {
@@ -400,9 +401,9 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 	if len(result.References.CWEs) > 0 {
 		formatted.ReferenceCWEs = result.References.CWEs
 	}
-	formatted.ReferenceErrors = render.ReferenceErrorStrings(result.References.Errors)
-	formatted.EnrichmentEntries = render.EnrichmentEntries(result.References, result.Enrichment)
-	formatted.EnrichmentFailures = render.EnrichmentFailures(result.Enrichment)
+	formatted.ReferenceErrors = enrichment.ReferenceErrorStrings(result.References.Errors)
+	formatted.Entries = enrichment.Entries(result.References.CWEs, result.Enrichment)
+	formatted.FailureViews = enrichment.Failures(result.Enrichment)
 
 	var shownFindings int
 	for _, check := range result.Results {
@@ -512,7 +513,7 @@ func formatText(result *audit.Result) (string, error) {
 		builder.WriteString("\n")
 	}
 
-	if err := render.EnrichmentBlock(&builder, render.EnrichmentData{
+	if err := enrichment.Block(&builder, enrichment.Data{
 		Requested:  result.EnrichmentRequested,
 		Err:        result.EnrichmentError,
 		References: result.References,
