@@ -4,8 +4,6 @@ package types
 import (
 	"strings"
 	"time"
-
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
 )
 
 // Display, status, and severity vocabulary shared by every checker and
@@ -153,9 +151,9 @@ func (f *Finding) CWEReferences() ReferenceExtraction {
 	seen := make(map[string]struct{}, len(f.References))
 	for _, ref := range f.References {
 		if ref.Type == "CWE" {
-			id, err := enrichment.NormalizeCWEID(ref.URL)
+			id, err := NormalizeCWEID(ref.URL)
 			if err != nil {
-				id, err = enrichment.NormalizeCWEID(ref.Title)
+				id, err = NormalizeCWEID(ref.Title)
 			}
 			if err != nil {
 				ext.Errors = append(ext.Errors, err)

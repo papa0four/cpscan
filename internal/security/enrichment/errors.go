@@ -6,10 +6,6 @@ import "errors"
 // ErrNoEnricherConfigured indicates that no enrichment source adapter has been registered.
 var ErrNoEnricherConfigured = errors.New("no enrichment source configured")
 
-// ErrInvalidCWEID indicates a CWE identifier failed format validation.
-// Returned when input does not match CWE-N+
-var ErrInvalidCWEID = errors.New("invalid CWE identifier")
-
 // ErrEmptyRequest indicates an EnrichRequest contained no CWE identifiers to
 // enrich. No current producer: designated consumers are the enrichment
 // adapters (#89-#93), which share this sentinel so an empty request reports
