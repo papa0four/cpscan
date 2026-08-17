@@ -128,7 +128,7 @@ type (
 		ReferenceCWEs       []string                 `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
 		ReferenceErrors     []string                 `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		Entries             []enrichment.EntryView   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		FailureViews        []enrichment.FailureView `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Failures            []enrichment.FailureView `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 		Findings            []allFinding             `json:"findings,omitempty" yaml:"findings,omitempty"`
 	}
 
@@ -254,7 +254,7 @@ func toAllResult(scan *ScanResult) allResult {
 			}
 			sec.ReferenceErrors = enrichment.ReferenceErrorStrings(scan.SecurityAudit.References.Errors)
 			sec.Entries = enrichment.Entries(scan.SecurityAudit.References.CWEs, scan.SecurityAudit.Enrichment)
-			sec.FailureViews = enrichment.Failures(scan.SecurityAudit.Enrichment)
+			sec.Failures = enrichment.Failures(scan.SecurityAudit.Enrichment)
 		}
 		out.Security = sec
 	}

@@ -95,7 +95,7 @@ type (
 		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
 		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		FailureViews        []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 	}
 
 	formattedCheck struct {
@@ -403,7 +403,7 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 	}
 	formatted.ReferenceErrors = enrichment.ReferenceErrorStrings(result.References.Errors)
 	formatted.Entries = enrichment.Entries(result.References.CWEs, result.Enrichment)
-	formatted.FailureViews = enrichment.Failures(result.Enrichment)
+	formatted.Failures = enrichment.Failures(result.Enrichment)
 
 	var shownFindings int
 	for _, check := range result.Results {
