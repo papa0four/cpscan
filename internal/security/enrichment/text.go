@@ -96,7 +96,7 @@ func Block(w io.Writer, d Data) error {
 			failure := d.Result.Failures[cwe]
 			ew.Printf("    %s [%s]: %s", cwe, failure.Source, failure.Reason)
 			if failure.Retryable {
-				ew.Printf("  (retryable)")
+				ew.Printf(" (retryable)")
 			}
 			ew.Printf("\n")
 		}
