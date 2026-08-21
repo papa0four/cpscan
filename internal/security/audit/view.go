@@ -11,11 +11,9 @@ import (
 )
 
 type (
-	// View is the serializable projection of a completed Result, filtered to
-	// findings at or above minSeverity. It is the single shape every
-	// consumer -- JSON, YAML and WriteText -- renders from, so JSON/YAML
-	// and text output cannot drift from each other the way two independent
-	// conversions could.
+	// View is the serializable projection of a completed Result, filtered
+	// to findings at or above minSeverity. It is the single shape JSON,
+	// YAML, and WriteText all render from.
 	View struct {
 		Timestamp           string                    `json:"timestamp" yaml:"timestamp"`
 		Duration            string                    `json:"duration" yaml:"duration"`
@@ -30,12 +28,6 @@ type (
 		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
 		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
-
-		// minSeverity is the threshold View was build with. Unexported: it
-		// never marshals, and exists only so WriteText can render an
-		// accurate clean-pass message without needing separate access to
-		// the command's flag state.
-		minSeverity string
 	}
 
 	// CheckView is the serializable projection of a single check's result
@@ -60,7 +52,7 @@ type (
 	}
 
 	// SummaryView carries per-severity finding counts and check-level
-	// pass/skip totals for structured output formats
+	// pass/skip totals.
 	SummaryView struct {
 		TotalChecks      int `json:"total_checks" yaml:"total_checks"`
 		PassedChecks     int `json:"passed_checks" yaml:"passed_checks"`
@@ -73,9 +65,8 @@ type (
 	}
 )
 
-// View returns r's serializable projection, filtering each check's findings
-// to those at or above minSeverity. It is the single conversion from a
-// completed Result to the shape JSON, YAML, and WriteText all render from.
+// View returns r's serializable projection, filtering each check's
+// findings to those at or above minSeverity.
 func (r *Result) View(minSeverity string) View {
 	v := View{
 		Timestamp: r.StartTime.Format(time.RFC3339),
@@ -91,7 +82,6 @@ func (r *Result) View(minSeverity string) View {
 			LowFindings:      r.Summary.LowFindings,
 		},
 		EnrichmentRequested: r.EnrichmentRequested,
-		minSeverity:         minSeverity,
 	}
 
 	if r.HostInfo != nil {
