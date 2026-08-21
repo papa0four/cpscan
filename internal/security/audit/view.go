@@ -26,7 +26,7 @@ type (
 		MinSeverityApplied  string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
 		EnrichmentRequested bool                      `json:"enrichment_requested" yaml:"enrichment_requested"`
 		EnrichmentError     string                    `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes.omitempty"`
+		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
 		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
 		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
