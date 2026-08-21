@@ -82,12 +82,12 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		return err
 	}
 
-	if err := render.SuppressionNotice(w, v.Summary.TotalChecks-shownFindings,
+	if err := render.SuppressionNotice(w, v.Summary.TotalFindings-shownFindings,
 		v.Summary.TotalFindings, minSeverity); err != nil {
 		return err
 	}
 
-	summary := render.DetailedSummary(w, render.SummaryData{
+	return render.DetailedSummary(w, render.SummaryData{
 		TotalChecks:   v.Summary.TotalChecks,
 		PassedChecks:  v.Summary.PassedChecks,
 		SkippedChecks: v.Summary.SkippedChecks,
@@ -99,8 +99,6 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		Low:           v.Summary.LowFindings,
 		Duration:      result.Duration,
 	})
-
-	return summary
 }
 
 // writeReference writes a single reference as "Type: Title", appending the
