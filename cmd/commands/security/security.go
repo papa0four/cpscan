@@ -322,7 +322,7 @@ func formatYAML(result *audit.Result) (string, error) {
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 
-	builder.WriteString("Security Audit Report\n")
+	builder.WriteString("\nSecurity Audit Report\n")
 	builder.WriteString("====================\n\n")
 	if result.HostInfo != nil {
 		if err := osfingerprint.WriteText(&builder, result.HostInfo); err != nil {
