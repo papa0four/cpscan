@@ -14,12 +14,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
-	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 var (
@@ -79,59 +76,6 @@ You can run all checks or specify individual checks to run.`,
   # Run checks and save report to file
   owatch audit -v -o json --report-file /path/to/reports`,
 }
-
-// Formatter types
-type (
-	formattedResult struct {
-		Timestamp           string                    `json:"timestamp" yaml:"timestamp"`
-		Duration            string                    `json:"duration" yaml:"duration"`
-		SystemInfo          *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
-		Results             []formattedCheck          `json:"results" yaml:"results"`
-		Summary             formattedSummary          `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                      `json:"enrichment_requested" yaml:"enrichment_requested"`
-		EnrichmentError     string                    `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
-		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
-	}
-
-	formattedCheck struct {
-		Name        string             `json:"name" yaml:"name"`
-		Status      string             `json:"status" yaml:"status"`
-		Description string             `json:"description" yaml:"description"`
-		Duration    string             `json:"duration" yaml:"duration"`
-		Findings    []formattedFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
-		Details     []string           `json:"details,omitempty" yaml:"details,omitempty"`
-	}
-
-	formattedFinding struct {
-		Title       string            `json:"title" yaml:"title"`
-		Severity    string            `json:"severity" yaml:"severity"`
-		Categories  []string          `json:"categories,omitempty" yaml:"categories,omitempty"`
-		Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-		Impact      string            `json:"impact,omitempty" yaml:"impact,omitempty"`
-		Resolution  string            `json:"resolution,omitempty" yaml:"resolution,omitempty"`
-		References  []types.Reference `json:"references,omitempty" yaml:"references,omitempty"`
-	}
-
-	// formattedSummary carries per-severity finding counts and check-level
-	// pass/skip totals for structured output formats. WarningChecks and
-	// FailedChecks are removed -- findings are the canonical signal; check
-	// status is reflected in PassedChecks and SkippedChecks only.
-	formattedSummary struct {
-		TotalChecks      int `json:"total_checks" yaml:"total_checks"`
-		PassedChecks     int `json:"passed_checks" yaml:"passed_checks"`
-		SkippedChecks    int `json:"skipped_checks" yaml:"skipped_checks"`
-		TotalFindings    int `json:"total_findings" yaml:"total_findings"`
-		CriticalFindings int `json:"critical_findings" yaml:"critical_findings"`
-		HighFindings     int `json:"high_findings" yaml:"high_findings"`
-		MediumFindings   int `json:"medium_findings" yaml:"medium_findings"`
-		LowFindings      int `json:"low_findings" yaml:"low_findings"`
-	}
-)
 
 func init() {
 	SecurityCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
@@ -356,7 +300,7 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 }
 
 func formatJSON(result *audit.Result) (string, error) {
-	formatted := convertToFormattedResult(result)
+	formatted := result.View(minSeverity)
 	jsonBytes, err := json.MarshalIndent(formatted, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal JSON: %w", err)
@@ -365,7 +309,7 @@ func formatJSON(result *audit.Result) (string, error) {
 }
 
 func formatYAML(result *audit.Result) (string, error) {
-	formatted := convertToFormattedResult(result)
+	formatted := result.View(minSeverity)
 	yamlBytes, err := yaml.Marshal(formatted)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal YAML: %w", err)
@@ -373,83 +317,8 @@ func formatYAML(result *audit.Result) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func convertToFormattedResult(result *audit.Result) formattedResult {
-	formatted := formattedResult{
-		Timestamp: result.StartTime.Format(time.RFC3339),
-		Duration:  result.Duration.String(),
-		Summary: formattedSummary{
-			TotalChecks:      result.Summary.TotalChecks,
-			PassedChecks:     result.Summary.PassedChecks,
-			SkippedChecks:    result.Summary.SkippedChecks,
-			TotalFindings:    result.Summary.TotalFindings,
-			CriticalFindings: result.Summary.CriticalFindings,
-			HighFindings:     result.Summary.HighFindings,
-			MediumFindings:   result.Summary.MediumFindings,
-			LowFindings:      result.Summary.LowFindings,
-		},
-		EnrichmentRequested: result.EnrichmentRequested,
-	}
-
-	if result.HostInfo != nil {
-		view := result.HostInfo.View()
-		formatted.SystemInfo = &view
-	}
-
-	if result.EnrichmentError != nil {
-		formatted.EnrichmentError = result.EnrichmentError.Error()
-	}
-	if len(result.References.CWEs) > 0 {
-		formatted.ReferenceCWEs = result.References.CWEs
-	}
-	formatted.ReferenceErrors = enrichment.ReferenceErrorStrings(result.References.Errors)
-	formatted.Entries = enrichment.Entries(result.References.CWEs, result.Enrichment)
-	formatted.Failures = enrichment.Failures(result.Enrichment)
-
-	var shownFindings int
-	for _, check := range result.Results {
-		fc := formattedCheck{
-			Name:        check.Name,
-			Status:      check.Status,
-			Description: check.Description,
-			Duration:    check.Duration.String(),
-			Details:     check.Details,
-		}
-
-		for _, finding := range check.Findings {
-			sev := types.EffectiveSeverity(finding)
-			if !types.MeetsMinSeverity(sev, minSeverity) {
-				continue
-			}
-			shownFindings++
-			fc.Findings = append(fc.Findings, formattedFinding{
-				Title:       finding.Title,
-				Severity:    sev,
-				Categories:  finding.Categories,
-				Description: finding.Description,
-				Impact:      finding.Impact,
-				Resolution:  finding.Resolution,
-				References:  finding.References,
-			})
-		}
-
-		formatted.Results = append(formatted.Results, fc)
-	}
-
-	if suppressed := formatted.Summary.TotalFindings - shownFindings; suppressed > 0 {
-		formatted.FindingsSuppressed = suppressed
-		formatted.MinSeverityApplied = strings.ToUpper(minSeverity)
-	}
-
-	return formatted
-}
-
-// formatText renders result as human-readable text, applying the active
-// minSeverity filter to findings before output. Each check block includes
-// a clean-pass confirmation when no findings meet the threshold, ensuring
-// an empty findings block is never visually ambiguous. Verbose mode appends
-// finding details, impact, resolution, and raw diagnostic output. Shared
-// blocks (finding lines, the enrichment six-state block, suppression
-// disclosure, summary) come from internal/render.
+// formatText renders result as human-readable text: the system block via
+// osfingerprint.WriteText, then the security section via audit.WriteText.
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 
@@ -462,88 +331,8 @@ func formatText(result *audit.Result) (string, error) {
 		builder.WriteString("\n")
 	}
 
-	hasFindings := false
-	var shownFindings int
-
-	for _, checkResult := range result.Results {
-		fmt.Fprintf(&builder, "Check: %s\n", checkResult.Name)
-		fmt.Fprintf(&builder, "Status: %s\n", checkResult.Status)
-		fmt.Fprintf(&builder, "Duration: %v\n", checkResult.Duration)
-
-		var filteredFindings []types.Finding
-		for _, finding := range checkResult.Findings {
-			if types.MeetsMinSeverity(types.EffectiveSeverity(finding), minSeverity) {
-				filteredFindings = append(filteredFindings, finding)
-			}
-		}
-		shownFindings += len(filteredFindings)
-		if len(filteredFindings) > 0 {
-			hasFindings = true
-			builder.WriteString("Findings:\n")
-			for _, finding := range filteredFindings {
-				if err := render.FindingLine(&builder, "", types.EffectiveSeverity(finding), finding.Title); err != nil {
-					return "", err
-				}
-				if verbose {
-					if finding.Description != "" {
-						fmt.Fprintf(&builder, "  Description: %s\n", finding.Description)
-					}
-					if finding.Impact != "" {
-						fmt.Fprintf(&builder, "  Impact: %s\n", finding.Impact)
-					}
-					if finding.Resolution != "" {
-						fmt.Fprintf(&builder, "  Resolution: %s\n", finding.Resolution)
-					}
-				}
-			}
-		} else {
-			// Explicit clean pass confirmation so an empty findings block is
-			// never mistaken for a silent checker failure.
-			fmt.Fprintf(&builder, "Findings:\n%s No findings at or above %s severity\n",
-				types.SymbolOK, strings.ToUpper(minSeverity))
-		}
-
-		if verbose && len(checkResult.Details) > 0 {
-			builder.WriteString("Raw Diagnostic Output:\n")
-			for _, detail := range checkResult.Details {
-				fmt.Fprintf(&builder, "  %s\n", detail)
-			}
-		}
-
-		builder.WriteString("\n")
-	}
-
-	if err := enrichment.Block(&builder, enrichment.Data{
-		Requested:  result.EnrichmentRequested,
-		Err:        result.EnrichmentError,
-		References: result.References,
-		Result:     result.Enrichment,
-		Verbose:    verbose,
-	}); err != nil {
+	if err := audit.WriteText(&builder, result, minSeverity); err != nil {
 		return "", err
-	}
-
-	if err := render.SuppressionNotice(&builder, result.Summary.TotalFindings-shownFindings,
-		result.Summary.TotalFindings, minSeverity); err != nil {
-		return "", err
-	}
-	if err := render.DetailedSummary(&builder, render.SummaryData{
-		TotalChecks:   result.Summary.TotalChecks,
-		PassedChecks:  result.Summary.PassedChecks,
-		SkippedChecks: result.Summary.SkippedChecks,
-		TotalFindings: result.Summary.TotalFindings,
-		Shown:         shownFindings,
-		Critical:      result.Summary.CriticalFindings,
-		High:          result.Summary.HighFindings,
-		Medium:        result.Summary.MediumFindings,
-		Low:           result.Summary.LowFindings,
-		Duration:      result.Duration,
-	}); err != nil {
-		return "", err
-	}
-
-	if !verbose && hasFindings {
-		builder.WriteString("\nRun with -v for full finding details, impact analysis, and remediation guidance.\n")
 	}
 
 	return builder.String(), nil
