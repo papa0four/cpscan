@@ -99,18 +99,12 @@ type (
 	// YAML output. It defines clean section boundaries between system, software,
 	// and security data.
 	allResult struct {
-		Timestamp string                    `json:"timestamp" yaml:"timestamp"`
-		Duration  string                    `json:"duration" yaml:"duration"`
-		System    *osfingerprint.SystemView `json:"system,omitempty" yaml:"system,omitempty"`
-		Software  *allSoftware              `json:"software,omitempty" yaml:"software,omitempty"`
-		Security  *audit.View               `json:"security,omitempty" yaml:"security,omitempty"`
-		Errors    []string                  `json:"errors,omitempty" yaml:"errors,omitempty"`
-	}
-
-	// allSoftware carries the structured software inventory for all command output.
-	allSoftware struct {
-		Count    int                          `json:"count" yaml:"count"`
-		Packages []softwarelist.SoftwareEntry `json:"packages" yaml:"packages"`
+		Timestamp string                     `json:"timestamp" yaml:"timestamp"`
+		Duration  string                     `json:"duration" yaml:"duration"`
+		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
+		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
+		Security  *audit.View                `json:"security,omitempty" yaml:"security,omitempty"`
+		Errors    []string                   `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
 )
 
@@ -154,10 +148,8 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// software inventory
 	if len(scan.Software) > 0 {
-		out.Software = &allSoftware{
-			Count:    len(scan.Software),
-			Packages: scan.Software,
-		}
+		view := softwarelist.View(scan.Software)
+		out.Software = &view
 	}
 
 	// security audit
@@ -309,46 +301,18 @@ func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
 		fmt.Println("[*] OS Fingerprint Scan")
 	}
 
-	info, err := osfingerprint.GetOSFingerprint()
-	if err != nil {
-		return nil, err
-	}
-
-	if verboseHeaders {
-		line := fmt.Sprintf("[*] OS: %s | Platform: %s | OS Version: %s",
-			info.OS, info.Platform, info.PlatformVersion)
-		if info.KernelVersion != "" && info.KernelVersion != info.PlatformVersion {
-			line += fmt.Sprintf(" | Kernel: %s", info.KernelVersion)
-		}
-		fmt.Println(line)
-	}
-
-	return info, nil
+	return osfingerprint.GetOSFingerprint()
 }
 
-// runSoftwareInventory enumerates installed software packages. Verbose module
-// headers are gated behind verboseHeaders to prevent duplication when piping
-// or redirecting output.
+// runSoftwareInventory enumerates installed software packages. verboseHeaders
+// gates only the progress announcement; the inventory itself always renders
+// in renderAllText, matching structured output.
 func runSoftwareInventory(ctx context.Context, verboseHeaders bool) ([]softwarelist.SoftwareEntry, error) {
 	if verboseHeaders {
 		fmt.Println("[*] Software Inventory Scan")
 	}
 
-	entries, err := softwarelist.GetInstalledSoftwareList(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if verboseHeaders {
-		fmt.Printf("[*] Found %d installed packages\n\n", len(entries))
-		// Courtesy verbose listing only; a stdout write failure must not
-		// discard the already-collected inventory.
-		if err := softwarelist.WriteTable(os.Stdout, entries, false); err != nil {
-			fmt.Fprintf(os.Stderr, "[!] WARNING: software listing write failed: %v\n", err)
-		}
-	}
-
-	return entries, nil
+	return softwarelist.GetInstalledSoftwareList(ctx)
 }
 
 func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
@@ -433,6 +397,9 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	// software
 	if len(result.Software) > 0 {
 		fmt.Fprintf(w, "Software: %d packages installed\n", len(result.Software))
+		if err := softwarelist.WriteText(w, softwarelist.View(result.Software)); err != nil {
+			return err
+		}
 	}
 
 	fmt.Fprintln(w)

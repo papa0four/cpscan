@@ -15,12 +15,11 @@ var softwareCmd = &cobra.Command{
 	Short: "List installed software on the host",
 	Long:  `The software command gathers and lists the installed software packages from the host operating system, including version details where available.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		software, err := softwarelist.GetInstalledSoftware(cmd.Context())
+		entries, err := softwarelist.GetInstalledSoftwareList(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("software: %w", err)
 		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), software)
-		if err != nil {
+		if err := softwarelist.WriteText(cmd.OutOrStdout(), softwarelist.View(entries)); err != nil {
 			return fmt.Errorf("failed to write message: %w", err)
 		}
 		return nil
