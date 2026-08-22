@@ -42,20 +42,6 @@ func SuppressionNotice(w io.Writer, suppressed, total int, minSeverity string) e
 	return err
 }
 
-// CompactSummary writes the single-line summary used by the all command,
-// expanding to total/present/suppressed counts when the min-severity
-// threshold filtered out findings.
-func CompactSummary(w io.Writer, d SummaryData) error {
-	if s := d.suppressed(); s > 0 {
-		_, err := fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings total  %d present  %d suppressed  %s\n",
-			d.TotalChecks, d.PassedChecks, d.TotalFindings, d.Shown, s, d.Duration)
-		return err
-	}
-	_, err := fmt.Fprintf(w, "Summary: %d checks  %d passed  %d findings  %s\n",
-		d.TotalChecks, d.PassedChecks, d.TotalFindings, d.Duration)
-	return err
-}
-
 // DetailedSummary writes the multi-line summary block used by the audit
 // command, with per-severity finding counts and check-level totals. The
 // first write error, if any, is returned.

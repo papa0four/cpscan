@@ -19,8 +19,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
-	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -89,12 +87,12 @@ type (
 	// authoritative result type for the all command and is not shared with
 	// the audit subsystem.
 	ScanResult struct {
-		Timestamp     time.Time                    `json:"timestamp"`
-		Duration      time.Duration                `json:"duration"`
-		OSInfo        *osfingerprint.OSInfo        `json:"os_info,omitempty"`
-		Software      []softwarelist.SoftwareEntry `json:"software,omitempty"`
-		SecurityAudit *audit.Result                `json:"security_audit,omitempty"`
-		Errors        []string                     `json:"errors,omitempty"`
+		Timestamp     time.Time
+		Duration      time.Duration
+		OSInfo        *osfingerprint.OSInfo
+		Software      []softwarelist.SoftwareEntry
+		SecurityAudit *audit.Result
+		Errors        []string
 	}
 
 	// allResult is the typed serialization structure for all command JSON and
@@ -105,7 +103,7 @@ type (
 		Duration  string                    `json:"duration" yaml:"duration"`
 		System    *osfingerprint.SystemView `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *allSoftware              `json:"software,omitempty" yaml:"software,omitempty"`
-		Security  *allSecurity              `json:"security,omitempty" yaml:"security,omitempty"`
+		Security  *audit.View               `json:"security,omitempty" yaml:"security,omitempty"`
 		Errors    []string                  `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
 
@@ -113,46 +111,6 @@ type (
 	allSoftware struct {
 		Count    int                          `json:"count" yaml:"count"`
 		Packages []softwarelist.SoftwareEntry `json:"packages" yaml:"packages"`
-	}
-
-	// allSecurity carries the security audit results for all command output.
-	// FindingsSuppressed and MinSeverityApplied are populated only when
-	// --min-severity filtered out at least one finding, so a consumer can tell
-	// Findings is a partial view of Summary.TotalFindings without guessing.
-	allSecurity struct {
-		Summary             allSecuritySummary       `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                      `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                   `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                     `json:"enrichment_requested,omitempty" yaml:"enrichment_requested,omitempty"`
-		EnrichmentError     string                   `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                 `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                 `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
-		Entries             []enrichment.EntryView   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		Failures            []enrichment.FailureView `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
-		Findings            []allFinding             `json:"findings,omitempty" yaml:"findings,omitempty"`
-	}
-
-	// allSecuritySummary carries per-severity finding counts for all command output.
-	allSecuritySummary struct {
-		TotalChecks   int `json:"total_checks" yaml:"total_checks"`
-		PassedChecks  int `json:"passed_checks" yaml:"passed_checks"`
-		TotalFindings int `json:"total_findings" yaml:"total_findings"`
-		Critical      int `json:"critical" yaml:"critical"`
-		High          int `json:"high" yaml:"high"`
-		Medium        int `json:"medium" yaml:"medium"`
-		Low           int `json:"low" yaml:"low"`
-	}
-
-	// allFinding carries a single security finding for all command output.
-	allFinding struct {
-		Check       string   `json:"check" yaml:"check"`
-		Title       string   `json:"title" yaml:"title"`
-		Severity    string   `json:"severity" yaml:"severity"`
-		Categories  []string `json:"categories,omitempty" yaml:"categories,omitempty"`
-		CWE         string   `json:"cwe,omitempty" yaml:"cwe,omitempty"`
-		Description string   `json:"description,omitempty" yaml:"description,omitempty"`
-		Impact      string   `json:"impact,omitempty" yaml:"impact,omitempty"`
-		Resolution  string   `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 	}
 )
 
@@ -204,59 +162,12 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// security audit
 	if scan.SecurityAudit != nil {
-		sec := &allSecurity{
-			Summary: allSecuritySummary{
-				TotalChecks:   scan.SecurityAudit.Summary.TotalChecks,
-				PassedChecks:  scan.SecurityAudit.Summary.PassedChecks,
-				TotalFindings: scan.SecurityAudit.Summary.TotalFindings,
-				Critical:      scan.SecurityAudit.Summary.CriticalFindings,
-				High:          scan.SecurityAudit.Summary.HighFindings,
-				Medium:        scan.SecurityAudit.Summary.MediumFindings,
-				Low:           scan.SecurityAudit.Summary.LowFindings,
-			},
+		view := scan.SecurityAudit.View(allMinSeverity)
+		if out.System != nil {
+			// avoid duplicating hist identity alread in out.System
+			view.SystemInfo = nil
 		}
-		for _, check := range scan.SecurityAudit.Results {
-			for _, finding := range check.Findings {
-				sev := types.EffectiveSeverity(finding)
-				if !types.MeetsMinSeverity(sev, allMinSeverity) {
-					continue
-				}
-				f := allFinding{
-					Check:       check.Name,
-					Title:       finding.Title,
-					Severity:    sev,
-					Categories:  finding.Categories,
-					Description: finding.Description,
-					Impact:      finding.Impact,
-					Resolution:  finding.Resolution,
-				}
-				// extract first CWE reference if present
-				for _, ref := range finding.References {
-					if ref.Type == "CWE" {
-						f.CWE = ref.Title
-						break
-					}
-				}
-				sec.Findings = append(sec.Findings, f)
-			}
-		}
-		if suppressed := sec.Summary.TotalFindings - len(sec.Findings); suppressed > 0 {
-			sec.FindingsSuppressed = suppressed
-			sec.MinSeverityApplied = allMinSeverity
-		}
-		if scan.SecurityAudit.EnrichmentRequested {
-			sec.EnrichmentRequested = true
-			if scan.SecurityAudit.EnrichmentError != nil {
-				sec.EnrichmentError = scan.SecurityAudit.EnrichmentError.Error()
-			}
-			if len(scan.SecurityAudit.References.CWEs) > 0 {
-				sec.ReferenceCWEs = scan.SecurityAudit.References.CWEs
-			}
-			sec.ReferenceErrors = enrichment.ReferenceErrorStrings(scan.SecurityAudit.References.Errors)
-			sec.Entries = enrichment.Entries(scan.SecurityAudit.References.CWEs, scan.SecurityAudit.Enrichment)
-			sec.Failures = enrichment.Failures(scan.SecurityAudit.Enrichment)
-		}
-		out.Security = sec
+		out.Security = &view
 	}
 
 	return out
@@ -507,9 +418,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 
 // renderAllText writes a concise human-readable summary of the scan result
 // to w. This is the non-TUI text path; it will be replaced by the Bubbletea
-// progress display when #35 lands. Shared blocks (finding lines, the
-// enrichment six-state block, suppression disclosure, summary) come from
-// internal/render; the first write error from any of them is returned.
+// progress display when #35 lands.
 func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	fmt.Fprintf(w, "owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
 
@@ -531,42 +440,7 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	// security findings
 	if result.SecurityAudit != nil {
 		fmt.Fprintf(w, "Security Audit\n")
-		s := result.SecurityAudit.Summary
-		var shown int
-		for _, check := range result.SecurityAudit.Results {
-			for _, finding := range check.Findings {
-				sev := types.EffectiveSeverity(finding)
-				if !types.MeetsMinSeverity(sev, allMinSeverity) {
-					continue
-				}
-				shown++
-				if err := render.FindingLine(w, "  ", sev, finding.Title); err != nil {
-					return err
-				}
-			}
-		}
-		fmt.Fprintln(w)
-
-		if err := enrichment.Block(w, enrichment.Data{
-			Requested:  result.SecurityAudit.EnrichmentRequested,
-			Err:        result.SecurityAudit.EnrichmentError,
-			References: result.SecurityAudit.References,
-			Result:     result.SecurityAudit.Enrichment,
-			Verbose:    allVerbose,
-		}); err != nil {
-			return err
-		}
-
-		if err := render.SuppressionNotice(w, s.TotalFindings-shown, s.TotalFindings, allMinSeverity); err != nil {
-			return err
-		}
-		if err := render.CompactSummary(w, render.SummaryData{
-			TotalChecks:   s.TotalChecks,
-			PassedChecks:  s.PassedChecks,
-			TotalFindings: s.TotalFindings,
-			Shown:         shown,
-			Duration:      result.Duration.Round(time.Millisecond),
-		}); err != nil {
+		if err := audit.WriteText(w, result.SecurityAudit, allMinSeverity); err != nil {
 			return err
 		}
 	}
