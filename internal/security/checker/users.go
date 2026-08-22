@@ -484,7 +484,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s User %s has an interactive login shell: %s",
 					types.SymbolWarning, user.username, user.shell))
-			emitFindingOnce(result, u.osCtx, "users. login_shell_present", seen)
+			emitFindingOnce(result, u.osCtx, "users.login_shell_present", seen)
 		}
 	}
 
