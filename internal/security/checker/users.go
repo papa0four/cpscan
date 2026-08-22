@@ -495,7 +495,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 	}
 
 	if len(adminUsers) > 0 {
-		result.Details = append(result.Details, "\nAdministrative Users:")
+		result.Details = append(result.Details, "", "Administrative Users:")
 		for _, user := range adminUsers {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, user))
@@ -503,7 +503,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 	}
 
 	if len(regularUsers) > 0 {
-		result.Details = append(result.Details, "\nRegular Users:")
+		result.Details = append(result.Details, "", "Regular Users:")
 		for _, user := range regularUsers {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolOK, user))
@@ -511,7 +511,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 	}
 
 	if len(suspiciousUsers) > 0 {
-		result.Details = append(result.Details, "\nSuspicious Users:")
+		result.Details = append(result.Details, "", "Suspicious Users:")
 		for _, user := range suspiciousUsers {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, user))
@@ -781,7 +781,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *
 	cmd := exec.CommandContext(ctx, "net", "accounts")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
-		result.Details = append(result.Details, "\nPassword Policies:")
+		result.Details = append(result.Details, "", "Password Policies:")
 		for _, policy := range strings.Split(string(output), "\n") {
 			policy = strings.TrimSpace(policy)
 			if policy != "" && !strings.HasPrefix(policy, "The command completed") {

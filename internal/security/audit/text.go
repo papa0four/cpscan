@@ -65,6 +65,10 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		if len(check.Details) > 0 {
 			ew.Printf("Raw Diagnostic Output:\n")
 			for _, detail := range check.Details {
+				if detail == "" {
+					ew.Printf("\n")
+					continue
+				}
 				ew.Printf("  %s\n", detail)
 			}
 		}

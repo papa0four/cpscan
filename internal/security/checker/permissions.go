@@ -295,7 +295,7 @@ func (p *UnixPermissionChecker) checkSUIDFiles(ctx context.Context, result *type
 
 	files := nonEmptyLines(output)
 	if len(files) > 0 {
-		result.Details = append(result.Details, "\nSUID/SGID Files Found:")
+		result.Details = append(result.Details, "", "SUID/SGID Files Found:")
 		for _, file := range files {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
@@ -321,7 +321,7 @@ func (p *UnixPermissionChecker) checkWorldWritableFiles(ctx context.Context, res
 
 	files := nonEmptyLines(output)
 	if len(files) > 0 {
-		result.Details = append(result.Details, "\nWorld-Writable Files Found:")
+		result.Details = append(result.Details, "", "World-Writable Files Found:")
 		for _, file := range files {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
@@ -345,7 +345,7 @@ func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *t
 
 	files := nonEmptyLines(output)
 	if len(files) > 0 {
-		result.Details = append(result.Details, "\nUnowned Files Found:")
+		result.Details = append(result.Details, "", "Unowned Files Found:")
 		for _, file := range files {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, file))
@@ -440,7 +440,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, resul
 	}
 
 	shares := strings.Split(string(output), "\n")
-	result.Details = append(result.Details, "\nNetwork Shares:")
+	result.Details = append(result.Details, "", "Network Shares:")
 
 	seen := make(map[registry.FindingKey]struct{})
 

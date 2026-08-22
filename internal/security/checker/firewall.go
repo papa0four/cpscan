@@ -162,7 +162,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 				fmt.Sprintf("%s Error enumerating firewall rules: %v", types.SymbolError, err))
 		} else {
 			rules := parseWindowsFirewallRules(string(output))
-			result.Details = append(result.Details, "\nActive Firewall Rules:")
+			result.Details = append(result.Details, "", "Active Firewall Rules:")
 			for _, rule := range rules {
 				result.Details = append(result.Details,
 					fmt.Sprintf(" %s", rule))
