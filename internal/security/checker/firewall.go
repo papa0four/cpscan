@@ -16,15 +16,24 @@ type FirewallChecker interface {
 	Check(ctx context.Context) types.AuditResult
 }
 
-// UnixFirewallChecker implements FirewallChecker for Unix-like systems
-type UnixFirewallChecker struct {
-	osCtx registry.OSContext
-}
+type (
+	// UnixFirewallChecker implements FirewallChecker for Unix-like systems
+	UnixFirewallChecker struct {
+		osCtx registry.OSContext
+	}
 
-// WindowsFirewallChecker implements FirewallChecker for Windows systems
-type WindowsFirewallChecker struct {
-	osCtx registry.OSContext
-}
+	// WindowsFirewallChecker implements FirewallChecker for Windows systems
+	WindowsFirewallChecker struct {
+		osCtx registry.OSContext
+	}
+
+	// firewallTool represents a firewall management tool
+	firewallTool struct {
+		name    string
+		command []string
+		parser  func([]byte) []string
+	}
+)
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
 func NewUnixFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
@@ -34,13 +43,6 @@ func NewUnixFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
 // NewWindowsFirewallChecker creates a new Windows firewall checker
 func NewWindowsFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
 	return &WindowsFirewallChecker{osCtx: osCtx}
-}
-
-// firewallTool represents a firewall management tool
-type firewallTool struct {
-	name    string
-	command []string
-	parser  func([]byte) []string
 }
 
 // Check implements FirewallChecker interface for Unix systems
@@ -77,28 +79,33 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	activeFirewalls := 0
+	uncheckedFirewalls := 0
 	for _, fw := range firewalls {
-		cmd := exec.CommandContext(ctx, fw.command[0], fw.command[1:]...) // #nosec G204 -- command args sourced from hardcoded firewallTool struct definitions, not user input
+		if _, err := exec.LookPath(fw.command[0]); err != nil {
+			continue
+		}
+
+		cmd := exec.CommandContext(ctx, fw.command[0], fw.command[1:]...) // #nosec G204 -- command args sourced from hardcoded firewallTool struct definitions, not user
 		output, err := cmd.CombinedOutput()
 
 		if err == nil && len(output) > 0 {
 			activeFirewalls++
 			result.Details = append(result.Details,
 				fmt.Sprintf("\n%s %s firewall is active", types.SymbolOK, fw.name))
-
 			parsedRules := fw.parser(output)
 			result.Details = append(result.Details, parsedRules...)
+			continue
 		}
+
+		uncheckedFirewalls++
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s %s is installed but its status could not be verified in this run",
+				types.SymbolWarning, fw.name))
 	}
 
 	// Check overall firewall status
-	if activeFirewalls == 0 {
-		result.Status = "WARNING"
-		result.Description = "No active firewall detected"
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
-		emitFinding(&result, f.osCtx, "firewall.no_active_manager")
-	} else {
+	switch {
+	case activeFirewalls > 0:
 		result.Status = "COMPLETED"
 		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)
 		if activeFirewalls > 1 {
@@ -106,6 +113,18 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 				fmt.Sprintf("%s NOTE: Multiple active firewalls detected - verify configurations don't conflict",
 					types.SymbolInfo))
 		}
+	case uncheckedFirewalls > 0:
+		result.Status = "WARNING"
+		result.Description = "Firewall status could not be fully verified"
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Firewall check skipped: rerun with elevated privileges for a definitive result",
+				types.SymbolInfo))
+	default:
+		result.Status = "WARNING"
+		result.Description = "No active firewall detected"
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
+		emitFinding(&result, f.osCtx, "firewall.no_active_manager")
 	}
 
 	return result
