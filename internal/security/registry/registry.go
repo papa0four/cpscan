@@ -4,11 +4,7 @@ package registry
 import (
 	"bufio"
 	_ "embed"
-	"fmt"
 	"os"
-	"regexp"
-	"runtime"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,8 +28,10 @@ const (
 	PlatformDarwin  Platform = "darwin"
 	PlatformUnix    Platform = "unix"
 	PlatformUnknown Platform = "unknown"
+)
 
-	// Distro family constants where derivatives resolve to parent family
+// Distro family constants where derivatives resolve to parent family
+const (
 	// Linux Families
 	DistroDebian  Distro = "debian"
 	DistroRHEL    Distro = "rhel"
@@ -50,9 +48,11 @@ const (
 
 	// Non-Linux Platforms
 	DistroNone    Distro = ""
-	DistroUnknown Distro = "unknown"
+	DistroUnknown Distro = "uknown"
+)
 
-	// Reference type classifications produced by ToReferences.
+// Reference type classifications produced by ToReferences.
+const (
 	RefTypeCVE   = "CVE"
 	RefTypeCWE   = "CWE"
 	RefTypeCIS   = "CIS"
@@ -62,117 +62,111 @@ const (
 	RefTypeOther = "OTHER"
 )
 
-type (
-	// OSContext obtains full platform and distro info to pass to auditor before registry lookups
-	OSContext struct {
-		Platform Platform
-		Families []Distro
-	}
+// OSContext obtains full platform and distro info to pass to auditor before registry lookups
+type OSContext struct {
+	Platform Platform
+	Families []Distro
+}
 
-	// FindingDefinition is a registry map for types.Finding
-	FindingDefinition struct {
-		Title       string   `yaml:"title"`
-		Severity    string   `yaml:"severity"`
-		CVSSScore   float64  `yaml:"cvss_score"`
-		CVSSVector  string   `yaml:"cvss_vector"`
-		CWE         string   `yaml:"cwe"`
-		Description string   `yaml:"description"`
-		Impact      string   `yaml:"impact"`
-		Resolution  string   `yaml:"resolution"`
-		References  []string `yaml:"references"`
-	}
-)
+// FindingDefinition is a registry map for types.Finding
+type FindingDefinition struct {
+	Title       string   `yaml:"title"`
+	Severity    string   `yaml:"severity"`
+	CVSSScore   float64  `yaml:"cvss_score"`
+	CVSSVector  string   `yaml:"cvss_vector"`
+	CWE         string   `yaml:"cwe"`
+	Description string   `yaml:"description"`
+	Impact      string   `yaml:"impact"`
+	Resolution  string   `yaml:"resolution"`
+	References  []string `yaml:"references"`
+}
 
-type (
-	// platformRegistry holds all indexed definitions
-	platformRegistry map[Platform]map[FindingKey]FindingDefinition
+// platformRegistry holds all indexed definitions
+type platformRegistry map[Platform]map[FindingKey]FindingDefinition
 
-	// familyRegistry holds finding definitions indexed by distro family,
-	// used for platforms whose findings vary by family (Linux, Unix/BSD)
-	familyRegistry map[Distro]map[FindingKey]FindingDefinition
-)
+// Linux family registry holds distro index findings
+type linuxFamilyRegistry map[Distro]map[FindingKey]FindingDefinition
 
 var (
 	registry      platformRegistry
-	linuxRegistry familyRegistry
-	unixRegistry  familyRegistry
-
-	//go:embed data/windows.yaml
-	windowsData []byte
-
-	//go:embed data/linux_common.yaml
-	linuxCommonData []byte
-
-	//go:embed data/linux_debian.yaml
-	linuxDebianData []byte
-
-	//go:embed data/linux_rhel.yaml
-	linuxRHELData []byte
-
-	//go:embed data/linux_arch.yaml
-	linuxArchData []byte
-
-	//go:embed data/linux_fedora.yaml
-	linuxFedoraData []byte
-
-	//go:embed data/linux_suse.yaml
-	linuxSUSEData []byte
-
-	//go:embed data/linux_alpine.yaml
-	linuxAlpineData []byte
-
-	//go:embed data/darwin.yaml
-	darwinData []byte
-
-	//go:embed data/unix_freebsd.yaml
-	unixFreeBSDData []byte
-
-	//go:embed data/unix_openbsd.yaml
-	unixOpenBSDData []byte
-
-	// nistFamilyPattern matches a NIST SP 800-53 Rev 5 control-family citation
-	// and captures the two-letter family code. Enhancement suffixes such as
-	// "(1)" and the trailing parenthetical control name are not part of the
-	// capture and are not required to be present.
-	nistFamilyPattern = regexp.MustCompile(`^NIST SP 800-53 Rev 5 ([A-Z]{2})-\d+`)
+	linuxRegistry linuxFamilyRegistry
 )
+
+//go:embed data/windows.yaml
+var windowsData []byte
+
+//go:embed data/linux_common.yaml
+var linuxCommonData []byte
+
+//go:embed data/linux_debian.yaml
+var linuxDebianData []byte
+
+//go:embed data/linux_rhel.yaml
+var linuxRHELData []byte
+
+//go:embed data/linux_arch.yaml
+var linuxArchData []byte
+
+//go:embed data/linux_fedora.yaml
+var linuxFedoraData []byte
+
+//go:embed data/linux_suse.yaml
+var linuxSUSEData []byte
+
+//go:embed data/linux_alpine.yaml
+var linuxAlpineData []byte
+
+//go:embed data/darwin.yaml
+var darwinData []byte
+
+//go:embed data/unix_freebsd.yaml
+var unixFreeBSDData []byte
+
+//go:embed data/unix_openbsd.yaml
+var unixOpenBSDData []byte
 
 func init() {
 	registry = make(platformRegistry)
-	linuxRegistry = make(familyRegistry)
-	unixRegistry = make(familyRegistry)
+	linuxRegistry = make(linuxFamilyRegistry)
 
-	registry[PlatformWindows] = mustLoad("windows.yaml", windowsData)
-	registry[PlatformDarwin] = mustLoad("darwin.yaml", darwinData)
+	registry[PlatformWindows] = mustLoad(windowsData)
+	registry[PlatformDarwin] = mustLoad(darwinData)
 
-	linuxRegistry[DistroGeneric] = mustLoad("linux_common.yaml", linuxCommonData)
-	linuxRegistry[DistroDebian] = mustLoad("linux_debian.yaml", linuxDebianData)
-	linuxRegistry[DistroRHEL] = mustLoad("linux_rhel.yaml", linuxRHELData)
-	linuxRegistry[DistroArch] = mustLoad("linux_arch.yaml", linuxArchData)
-	linuxRegistry[DistroFedora] = mustLoad("linux_fedora.yaml", linuxFedoraData)
-	linuxRegistry[DistroSUSE] = mustLoad("linux_suse.yaml", linuxSUSEData)
-	linuxRegistry[DistroAlpine] = mustLoad("linux_alpine.yaml", linuxAlpineData)
+	linuxRegistry[DistroGeneric] = mustLoad(linuxCommonData)
+	linuxRegistry[DistroDebian] = mustLoad(linuxDebianData)
+	linuxRegistry[DistroRHEL] = mustLoad(linuxRHELData)
+	linuxRegistry[DistroArch] = mustLoad(linuxArchData)
+	linuxRegistry[DistroFedora] = mustLoad(linuxFedoraData)
+	linuxRegistry[DistroSUSE] = mustLoad(linuxSUSEData)
+	linuxRegistry[DistroAlpine] = mustLoad(linuxAlpineData)
 
-	unixRegistry[DistroFreeBSD] = mustLoad("unix_freebsd.yaml", unixFreeBSDData)
-	unixRegistry[DistroOpenBSD] = mustLoad("unix_openbsd.yaml", unixOpenBSDData)
+	unixRegistry := make(map[Distro]map[FindingKey]FindingDefinition)
+	unixRegistry[DistroFreeBSD] = mustLoad(unixFreeBSDData)
+	unixRegistry[DistroOpenBSD] = mustLoad(unixOpenBSDData)
+	registry[PlatformUnix] = flattenUnix(unixRegistry)
 }
 
-// mustLoad parses a byte slice into a finding map. name identifies the
-// source YAML file in panic messages, since embed.FS collapses every
-// source into an anonymous []byte and a bare parse or validation failure
-// would otherwise give no indication which of the eleven embedded files is
-// malformed.
-func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
+// mustLoad parses a byte slice into a finding map
+func mustLoad(data []byte) map[FindingKey]FindingDefinition {
 	var raw map[string]FindingDefinition
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		panic("registry: failed to parse embedded YAML " + name + ": " + err.Error())
+		panic("registry: failed to parse embedded YAML: " + err.Error())
 	}
 	out := make(map[FindingKey]FindingDefinition, len(raw))
 	for k, v := range raw {
-		if err := v.validateCategories(); err != nil {
-			panic("registry: " + name + ": finding \"" + k + "\": " + err.Error())
-		}
 		out[FindingKey(k)] = v
+	}
+	return out
+}
+
+// flattenUnix merges unix family maps into a distro key map
+func flattenUnix(families map[Distro]map[FindingKey]FindingDefinition) map[FindingKey]FindingDefinition {
+	out := make(map[FindingKey]FindingDefinition)
+	for family, findings := range families {
+		for key, def := range findings {
+			prefixed := FindingKey(string(family) + "." + string(key))
+			out[prefixed] = def
+		}
 	}
 	return out
 }
@@ -194,16 +188,6 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 		}
 		return FindingDefinition{}, false
 
-	case PlatformUnix:
-		for _, family := range ctx.Families {
-			if fm, ok := unixRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
-			}
-		}
-		return FindingDefinition{}, false
-
 	default:
 		if pm, ok := registry[ctx.Platform]; ok {
 			if def, ok := pm[key]; ok {
@@ -216,12 +200,6 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 
 // DetectOS identifies the current platform and, for Linux, resolves
 // the full distribution family chain from /etc/os-release.
-//
-// Deliberately independent of internal/osfingerprint: this resolves which
-// registry YAML files apply to the host (family-chain precision from
-// ID/ID_LIKE), not host identity for reporting, and wiring it to
-// osfingerprint would violate the pinned import direction (registry
-// imports types only).
 func DetectOS() OSContext {
 	switch platform := detectPlatform(); platform {
 	case PlatformLinux:
@@ -229,33 +207,27 @@ func DetectOS() OSContext {
 			Platform: PlatformLinux,
 			Families: detectLinuxFamilies(),
 		}
-	case PlatformUnix:
-		return OSContext{
-			Platform: PlatformUnix,
-			Families: []Distro{resolveDistro(runtime.GOOS)},
-		}
 	default:
 		return OSContext{Platform: platform}
 	}
 }
 
-// detectPlatform returns the Platform from runtime.GOOS. Compile-time truth
-// cannot misidentify the host the way filesystem probes can (a Linux system
-// without /etc/os-release is still Linux); /etc/os-release is consulted only
-// for distro family resolution, never for platform identity.
+// detectPlatform returns the Platform either via runtime.GOOS or /etc/os-release
 func detectPlatform() Platform {
-	switch runtime.GOOS {
-	case "linux":
+	// Check for Linux first via os-release presence
+	if _, err := os.Stat("/etc/os-release"); err == nil {
 		return PlatformLinux
-	case "darwin":
-		return PlatformDarwin
-	case "windows":
-		return PlatformWindows
-	case "freebsd", "openbsd", "netbsd":
-		return PlatformUnix
-	default:
-		return PlatformUnknown
 	}
+	// macOS
+	if _, err := os.Stat("/System/Library/CoreServices/SystemVersion.plist"); err == nil {
+		return PlatformDarwin
+	}
+	// FreeBSD / OpenBSD / NetBSD
+	if _, err := os.Stat("/etc/rc.conf"); err == nil {
+		return PlatformUnix
+	}
+	// Windows — none of the above exist
+	return PlatformWindows
 }
 
 // detectLinuxFamilies parses /etc/os-release and returns the
@@ -265,7 +237,7 @@ func detectLinuxFamilies() []Distro {
 	if err != nil {
 		return []Distro{DistroGeneric}
 	}
-	defer file.Close() // nolint:errcheck // read-only file; no data at risk
+	defer file.Close() // nolint:errcheck // read-only file
 
 	var id, idLike string
 	scanner := bufio.NewScanner(file)
@@ -398,54 +370,4 @@ func cveURL(s string) string {
 		return s
 	}
 	return "https://nvd.nist.gov/vuln/detail/" + s
-}
-
-// validateCategories confirms every NIST-classified reference in d resolves
-// to a control-family code. Called once per finding at registry load time
-// so ToCategories can extract categories at finding-construction sites
-// without an error return: a malformed citation is a registry data defect
-// and must fail the build, not silently produce a finding with no category
-// or a wrong one.
-func (d FindingDefinition) validateCategories() error {
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		if !nistFamilyPattern.MatchString(ref.Title) {
-			return fmt.Errorf("malformed NIST control-family reference: %q", ref.Title)
-		}
-	}
-	return nil
-}
-
-// ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
-// codes from d's NIST-classified references, in alphabetical order.
-// Every reference has already passed validateCategories at registry load
-// time, so a pattern mismatch here indicates the two functions have gone
-// out of sync with each other, not a data defect.
-func (d FindingDefinition) ToCategories() []string {
-	if len(d.References) == 0 {
-		return nil
-	}
-	var out []string
-	seen := make(map[string]struct{})
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		match := nistFamilyPattern.FindStringSubmatch(ref.Title)
-		if match == nil {
-			panic("registry: NIST reference passed validateCategories but failed extraction: " + ref.Title)
-		}
-		family := match[1]
-		if _, dup := seen[family]; dup {
-			continue
-		}
-		seen[family] = struct{}{}
-		out = append(out, family)
-	}
-	sort.Strings(out)
-	return out
 }

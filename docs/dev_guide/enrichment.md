@@ -375,10 +375,10 @@ requested:
 | `enrichment_error`    | `audit.Result.EnrichmentError.Error()` or omitted |
 | `reference_cwes`      | `audit.Result.References.CWEs`                    |
 | `reference_errors`    | `formatReferenceErrors(result.References.Errors)` |
-| `enrichment_entries`  | `buildFormattedEntries(result)`         |
-| `enrichment_failures` | `buildFormattedFailureViews(result)`        |
+| `enrichment_entries`  | `buildFormattedEnrichmentEntries(result)`         |
+| `enrichment_failures` | `buildFormattedEnrichmentFailures(result)`        |
 
-**Plain-text output** is produced via `renderBlock` and
+**Plain-text output** is produced via `renderEnrichmentBlock` and
 `renderReferenceErrors`, called from `formatText` (the text-mode output
 path), implementing the six rendering states described below.
 

@@ -11,9 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// platformRunE is the Unix entry point for the audit command, assigned to
-// SecurityCmd.RunE at its declaration site in security.go.
-func platformRunE(cmd *cobra.Command, args []string) error {
+func init() {
+	SecurityCmd.RunE = runUnixAudit
+}
+
+func runUnixAudit(cmd *cobra.Command, args []string) error {
 	if err := validateFlags(cmd); err != nil {
 		return err
 	}

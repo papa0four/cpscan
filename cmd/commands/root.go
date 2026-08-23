@@ -18,11 +18,11 @@ var RootCmd = &cobra.Command{
 	Long:          `orkowatch helps engineers and architects scan for vulnerabilities in OS, software, and security protocols`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("owatch requires a subcommand (e.g., all, osinfo, audit, software).")
 		if err := cmd.Help(); err != nil {
-			return fmt.Errorf("displaying help: %w", err)
+			fmt.Fprintf(os.Stderr, "error displaying help: %v\n", err)
 		}
-		return fmt.Errorf("owatch requires a subcommand (e.g., all, osinfo, audit, software)")
 	},
 }
 
@@ -31,13 +31,10 @@ func init() {
 	RootCmd.Flags().BoolP("version", "V", false, "version for owatch")
 }
 
-// Execute runs the root command and exits with a non-zero status on error.
-// SilenceErrors is set on RootCmd, so this is the single error-reporting
-// point for the binary; errors go to stderr, never stdout, so they cannot
-// interleave with report output or escape 2> redirection.
+// Execute runs the root command and exits with a non-zero status on error
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Println(err)
 		os.Exit(1)
 	}
 }

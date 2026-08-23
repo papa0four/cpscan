@@ -1,6 +1,6 @@
 module github.com/papa0four/orkowatch
 
-go 1.26.6
+go 1.26.3
 
 require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
