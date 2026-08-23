@@ -2,11 +2,11 @@
 
 <!-- What this PR does and why, in a few sentences. -->
 
-## Changes
+## Scope
 
-- `path` -- description
+<!-- Files or areas touched. -->
 
-## Verified
+## Acceptance criteria
 
 - [ ] `gofmt -w .`
 - [ ] `go build ./...`
@@ -15,5 +15,10 @@
 - [ ] `govulncheck ./...`
 - [ ] `golangci-lint run --timeout=5m`
 - [ ] `GOOS=windows go build ./...` (cross-platform changes)
+- [ ]
+
+## Notes
+
+<!-- Cross-issue dependencies, deferred items, or decisions made during scoping. -->
 
 Closes #

@@ -34,7 +34,7 @@ func refusedReason(target string) string {
 func refusedBases() []string {
 	startupRel := filepath.Join("Microsoft", "Windows", "Start Menu", "Programs", "Startup")
 
-	bases := make([]string, 0, 5)
+	var bases []string
 	for _, env := range []string{"SystemRoot", "ProgramFiles", "ProgramFiles(x86)"} {
 		if v := os.Getenv(env); v != "" {
 			bases = append(bases, v)
@@ -52,7 +52,7 @@ func refusedBases() []string {
 // canonicalParent returns the OS-resolved long-form path of parent so the
 // location checks cannot be evaded by 8.3 short names, links, or trailing dots
 // and spaces.
-func canonicalParent(parent string) (string, error) {
+func canonicalParent(parent string) (final string, err error) {
 	if strings.HasPrefix(parent, `\\?\`) || strings.HasPrefix(parent, `\\.\`) {
 		return "", fmt.Errorf("%w: extended-length or device path", ErrRefusedLocation)
 	}
@@ -94,7 +94,7 @@ func canonicalParent(parent string) (string, error) {
 		}
 	}
 
-	final := windows.UTF16ToString(buf)
+	final = windows.UTF16ToString(buf)
 	if rest := strings.TrimPrefix(final, `\\?\UNC\`); rest != final {
 		return `\\` + rest, nil
 	}
@@ -124,7 +124,7 @@ func withinAllowlist(target string) (bool, error) {
 }
 
 func allowlistRoots() []string {
-	roots := make([]string, 0, 2)
+	roots := make([]string, 0, maxOperatorHomes)
 	if cwd, err := os.Getwd(); err == nil {
 		roots = append(roots, cwd)
 	}
@@ -232,7 +232,7 @@ func sidTrusted(sid *windows.SID, trusted []*windows.SID) bool {
 }
 
 // openAndWrite writes data to target without traversing a reparse point
-func openAndWrite(target string, data []byte) error {
+func openAndWrite(target string, data []byte) (err error) {
 	if info, err := os.Lstat(target); err == nil {
 		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 			return fmt.Errorf("%w: reparse point", ErrNotRegularFile)
@@ -271,7 +271,7 @@ func openAndWrite(target string, data []byte) error {
 	}()
 
 	var fi windows.ByHandleFileInformation
-	if ierr := windows.GetFileInformationByHandle(handle, &fi); err != nil {
+	if ierr := windows.GetFileInformationByHandle(handle, &fi); ierr != nil {
 		return fmt.Errorf("inspect destination: %w", ierr)
 	}
 	if fi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {

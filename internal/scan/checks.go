@@ -97,12 +97,12 @@ const (
 	CategoryEnrichment
 	// CategoryMITRE identifies a composing flag bit (bits 62 - 63)
 	CategoryMITRE
-)
 
-// categoryCount is the number of defined CheckCategory values. It bounds the
-// segments slice in Codes and must be updated if new categories are added to
-// the CheckCategory const block.
-const categoryCount = 4
+	// categoryCount bounds the segments slice in Codes. It is derived from
+	// iota, so it tracks the const block automatically: it must remain the
+	// final entry, and every category above it must remain contiguous.
+	categoryCount
+)
 
 // registryEntry is a single record in the canonical check registry. It binds
 // a CheckMask bit to its short filename code, canonical name, CLI flag name,
@@ -280,7 +280,7 @@ func Codes(mask CheckMask) string {
 			prefixed = append(prefixed, seg...)
 			parts = append(parts, string(prefixed))
 		} else {
-			// unprefixes segment
+			// unprefixed segment
 			parts = append(parts, string(seg))
 		}
 	}
@@ -306,10 +306,13 @@ func EnabledChecks(mask CheckMask) []string {
 // OR-ing the bits of all matching registry entries within category. Only
 // entries whose category matches the supplied category are accepted; entries
 // from other categories are rejected to prevent callers from accidentally
-// setting bits outside the intended range. The valid name set is derived
-// dynamically from the registry so the error message stays accurate as new
-// entries are added. It returns an error naming the first unrecognized entry
-// alongside the full valid set for that category.
+// setting bits outside the intended range. CLI flag aliases are deliberately
+// accepted alongside canonical names (e.g. --skip-checks fwall resolves to
+// firewall), so an analyst can skip a check by the same token used to enable
+// it; error messages and help text advertise canonical names only. The valid
+// name set is derived dynamically from the registry so the error message
+// stays accurate as new entries are added. It returns an error naming the
+// first unrecognized entry alongside the full valid set for that category.
 func MaskFromNames(names []string, category CheckCategory) (CheckMask, error) {
 	var mask CheckMask
 	for _, name := range names {
