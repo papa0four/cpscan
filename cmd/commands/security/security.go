@@ -2,7 +2,6 @@
 package security
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -42,15 +40,11 @@ var (
 	allowElevatedWrite bool
 )
 
-// SecurityCmd represents the security audit command. RunE is assigned at the
-// declaration site from platformRunE, a symbol provided by exactly one
-// build-tagged platform file per compiled target. A target missing its
-// platform file fails to compile rather than shipping a nil RunE.
+// SecurityCmd represents the security audit command
 var SecurityCmd = &cobra.Command{
 	Use:     "audit [flags] [check...]",
 	Aliases: []string{"security_audit"},
 	Short:   "Perform a security audit of the system",
-	RunE:    platformRunE,
 	Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
@@ -81,19 +75,19 @@ You can run all checks or specify individual checks to run.`,
 // Formatter types
 type (
 	formattedResult struct {
-		Timestamp           string                     `json:"timestamp" yaml:"timestamp"`
-		Duration            string                     `json:"duration" yaml:"duration"`
-		SystemInfo          formattedSystemInfo        `json:"system_info" yaml:"system_info"`
-		Results             []formattedCheck           `json:"results" yaml:"results"`
-		Summary             formattedSummary           `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                        `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                     `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                       `json:"enrichment_requested" yaml:"enrichment_requested"`
-		EnrichmentError     string                     `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                   `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                   `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
-		EnrichmentEntries   []render.EnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		EnrichmentFailures  []render.EnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Timestamp           string                       `json:"timestamp" yaml:"timestamp"`
+		Duration            string                       `json:"duration" yaml:"duration"`
+		SystemInfo          formattedSystemInfo          `json:"system_info" yaml:"system_info"`
+		Results             []formattedCheck             `json:"results" yaml:"results"`
+		Summary             formattedSummary             `json:"summary" yaml:"summary"`
+		FindingsSuppressed  int                          `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
+		MinSeverityApplied  string                       `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
+		EnrichmentRequested bool                         `json:"enrichment_requested" yaml:"enrichment_requested"`
+		EnrichmentError     string                       `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
+		ReferenceCWEs       []string                     `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+		ReferenceErrors     []string                     `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
+		EnrichmentEntries   []formattedEnrichmentEntry   `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
+		EnrichmentFailures  []formattedEnrichmentFailure `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 	}
 
 	formattedSystemInfo struct {
@@ -134,6 +128,34 @@ type (
 		HighFindings     int `json:"high_findings" yaml:"high_findings"`
 		MediumFindings   int `json:"medium_findings" yaml:"medium_findings"`
 		LowFindings      int `json:"low_findings" yaml:"low_findings"`
+	}
+
+	formattedEnrichmentMatch struct {
+		CVEID          string  `json:"cve_id" yaml:"cve_id"`
+		Source         string  `json:"source" yaml:"source"`
+		CVSSBaseScore  float64 `json:"cvss_base_score" yaml:"cvss_base_score"`
+		CVSSSeverity   string  `json:"cvss_severity" yaml:"cvss_severity"`
+		Description    string  `json:"description,omitempty" yaml:"description,omitempty"`
+		KnownExploited bool    `json:"known_exploited" yaml:"known_exploited"`
+		PatchAvailable bool    `json:"patch_available" yaml:"patch_available"`
+	}
+
+	// formattedEnrichmentEntry is the typed representation of a single CWE's
+	// enrichment result for JSON/YAML audit output.
+	formattedEnrichmentEntry struct {
+		CWEID        string                     `json:"cwe_id" yaml:"cwe_id"`
+		WeaknessName string                     `json:"weakness_name,omitempty" yaml:"weakness_name,omitempty"`
+		NoMatches    bool                       `json:"no_matches" yaml:"no_matches"`
+		Matches      []formattedEnrichmentMatch `json:"matches,omitempty" yaml:"matches,omitempty"`
+	}
+
+	// formattedEnrichmentFailure is the typed representation of a failed
+	// per-CWE enrichment lookup for JSON/YAML audit output.
+	formattedEnrichmentFailure struct {
+		CWEID     string `json:"cwe_id" yaml:"cwe_id"`
+		Source    string `json:"source" yaml:"source"`
+		Reason    string `json:"reason" yaml:"reason"`
+		Retryable bool   `json:"retryable" yaml:"retryable"`
 	}
 )
 
@@ -197,22 +219,19 @@ func buildMask() (scan.CheckMask, error) {
 
 func validateFlags(cmd *cobra.Command) error {
 	switch outputFormat {
-	case "json", "yaml", "text":
+	case "json", "yaml", "text", "csv":
 		// accepted
 	default:
-		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", outputFormat)
+		return fmt.Errorf("invalid output format: %s (valid: json, yaml, text)", outputFormat)
 	}
 
-	// Normalize once at the boundary so every downstream consumer sees the
-	// canonical form; validation and storage happen in the same step.
-	minSeverity = strings.ToUpper(minSeverity)
 	validSeverities := map[string]bool{
 		"LOW":      true,
 		"MEDIUM":   true,
 		"HIGH":     true,
 		"CRITICAL": true,
 	}
-	if !validSeverities[minSeverity] {
+	if !validSeverities[strings.ToUpper(minSeverity)] {
 		return fmt.Errorf("invalid severity level: %s", minSeverity)
 	}
 
@@ -279,40 +298,45 @@ func logVerboseConfig(mask scan.CheckMask) {
 	fmt.Println()
 }
 
-// runAuditWithTimeout executes the audit synchronously under a deadline.
-// Cancellation propagates through RunAudit into checker exec and filesystem
-// work, so on timeout nothing owatch started is left running -- the prior
-// goroutine-and-select pattern reported the timeout but abandoned the scan
-// to keep executing against the host.
 func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
 		Verbose:        verbose && reportFile == "",
 		SkipChecks:     skipChecks,
 		FilePermsPath:  checkFilePerms,
 		MinSeverity:    minSeverity,
+		Timeout:        timeout,
 		SpecificChecks: scan.EnabledChecks(mask),
 		Enrich:         enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
 
-	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-	defer cancel()
+	resultChan := make(chan *audit.Result, 1)
+	errorChan := make(chan error, 1)
 
-	result, err := auditor.RunAudit(ctx)
-	if ctx.Err() == context.DeadlineExceeded {
+	go func() {
+		result, err := auditor.RunAudit()
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		resultChan <- result
+	}()
+
+	select {
+	case result := <-resultChan:
+		return outputResults(cmd, result, mask)
+	case err := <-errorChan:
+		return fmt.Errorf("audit failed: %w", err)
+	case <-time.After(timeout):
 		return fmt.Errorf("audit timeout after %v", timeout)
 	}
-	if err != nil {
-		return fmt.Errorf("audit failed: %w", err)
-	}
-
-	return outputResults(cmd, result, mask)
 }
 
 func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
-		return fmt.Errorf("audit produced no results")
+		fmt.Println("No results to display.")
+		return nil
 	}
 
 	format := "text"
@@ -330,6 +354,8 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 		output, err = formatJSON(result)
 	case "yaml":
 		output, err = formatYAML(result)
+	case "csv":
+		return fmt.Errorf("csv output format is not yet implemented")
 	default:
 		output, err = formatText(result)
 	}
@@ -406,9 +432,9 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 	if len(result.References.CWEs) > 0 {
 		formatted.ReferenceCWEs = result.References.CWEs
 	}
-	formatted.ReferenceErrors = render.ReferenceErrorStrings(result.References.Errors)
-	formatted.EnrichmentEntries = render.EnrichmentEntries(result.References, result.Enrichment)
-	formatted.EnrichmentFailures = render.EnrichmentFailures(result.Enrichment)
+	formatted.ReferenceErrors = formatReferenceErrors(result.References.Errors)
+	formatted.EnrichmentEntries = buildFormattedEnrichmentEntries(result)
+	formatted.EnrichmentFailures = buildFormattedEnrichmentFailures(result)
 
 	var shownFindings int
 	for _, check := range result.Results {
@@ -421,14 +447,13 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 		}
 
 		for _, finding := range check.Findings {
-			sev := types.EffectiveSeverity(finding)
-			if !types.MeetsMinSeverity(sev, minSeverity) {
+			if !meetsMinSeverity(finding.Severity, minSeverity) {
 				continue
 			}
 			shownFindings++
 			fc.Findings = append(fc.Findings, formattedFinding{
 				Title:       finding.Title,
-				Severity:    sev,
+				Severity:    finding.Severity,
 				Description: finding.Description,
 				Impact:      finding.Impact,
 				Resolution:  finding.Resolution,
@@ -447,13 +472,103 @@ func convertToFormattedResult(result *audit.Result) formattedResult {
 	return formatted
 }
 
+func renderEnrichmentBlock(builder *strings.Builder, result *audit.Result) {
+	if !result.EnrichmentRequested {
+		return
+	}
+
+	builder.WriteString("Enrichment:\n")
+
+	if result.EnrichmentError != nil {
+		fmt.Fprintf(builder, "  Unavailable: %v\n\n", result.EnrichmentError)
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	if len(result.References.CWEs) == 0 {
+		builder.WriteString("  No CWE references found in current findings.\n\n")
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	if result.Enrichment == nil {
+		builder.WriteString("  No enrichment data returned.\n\n")
+		renderReferenceErrors(builder, result.References)
+		return
+	}
+
+	rendered := 0
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		rendered++
+		fmt.Fprintf(builder, "  %s", cwe)
+		if entry.WeaknessName != "" {
+			fmt.Fprintf(builder, " - %s", entry.WeaknessName)
+		}
+		fmt.Fprintln(builder)
+
+		if entry.Status == "NO_MATCHES" || len(entry.MatchedCVEs) == 0 {
+			builder.WriteString("    No CVE matches in queried sources.\n")
+			continue
+		}
+
+		for _, match := range entry.MatchedCVEs {
+			symbol, label := types.SeverityFormat(match.CVSSSeverity)
+			fmt.Fprintf(builder, "    %s %s  %s (%.1f) [%s]\n",
+				symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
+			if verbose {
+				if match.Description != "" {
+					fmt.Fprintf(builder, "      Description: %s\n", match.Description)
+				}
+				if match.KnownExploited {
+					builder.WriteString("      Known Exploited: yes\n")
+				}
+				if match.PatchAvailable {
+					builder.WriteString("      Patch Available: yes\n")
+				}
+			}
+		}
+	}
+
+	if rendered == 0 {
+		builder.WriteString("  No enrichment data returned.\n")
+	}
+
+	if len(result.Enrichment.Failures) > 0 {
+		builder.WriteString("\n  Failed enrichments:\n")
+		for cwe, failure := range result.Enrichment.Failures {
+			fmt.Fprintf(builder, "    %s [%s]: %s",
+				cwe, failure.Source, failure.Reason)
+			if failure.Retryable {
+				builder.WriteString(" (retryable)")
+			}
+			fmt.Fprintln(builder)
+		}
+	}
+
+	builder.WriteString("\n")
+	renderReferenceErrors(builder, result.References)
+}
+
+func renderReferenceErrors(builder *strings.Builder, refs types.ReferenceExtraction) {
+	if len(refs.Errors) == 0 {
+		return
+	}
+	builder.WriteString("  Reference parsing errors:\n")
+	for _, err := range refs.Errors {
+		fmt.Fprintf(builder, "    %v\n", err)
+	}
+	builder.WriteString("\n")
+}
+
 // formatText renders result as human-readable text, applying the active
 // minSeverity filter to findings before output. Each check block includes
 // a clean-pass confirmation when no findings meet the threshold, ensuring
 // an empty findings block is never visually ambiguous. Verbose mode appends
-// finding details, impact, resolution, and raw diagnostic output. Shared
-// blocks (finding lines, the enrichment six-state block, suppression
-// disclosure, summary) come from internal/render.
+// finding details, impact, resolution, and raw diagnostic output.
 func formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 	isComprehensive := len(result.Results) > 1
@@ -476,7 +591,7 @@ func formatText(result *audit.Result) (string, error) {
 
 		var filteredFindings []types.Finding
 		for _, finding := range checkResult.Findings {
-			if types.MeetsMinSeverity(types.EffectiveSeverity(finding), minSeverity) {
+			if meetsMinSeverity(finding.Severity, minSeverity) {
 				filteredFindings = append(filteredFindings, finding)
 			}
 		}
@@ -485,9 +600,8 @@ func formatText(result *audit.Result) (string, error) {
 			hasFindings = true
 			builder.WriteString("Findings:\n")
 			for _, finding := range filteredFindings {
-				if err := render.FindingLine(&builder, "", types.EffectiveSeverity(finding), finding.Title); err != nil {
-					return "", err
-				}
+				symbol, label := types.SeverityFormat(finding.Severity)
+				fmt.Fprintf(&builder, "%s %s  %s\n", symbol, label, finding.Title)
 				if verbose {
 					if finding.Description != "" {
 						fmt.Fprintf(&builder, "  Description: %s\n", finding.Description)
@@ -517,38 +631,128 @@ func formatText(result *audit.Result) (string, error) {
 		builder.WriteString("\n")
 	}
 
-	if err := render.EnrichmentBlock(&builder, render.EnrichmentData{
-		Requested:  result.EnrichmentRequested,
-		Err:        result.EnrichmentError,
-		References: result.References,
-		Result:     result.Enrichment,
-		Verbose:    verbose,
-	}); err != nil {
-		return "", err
+	renderEnrichmentBlock(&builder, result)
+
+	suppressed := result.Summary.TotalFindings - shownFindings
+	if suppressed > 0 {
+		fmt.Fprintf(&builder, "%d of %d findings suppressed by --min-severity %s. "+
+			"Rerun with a lower threshold or without --min-severity to see all findings.\n\n",
+			suppressed, result.Summary.TotalFindings, strings.ToUpper(minSeverity))
 	}
 
-	if err := render.SuppressionNotice(&builder, result.Summary.TotalFindings-shownFindings,
-		result.Summary.TotalFindings, minSeverity); err != nil {
-		return "", err
+	builder.WriteString("Summary:\n")
+	fmt.Fprintf(&builder, "Checks Run:      %d\n", result.Summary.TotalChecks)
+	fmt.Fprintf(&builder, "Passed:          %d\n", result.Summary.PassedChecks)
+	fmt.Fprintf(&builder, "Skipped:         %d\n", result.Summary.SkippedChecks)
+	if suppressed > 0 {
+		fmt.Fprintf(&builder, "Total Findings:  %d (%d present, %d suppressed)\n",
+			result.Summary.TotalFindings, shownFindings, suppressed)
+	} else {
+		fmt.Fprintf(&builder, "Total Findings:  %d\n", result.Summary.TotalFindings)
 	}
-	if err := render.DetailedSummary(&builder, render.SummaryData{
-		TotalChecks:   result.Summary.TotalChecks,
-		PassedChecks:  result.Summary.PassedChecks,
-		SkippedChecks: result.Summary.SkippedChecks,
-		TotalFindings: result.Summary.TotalFindings,
-		Shown:         shownFindings,
-		Critical:      result.Summary.CriticalFindings,
-		High:          result.Summary.HighFindings,
-		Medium:        result.Summary.MediumFindings,
-		Low:           result.Summary.LowFindings,
-		Duration:      result.Duration,
-	}); err != nil {
-		return "", err
-	}
+	fmt.Fprintf(&builder, "  Critical:      %d\n", result.Summary.CriticalFindings)
+	fmt.Fprintf(&builder, "  High:          %d\n", result.Summary.HighFindings)
+	fmt.Fprintf(&builder, "  Medium:        %d\n", result.Summary.MediumFindings)
+	fmt.Fprintf(&builder, "  Low:           %d\n", result.Summary.LowFindings)
+	fmt.Fprintf(&builder, "Duration:        %v\n", result.Duration)
 
 	if !verbose && hasFindings {
 		builder.WriteString("\nRun with -v for full finding details, impact analysis, and remediation guidance.\n")
 	}
 
 	return builder.String(), nil
+}
+
+// buildFormattedEnrichmentEntries converts enrichment successes into typed
+// structs, in the same CWE order as result.References.CWEs so output order
+// is stable across runs.
+func buildFormattedEnrichmentEntries(result *audit.Result) []formattedEnrichmentEntry {
+	if result.Enrichment == nil {
+		return nil
+	}
+	out := make([]formattedEnrichmentEntry, 0, len(result.References.CWEs))
+	for _, cwe := range result.References.CWEs {
+		entry, ok := result.Enrichment.Successes[cwe]
+		if !ok {
+			continue
+		}
+		e := formattedEnrichmentEntry{
+			CWEID:        cwe,
+			WeaknessName: entry.WeaknessName,
+			NoMatches:    string(entry.Status) == "NO_MATCHES" || len(entry.MatchedCVEs) == 0,
+		}
+		for _, match := range entry.MatchedCVEs {
+			e.Matches = append(e.Matches, formattedEnrichmentMatch{
+				CVEID:          match.CVEID,
+				Source:         string(match.Source),
+				CVSSBaseScore:  match.CVSSBaseScore,
+				CVSSSeverity:   match.CVSSSeverity,
+				Description:    match.Description,
+				KnownExploited: match.KnownExploited,
+				PatchAvailable: match.PatchAvailable,
+			})
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// buildFormattedEnrichmentFailures converts enrichment failures into typed
+// structs for JSON/YAML audit output.
+func buildFormattedEnrichmentFailures(result *audit.Result) []formattedEnrichmentFailure {
+	if result.Enrichment == nil || len(result.Enrichment.Failures) == 0 {
+		return nil
+	}
+	out := make([]formattedEnrichmentFailure, 0, len(result.Enrichment.Failures))
+	for cwe, failure := range result.Enrichment.Failures {
+		out = append(out, formattedEnrichmentFailure{
+			CWEID:     cwe,
+			Source:    string(failure.Source),
+			Reason:    failure.Reason,
+			Retryable: failure.Retryable,
+		})
+	}
+	return out
+}
+
+// formatReferenceErrors converts reference parsing errors into strings for
+// JSON/YAML audit output.
+func formatReferenceErrors(errs []error) []string {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, e.Error())
+	}
+	return out
+}
+
+// severityLevel returns the numeric rank of a severity string for threshold
+// comparisons. Unknown values return -1 so they are never silently dropped.
+func severityLevel(s string) int {
+	switch strings.ToUpper(s) {
+	case types.SeverityLow:
+		return 0
+	case types.SeverityMedium:
+		return 1
+	case types.SeverityHigh:
+		return 2
+	case types.SeverityCritical:
+		return 3
+	default:
+		return -1
+	}
+}
+
+// meetsMinSeverity reports whether findingSeverity is at or above the
+// minSeverity threshold. Unrecognized severity values pass through so
+// findings are never silently dropped.
+func meetsMinSeverity(findingSeverity, min string) bool {
+	fl := severityLevel(findingSeverity)
+	ml := severityLevel(min)
+	if fl < 0 || ml < 0 {
+		return true
+	}
+	return fl >= ml
 }

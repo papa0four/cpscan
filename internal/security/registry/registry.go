@@ -5,7 +5,6 @@ import (
 	"bufio"
 	_ "embed"
 	"os"
-	"runtime"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -29,8 +28,10 @@ const (
 	PlatformDarwin  Platform = "darwin"
 	PlatformUnix    Platform = "unix"
 	PlatformUnknown Platform = "unknown"
+)
 
-	// Distro family constants where derivatives resolve to parent family
+// Distro family constants where derivatives resolve to parent family
+const (
 	// Linux Families
 	DistroDebian  Distro = "debian"
 	DistroRHEL    Distro = "rhel"
@@ -47,9 +48,11 @@ const (
 
 	// Non-Linux Platforms
 	DistroNone    Distro = ""
-	DistroUnknown Distro = "unknown"
+	DistroUnknown Distro = "uknown"
+)
 
-	// Reference type classifications produced by ToReferences.
+// Reference type classifications produced by ToReferences.
+const (
 	RefTypeCVE   = "CVE"
 	RefTypeCWE   = "CWE"
 	RefTypeCIS   = "CIS"
@@ -59,79 +62,72 @@ const (
 	RefTypeOther = "OTHER"
 )
 
-type (
-	// OSContext obtains full platform and distro info to pass to auditor before registry lookups
-	OSContext struct {
-		Platform Platform
-		Families []Distro
-	}
+// OSContext obtains full platform and distro info to pass to auditor before registry lookups
+type OSContext struct {
+	Platform Platform
+	Families []Distro
+}
 
-	// FindingDefinition is a registry map for types.Finding
-	FindingDefinition struct {
-		Title       string   `yaml:"title"`
-		Severity    string   `yaml:"severity"`
-		CVSSScore   float64  `yaml:"cvss_score"`
-		CVSSVector  string   `yaml:"cvss_vector"`
-		CWE         string   `yaml:"cwe"`
-		Description string   `yaml:"description"`
-		Impact      string   `yaml:"impact"`
-		Resolution  string   `yaml:"resolution"`
-		References  []string `yaml:"references"`
-	}
-)
+// FindingDefinition is a registry map for types.Finding
+type FindingDefinition struct {
+	Title       string   `yaml:"title"`
+	Severity    string   `yaml:"severity"`
+	CVSSScore   float64  `yaml:"cvss_score"`
+	CVSSVector  string   `yaml:"cvss_vector"`
+	CWE         string   `yaml:"cwe"`
+	Description string   `yaml:"description"`
+	Impact      string   `yaml:"impact"`
+	Resolution  string   `yaml:"resolution"`
+	References  []string `yaml:"references"`
+}
 
-type (
-	// platformRegistry holds all indexed definitions
-	platformRegistry map[Platform]map[FindingKey]FindingDefinition
+// platformRegistry holds all indexed definitions
+type platformRegistry map[Platform]map[FindingKey]FindingDefinition
 
-	// familyRegistry holds finding definitions indexed by distro family,
-	// used for platforms whose findings vary by family (Linux, Unix/BSD)
-	familyRegistry map[Distro]map[FindingKey]FindingDefinition
-)
+// Linux family registry holds distro index findings
+type linuxFamilyRegistry map[Distro]map[FindingKey]FindingDefinition
 
 var (
 	registry      platformRegistry
-	linuxRegistry familyRegistry
-	unixRegistry  familyRegistry
-
-	//go:embed data/windows.yaml
-	windowsData []byte
-
-	//go:embed data/linux_common.yaml
-	linuxCommonData []byte
-
-	//go:embed data/linux_debian.yaml
-	linuxDebianData []byte
-
-	//go:embed data/linux_rhel.yaml
-	linuxRHELData []byte
-
-	//go:embed data/linux_arch.yaml
-	linuxArchData []byte
-
-	//go:embed data/linux_fedora.yaml
-	linuxFedoraData []byte
-
-	//go:embed data/linux_suse.yaml
-	linuxSUSEData []byte
-
-	//go:embed data/linux_alpine.yaml
-	linuxAlpineData []byte
-
-	//go:embed data/darwin.yaml
-	darwinData []byte
-
-	//go:embed data/unix_freebsd.yaml
-	unixFreeBSDData []byte
-
-	//go:embed data/unix_openbsd.yaml
-	unixOpenBSDData []byte
+	linuxRegistry linuxFamilyRegistry
 )
+
+//go:embed data/windows.yaml
+var windowsData []byte
+
+//go:embed data/linux_common.yaml
+var linuxCommonData []byte
+
+//go:embed data/linux_debian.yaml
+var linuxDebianData []byte
+
+//go:embed data/linux_rhel.yaml
+var linuxRHELData []byte
+
+//go:embed data/linux_arch.yaml
+var linuxArchData []byte
+
+//go:embed data/linux_fedora.yaml
+var linuxFedoraData []byte
+
+//go:embed data/linux_suse.yaml
+var linuxSUSEData []byte
+
+//go:embed data/linux_alpine.yaml
+var linuxAlpineData []byte
+
+//go:embed data/darwin.yaml
+var darwinData []byte
+
+//go:embed data/unix_freebsd.yaml
+var unixFreeBSDData []byte
+
+//go:embed data/unix_openbsd.yaml
+var unixOpenBSDData []byte
 
 func init() {
 	registry = make(platformRegistry)
-	linuxRegistry = make(familyRegistry)
-	unixRegistry = make(familyRegistry)
+	linuxRegistry = make(linuxFamilyRegistry)
 
 	registry[PlatformWindows] = mustLoad(windowsData)
 	registry[PlatformDarwin] = mustLoad(darwinData)
@@ -144,8 +140,10 @@ func init() {
 	linuxRegistry[DistroSUSE] = mustLoad(linuxSUSEData)
 	linuxRegistry[DistroAlpine] = mustLoad(linuxAlpineData)
 
+	unixRegistry := make(map[Distro]map[FindingKey]FindingDefinition)
 	unixRegistry[DistroFreeBSD] = mustLoad(unixFreeBSDData)
 	unixRegistry[DistroOpenBSD] = mustLoad(unixOpenBSDData)
+	registry[PlatformUnix] = flattenUnix(unixRegistry)
 }
 
 // mustLoad parses a byte slice into a finding map
@@ -157,6 +155,18 @@ func mustLoad(data []byte) map[FindingKey]FindingDefinition {
 	out := make(map[FindingKey]FindingDefinition, len(raw))
 	for k, v := range raw {
 		out[FindingKey(k)] = v
+	}
+	return out
+}
+
+// flattenUnix merges unix family maps into a distro key map
+func flattenUnix(families map[Distro]map[FindingKey]FindingDefinition) map[FindingKey]FindingDefinition {
+	out := make(map[FindingKey]FindingDefinition)
+	for family, findings := range families {
+		for key, def := range findings {
+			prefixed := FindingKey(string(family) + "." + string(key))
+			out[prefixed] = def
+		}
 	}
 	return out
 }
@@ -178,16 +188,6 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 		}
 		return FindingDefinition{}, false
 
-	case PlatformUnix:
-		for _, family := range ctx.Families {
-			if fm, ok := unixRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
-			}
-		}
-		return FindingDefinition{}, false
-
 	default:
 		if pm, ok := registry[ctx.Platform]; ok {
 			if def, ok := pm[key]; ok {
@@ -200,12 +200,6 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 
 // DetectOS identifies the current platform and, for Linux, resolves
 // the full distribution family chain from /etc/os-release.
-//
-// Deliberately independent of internal/osfingerprint: this resolves which
-// registry YAML files apply to the host (family-chain precision from
-// ID/ID_LIKE), not host identity for reporting, and wiring it to
-// osfingerprint would violate the pinned import direction (registry
-// imports types only).
 func DetectOS() OSContext {
 	switch platform := detectPlatform(); platform {
 	case PlatformLinux:
@@ -213,33 +207,27 @@ func DetectOS() OSContext {
 			Platform: PlatformLinux,
 			Families: detectLinuxFamilies(),
 		}
-	case PlatformUnix:
-		return OSContext{
-			Platform: PlatformUnix,
-			Families: []Distro{resolveDistro(runtime.GOOS)},
-		}
 	default:
 		return OSContext{Platform: platform}
 	}
 }
 
-// detectPlatform returns the Platform from runtime.GOOS. Compile-time truth
-// cannot misidentify the host the way filesystem probes can (a Linux system
-// without /etc/os-release is still Linux); /etc/os-release is consulted only
-// for distro family resolution, never for platform identity.
+// detectPlatform returns the Platform either via runtime.GOOS or /etc/os-release
 func detectPlatform() Platform {
-	switch runtime.GOOS {
-	case "linux":
+	// Check for Linux first via os-release presence
+	if _, err := os.Stat("/etc/os-release"); err == nil {
 		return PlatformLinux
-	case "darwin":
-		return PlatformDarwin
-	case "windows":
-		return PlatformWindows
-	case "freebsd", "openbsd", "netbsd":
-		return PlatformUnix
-	default:
-		return PlatformUnknown
 	}
+	// macOS
+	if _, err := os.Stat("/System/Library/CoreServices/SystemVersion.plist"); err == nil {
+		return PlatformDarwin
+	}
+	// FreeBSD / OpenBSD / NetBSD
+	if _, err := os.Stat("/etc/rc.conf"); err == nil {
+		return PlatformUnix
+	}
+	// Windows — none of the above exist
+	return PlatformWindows
 }
 
 // detectLinuxFamilies parses /etc/os-release and returns the
@@ -249,7 +237,7 @@ func detectLinuxFamilies() []Distro {
 	if err != nil {
 		return []Distro{DistroGeneric}
 	}
-	defer file.Close() // nolint:errcheck // read-only file; no data at risk
+	defer file.Close() // nolint:errcheck // read-only file
 
 	var id, idLike string
 	scanner := bufio.NewScanner(file)

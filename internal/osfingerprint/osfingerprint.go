@@ -3,9 +3,7 @@ package osfingerprint
 
 import (
 	"fmt"
-	"io"
 	"runtime"
-	"sort"
 
 	"github.com/shirou/gopsutil/host"
 )
@@ -17,7 +15,6 @@ type OSInfo struct {
 	PlatformVersion string
 	KernelVersion   string
 	Hostname        string
-	Architecture    string
 	AdditionalInfo  map[string]string // store any additional OS-Specific details
 }
 
@@ -34,7 +31,6 @@ func GetOSFingerprint() (*OSInfo, error) {
 		PlatformVersion: info.PlatformVersion,
 		KernelVersion:   info.KernelVersion,
 		Hostname:        info.Hostname,
-		Architecture:    runtime.GOARCH,
 		AdditionalInfo:  make(map[string]string),
 	}
 
@@ -57,30 +53,19 @@ func GetOSFingerprint() (*OSInfo, error) {
 	return osInfo, nil
 }
 
-// WriteText writes o's fields to w as labeled lines in fixed order.
-// AdditionalInfo keys are sorted before writing so output is deterministic --
-// Go map iteration order is randomized and would otherwise produce
-// nondeterministic diffs in reports and tests.
-func WriteText(w io.Writer, o *OSInfo) error {
-	if o == nil {
-		return fmt.Errorf("osfingerprint: cannot render nil OSInfo")
+// PrintOSInfo prints the OS Fingerprint details in a formatted way
+func PrintOSInfo() {
+	osInfo, err := GetOSFingerprint()
+	if err != nil {
+		fmt.Printf("Error retrieving OS Information: %v\n", err)
+		return
 	}
 
-	if _, err := fmt.Fprintf(w, "OS: %s\nHostname:%s\nPlatform: %s\nVersion: %s\nKernel Version: %s\nArchitecture: %s\n",
-		o.OS, o.Hostname, o.Platform, o.PlatformVersion, o.KernelVersion, o.Architecture); err != nil {
-		return fmt.Errorf("osfingerprint: write failed: %w", err)
-	}
+	fmt.Printf("OS: %s\nHostname: %s\nPlatform: %s\nVersion: %s\nKernel Version: %s\n",
+		osInfo.OS, osInfo.Hostname, osInfo.Platform, osInfo.PlatformVersion, osInfo.KernelVersion)
 
-	keys := make([]string, 0, len(o.AdditionalInfo))
-	for key := range o.AdditionalInfo {
-		keys = append(keys, key)
+	// Print additional OS-specific information
+	for key, value := range osInfo.AdditionalInfo {
+		fmt.Printf("%s: %s\n", key, value)
 	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		if _, err := fmt.Fprintf(w, "%s: %s\n", key, o.AdditionalInfo[key]); err != nil {
-			return fmt.Errorf("osfingerprint: write failed: %w", err)
-		}
-	}
-	return nil
 }

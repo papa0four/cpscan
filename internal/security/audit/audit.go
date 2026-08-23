@@ -4,132 +4,119 @@ package audit
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-type (
-	// SecurityAuditor handles the orchestration of security checks
-	SecurityAuditor struct {
-		sshChecker        checker.SSHChecker
-		firewallChecker   checker.FirewallChecker
-		userChecker       checker.UserChecker
-		permissionChecker checker.PermissionChecker
-		verbose           bool
-		options           Options
-		osContext         registry.OSContext
-	}
+// SecurityAuditor handles the orchestration of security checks
+type SecurityAuditor struct {
+	sshChecker        checker.SSHChecker
+	firewallChecker   checker.FirewallChecker
+	userChecker       checker.UserChecker
+	permissionChecker checker.PermissionChecker
+	verbose           bool
+	options           Options
+	osContext         registry.OSContext
+}
 
-	// Options configures the audit process. The run's deadline is not part of
-	// Options: it arrives as the context passed to RunAudit, owned by the
-	// command layer, and bounds checks and enrichment together as one budget.
-	Options struct {
-		Verbose        bool
-		SpecificChecks []string
-		SkipChecks     []string
-		FilePermsPath  string
-		MinSeverity    string
-		Enrich         bool
-		HostInfo       *osfingerprint.OSInfo
-	}
+// Options configures the audit process
+type Options struct {
+	Verbose        bool
+	SpecificChecks []string
+	SkipChecks     []string
+	FilePermsPath  string
+	MinSeverity    string
+	Timeout        time.Duration
+	Enrich         bool
+}
 
-	// Result represents the complete audit results
-	Result struct {
-		StartTime           time.Time
-		EndTime             time.Time
-		Duration            time.Duration
-		Results             []types.AuditResult
-		SystemInfo          SystemInfo
-		Summary             Summary
-		EnrichmentRequested bool
-		EnrichmentError     error
-		Enrichment          *enrichment.Result
-		References          types.ReferenceExtraction
-	}
+// Result represents the complete audit results
+type Result struct {
+	StartTime           time.Time
+	EndTime             time.Time
+	Duration            time.Duration
+	Results             []types.AuditResult
+	SystemInfo          SystemInfo
+	Summary             Summary
+	EnrichmentRequested bool
+	EnrichmentError     error
+	Enrichment          *enrichment.Result
+	References          types.ReferenceExtraction
+}
 
-	// SystemInfo contains basic system information collected at the start of an
-	// audit. Software inventory is owned by the all command and is not part of
-	// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
-	SystemInfo struct {
-		OS            string `json:"os" yaml:"os"`
-		Architecture  string `json:"architecture" yaml:"architecture"`
-		Hostname      string `json:"hostname" yaml:"hostname"`
-		KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
-	}
+// SystemInfo contains basic system information collected at the start of an
+// audit. Software inventory is owned by the all command and is not part of
+// the audit subsystem -- see cmd/commands/all.go and internal/softwarelist.
+type SystemInfo struct {
+	OS            string `json:"os" yaml:"os"`
+	Architecture  string `json:"architecture" yaml:"architecture"`
+	Hostname      string `json:"hostname" yaml:"hostname"`
+	KernelVersion string `json:"kernel_version" yaml:"kernel_version"`
+}
 
-	// Summary reports the outcome of a completed audit at both check and finding
-	// level. PassedChecks counts checks that completed with zero findings.
-	// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
-	// broken down by severity so the analyst can assess exposure at a glance
-	// without reading individual check output. TotalFindings is the sum of all
-	// severity buckets.
-	Summary struct {
-		TotalChecks      int
-		PassedChecks     int
-		SkippedChecks    int
-		TotalFindings    int
-		CriticalFindings int
-		HighFindings     int
-		MediumFindings   int
-		LowFindings      int
-	}
+// Summary reports the outcome of a completed audit at both check and finding
+// level. PassedChecks counts checks that completed with zero findings.
+// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
+// broken down by severity so the analyst can assess exposure at a glance
+// without reading individual check output. TotalFindings is the sum of all
+// severity buckets.
+type Summary struct {
+	TotalChecks      int
+	PassedChecks     int
+	SkippedChecks    int
+	TotalFindings    int
+	CriticalFindings int
+	HighFindings     int
+	MediumFindings   int
+	LowFindings      int
+}
 
-	// checkRunner pairs a check's canonical name with its execution function
-	checkRunner struct {
-		name string
-		run  func(ctx context.Context) types.AuditResult
-	}
-)
+// checkRunner pairs a check's canonical name with its execution function
+type checkRunner struct {
+	name string
+	run  func() types.AuditResult
+}
 
 // NewSecurityAuditor creates a new security auditor based on the OS
 func NewSecurityAuditor(opts Options) *SecurityAuditor {
-	osCtx := registry.DetectOS()
+	ctx := registry.DetectOS()
 
 	auditor := &SecurityAuditor{
 		verbose:   opts.Verbose,
 		options:   opts,
-		osContext: osCtx,
+		osContext: ctx,
 	}
 
 	switch runtime.GOOS {
 	case "windows":
-		auditor.sshChecker = checker.NewWindowsSSHChecker(osCtx)
-		auditor.firewallChecker = checker.NewWindowsFirewallChecker(osCtx)
-		auditor.userChecker = checker.NewWindowsUserChecker(osCtx)
-		auditor.permissionChecker = checker.NewWindowsPermissionChecker(osCtx, opts.FilePermsPath)
+		auditor.sshChecker = checker.NewWindowsSSHChecker(ctx)
+		auditor.firewallChecker = checker.NewWindowsFirewallChecker(ctx)
+		auditor.userChecker = checker.NewWindowsUserChecker(ctx)
+		auditor.permissionChecker = checker.NewWindowsPermissionChecker(ctx, opts.FilePermsPath)
 	default:
-		auditor.sshChecker = checker.NewUnixSSHChecker(osCtx)
-		auditor.firewallChecker = checker.NewUnixFirewallChecker(osCtx)
-		auditor.userChecker = checker.NewUnixUserChecker(osCtx)
-		auditor.permissionChecker = checker.NewUnixPermissionChecker(osCtx, opts.FilePermsPath)
+		auditor.sshChecker = checker.NewUnixSSHChecker(ctx)
+		auditor.firewallChecker = checker.NewUnixFirewallChecker(ctx)
+		auditor.userChecker = checker.NewUnixUserChecker(ctx)
+		auditor.permissionChecker = checker.NewUnixPermissionChecker(ctx, opts.FilePermsPath)
 	}
 
 	return auditor
 }
 
-// RunAudit performs the security audit with the specified options. ctx
-// bounds the entire run -- checks and enrichment share its deadline -- and
-// cancellation propagates into checker exec and filesystem work.
-func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
-	fingerprint := sa.options.HostInfo
-	if fingerprint == nil {
-		var err error
-		if fingerprint, err = osfingerprint.GetOSFingerprint(); err != nil && sa.verbose {
-			fmt.Printf("[!] OS fingerprint unavailable: %v\n", err)
-		}
-	}
-
+// RunAudit performs the security audit with the specified options
+func (sa *SecurityAuditor) RunAudit() (*Result, error) {
 	result := &Result{
 		StartTime:           time.Now(),
-		SystemInfo:          systemInfoFrom(fingerprint),
+		SystemInfo:          getSystemInfo(),
 		Results:             make([]types.AuditResult, 0),
 		EnrichmentRequested: sa.options.Enrich,
 	}
@@ -143,27 +130,27 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 			var checkResult types.AuditResult
 			switch check {
 			case "ssh":
-				checkResult = timeCheck(ctx, sa.sshChecker.Check)
+				checkResult = timeCheck(sa.sshChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "firewall":
-				checkResult = timeCheck(ctx, sa.firewallChecker.Check)
+				checkResult = timeCheck(sa.firewallChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "users":
-				checkResult = timeCheck(ctx, sa.userChecker.Check)
+				checkResult = timeCheck(sa.userChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			case "permissions":
-				checkResult = timeCheck(ctx, sa.permissionChecker.Check)
+				checkResult = timeCheck(sa.permissionChecker.Check)
 				result.Results = append(result.Results, checkResult)
 			}
 		}
-		sa.finalize(ctx, result)
+		sa.finalize(result)
 		return result, nil
 	}
 
-	return sa.runAllChecks(ctx, result)
+	return sa.runAllChecks(result)
 }
 
-func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*Result, error) {
+func (sa *SecurityAuditor) runAllChecks(result *Result) (*Result, error) {
 	if sa.verbose {
 		fmt.Println("[*] Starting comprehensive security audit...")
 	}
@@ -183,7 +170,7 @@ func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*R
 			if sa.verbose {
 				fmt.Printf("[*] Running %s check...\n", c.name)
 			}
-			resultsChan <- timeCheck(ctx, c.run)
+			resultsChan <- timeCheck(c.run)
 		}(check)
 	}
 
@@ -196,7 +183,7 @@ func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*R
 		result.Results = append(result.Results, checkResult)
 	}
 
-	sa.finalize(ctx, result)
+	sa.finalize(result)
 	return result, nil
 }
 
@@ -227,11 +214,7 @@ func (sa *SecurityAuditor) activeChecks() []checkRunner {
 	return active
 }
 
-// finalize computes duration, summary, and reference aggregation, then runs
-// enrichment when requested. Enrichment shares the caller's ctx rather than
-// opening a fresh deadline: --timeout is one budget for the whole run, not
-// a separate window per phase.
-func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
+func (sa *SecurityAuditor) finalize(result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 	result.Summary = sa.calculateSummary(result.Results)
@@ -250,6 +233,9 @@ func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 	if len(result.References.CWEs) == 0 {
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sa.options.Timeout)
+	defer cancel()
 
 	req := enrichment.EnrichRequest{
 		CWEs:        result.References.CWEs,
@@ -277,6 +263,7 @@ func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction 
 			ext.CWEs = append(ext.CWEs, id)
 		}
 		ext.Errors = append(ext.Errors, sub.Errors...)
+		ext.Other = append(ext.Other, sub.Other...)
 	}
 	return ext
 }
@@ -322,27 +309,42 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 	return summary
 }
 
-// systemInfoFrom converts a host fingerprint into the audit's SystemInfo.
-// A nil fingerprint (fetch failed) yields identity fields left empty except
-// Architecture, which falls back to runtime.GOARCH as a fact about the
-// running binary rather than re-derived host identity: osfingerprint is the
-// single source of host identity, and a local fallback would reintroduce
-// the divergence this consolidation removes.
-func systemInfoFrom(info *osfingerprint.OSInfo) SystemInfo {
-	if info == nil {
-		return SystemInfo{Architecture: runtime.GOARCH}
+func getSystemInfo() SystemInfo {
+	info := SystemInfo{
+		OS:           runtime.GOOS,
+		Architecture: runtime.GOARCH,
 	}
-	return SystemInfo{
-		OS:            info.OS,
-		Architecture:  info.Architecture,
-		Hostname:      info.Hostname,
-		KernelVersion: info.KernelVersion,
+
+	if hostname, err := os.Hostname(); err == nil {
+		info.Hostname = hostname
+	}
+
+	if kernel, err := getKernelVersion(); err == nil {
+		info.KernelVersion = kernel
+	}
+	return info
+}
+
+func getKernelVersion() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		output, err := exec.Command("cmd", "/c", "ver").CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	default:
+		output, err := exec.Command("uname", "-r").CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
 	}
 }
 
-func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) types.AuditResult {
+func timeCheck(fn func() types.AuditResult) types.AuditResult {
 	start := time.Now()
-	result := fn(ctx)
+	result := fn()
 	end := time.Now()
 	result.StartTime = start
 	result.EndTime = end
