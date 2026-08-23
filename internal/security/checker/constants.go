@@ -11,22 +11,16 @@ const (
 	passwdFieldHomeDir  = 5
 	passwdFieldShell    = 6
 	passwdFieldCount    = 7
-)
 
-// Minimum field counts for Unix authentication files.
-const (
+	// Minimum field counts for Unix authentication files.
 	shadowMinFields       = 2
 	passwdMinFieldsForUID = 3
-)
 
-// /etc/group field indices and minimum field count as defined by POSIX.
-const (
+	// /etc/group field indices and minimum field count as defined by POSIX.
 	groupFieldMembers = 3
 	groupFieldCount   = 4
-)
 
-// macOS starts regular user UIDs at 500; Linux and BSD start at 1000.
-const (
+	// macOS starts regular user UIDs at 500; Linux and BSD start at 1000.
 	minUIDMacOS   = 500
 	minUIDDefault = 1000
 	rootUID       = 0

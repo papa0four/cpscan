@@ -47,14 +47,19 @@ func refusedReason(target string) string {
 		}
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
+	homes := make([]string, 0, maxOperatorHomes)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		homes = append(homes, home)
 	}
-	for _, rel := range userPersistence {
-		base := filepath.Join(home, rel)
-		if pathWithin(target, base) {
-			return base
+	if invoker := invokingUserHome(); invoker != "" && (len(homes) == 0 || invoker != homes[0]) {
+		homes = append(homes, invoker)
+	}
+	for _, home := range homes {
+		for _, rel := range userPersistence {
+			base := filepath.Join(home, rel)
+			if pathWithin(target, base) {
+				return base
+			}
 		}
 	}
 	return ""
@@ -81,7 +86,7 @@ func withinAllowlist(target string) (bool, error) {
 }
 
 func allowlistRoots() []string {
-	roots := make([]string, 0, 2)
+	roots := make([]string, 0, maxOperatorHomes)
 	if cwd, err := os.Getwd(); err == nil {
 		roots = append(roots, cwd)
 	}
@@ -127,6 +132,14 @@ func openAndWrite(target string, data []byte) (err error) {
 			err = cerr
 		}
 	}()
+
+	finfo, serr := f.Stat()
+	if serr != nil {
+		return fmt.Errorf("stat opened destination: %w", serr)
+	}
+	if !finfo.Mode().IsRegular() {
+		return fmt.Errorf("%w: destination replaced during open", ErrNotRegularFile)
+	}
 
 	if _, werr := f.Write(data); werr != nil {
 		return fmt.Errorf("write report: %w", werr)

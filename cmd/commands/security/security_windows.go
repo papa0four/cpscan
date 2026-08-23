@@ -11,11 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	SecurityCmd.RunE = runWindowsAudit
-}
-
-func runWindowsAudit(cmd *cobra.Command, args []string) error {
+// platformRunE is the windows entry point for the audit command, assignment to
+// SecurityCmd.RunE at its declaration site in security.go
+func platformRunE(cmd *cobra.Command, args []string) error {
 	if err := validateFlags(cmd); err != nil {
 		return err
 	}
@@ -25,7 +23,7 @@ func runWindowsAudit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if verbose {
+	if verbose && reportFile == "" {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
 	logVerboseConfig(mask)
