@@ -15,344 +15,274 @@ on:
     branches:
       - dev
       - 'enhancement/**'
+      - 'bug/**'
+      - 'chore/**'
       - 'test/**'
+      - 'infrastructure/**'
+      - '[0-9]**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  classify:
-    name: Classify Branch
+  changes:
+    name: Determine Changes
     runs-on: ubuntu-latest
     outputs:
-      run_vet:   ${{ steps.classify.outputs.run_vet }}
-      run_lint:  ${{ steps.classify.outputs.run_lint }}
-      run_tests: ${{ steps.classify.outputs.run_tests }}
-      run_cross: ${{ steps.classify.outputs.run_cross }}
-      run_shelllint: ${{ steps.classify.outputs.run_shelllint }}
-      run_pslint:   ${{ steps.classify.outputs.run_pslint }}
+      branch: ${{ steps.classify.outputs.branch }}
+      go: ${{ steps.classify.outputs.go }}
+      go_lint: ${{ steps.classify.outputs.go_lint }}
+      makefile: ${{ steps.classify.outputs.makefile }}
+      shell: ${{ steps.classify.outputs.shell }}
+      powershell: ${{ steps.classify.outputs.powershell }}
+      workflow: ${{ steps.classify.outputs.workflow }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
 
     steps:
-      - name: Determine branch type and set pipeline flags
-        id: classify
-        run: |
-          BRANCH="${{ github.head_ref || github.ref_name }}"
-          echo "Detected branch: $BRANCH"
-
-          if [[ "$BRANCH" == docs/* ]]; then
-            echo "run_vet=false"       >> $GITHUB_OUTPUT
-            echo "run_lint=false"      >> $GITHUB_OUTPUT
-            echo "run_tests=false"     >> $GITHUB_OUTPUT
-            echo "run_cross=false"     >> $GITHUB_OUTPUT
-            echo "run_shelllint=false" >> $GITHUB_OUTPUT
-            echo "run_pslint=false"    >> $GITHUB_OUTPUT
-
-          elif [[ "$BRANCH" == infrastructure/* || "$BRANCH" == *infrastructure* ]]; then
-            echo "run_vet=true"        >> $GITHUB_OUTPUT
-            echo "run_lint=true"       >> $GITHUB_OUTPUT
-            echo "run_tests=false"     >> $GITHUB_OUTPUT
-            echo "run_cross=false"     >> $GITHUB_OUTPUT
-            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
-            echo "run_pslint=true"     >> $GITHUB_OUTPUT
-
-          elif [[ "$BRANCH" == test/* ]]; then
-            echo "run_vet=true"        >> $GITHUB_OUTPUT
-            echo "run_lint=true"       >> $GITHUB_OUTPUT
-            echo "run_tests=true"      >> $GITHUB_OUTPUT
-            echo "run_cross=false"     >> $GITHUB_OUTPUT
-            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
-            echo "run_pslint=true"     >> $GITHUB_OUTPUT
-
-          else
-            echo "run_vet=true"        >> $GITHUB_OUTPUT
-            echo "run_lint=true"       >> $GITHUB_OUTPUT
-            echo "run_tests=true"      >> $GITHUB_OUTPUT
-            echo "run_cross=true"      >> $GITHUB_OUTPUT
-            echo "run_shelllint=true"  >> $GITHUB_OUTPUT
-            echo "run_pslint=true"     >> $GITHUB_OUTPUT
-          fi
-
-  baseline:
-    name: Baseline - Format / Built / Vet
-    runs-on: ubuntu-latest
-    needs: classify
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.3'
-          cache: true
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Check formatting
-        run: |
-          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
-            echo "The following files are not formatted correctly:"
-            gofmt -l .
-            exit 1
-          fi
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        if: needs.classify.outputs.run_vet == 'true'
-        run: go vet ./...
-
-  gitleaks:
-    name: Secret Scanning
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Checkout repository history
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install gitleaks
+      - name: Classify changed files
+        id: classify
+        shell: bash
         run: |
-          git clone https://github.com/gitleaks/gitleaks.git
-          cd gitleaks
-          make build
-          sudo mv gitleaks /usr/local/bin/
+          set -euo pipefail
 
-      - name: Run gitleaks
-        run: gitleaks git --verbose .
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-  makefile-lint:
-    name: Makefile Lint and Format
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+
+            if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+              if git rev-parse --verify origin/dev >/dev/null 2>&1; then
+                BASE_SHA="$(git merge-base "$HEAD_SHA" origin/dev)"
+              else
+                BASE_SHA="$(git rev-list --max-parents=0 "$HEAD_SHA")"
+              fi
+            fi
+          fi
+
+          mapfile -t CHANGED_FILES < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          go_changed=false
+          go_lint_changed=false
+          makefile_changed=false
+          shell_changed=false
+          powershell_changed=false
+          workflow_changed=false
+          docs_only=true
+
+          for file in "${CHANGED_FILES[@]}"; do
+            case "$file" in
+              *.go|go.mod|go.sum)
+                go_changed=true
+                docs_only=false
+                ;;
+              .golangci.yml|.golangci.yaml)
+                go_lint_changed=true
+                docs_only=false
+                ;;
+              Makefile|*/Makefile|*.mk)
+                makefile_changed=true
+                docs_only=false
+                ;;
+              *.sh)
+                shell_changed=true
+                docs_only=false
+                ;;
+              *.ps1|*.psm1|*.psd1)
+                powershell_changed=true
+                docs_only=false
+                ;;
+              .github/workflows/*.yml|.github/workflows/*.yaml)
+                workflow_changed=true
+                docs_only=false
+                ;;
+              *.md|docs/*|docs/**/*)
+                ;;
+              *)
+                docs_only=false
+                ;;
+            esac
+          done
+
+          if [[ "$go_changed" == true ]]; then
+            go_lint_changed=true
+          fi
+
+          {
+            echo "go=$go_changed"
+            echo "go_lint=$go_lint_changed"
+            echo "makefile=$makefile_changed"
+            echo "shell=$shell_changed"
+            echo "powershell=$powershell_changed"
+            echo "workflow=$workflow_changed"
+            echo "docs_only=$docs_only"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Change classification"
+            echo
+            echo "- Branch: \`$BRANCH\`"
+            echo "- Go/module changes: \`$go_changed\`"
+            echo "- Go lint/config changes: \`$go_lint_changed\`"
+            echo "- Makefile changes: \`$makefile_changed\`"
+            echo "- Shell changes: \`$shell_changed\`"
+            echo "- PowerShell changes: \`$powershell_changed\`"
+            echo "- Workflow changes: \`$workflow_changed\`"
+            echo "- Documentation-only: \`$docs_only\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  gitleaks:
+    name: Secret Scan
     runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
+    needs: changes
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install checkmake
-        run: |
-          go install github.com/checkmake/checkmake/cmd/checkmake@v0.3.2
-          echo "$HOME/go/bin" >> $GITHUB_PATH
-
-      - name: Validate Makefile syntax
-        run: make -f Makefile help > /dev/null
-
-      - name: Validate Makefile execution graph
-        run: make -n build
-
-      - name: Run checkmake
-        run: checkmake Makefile
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Checkout repository history
+        uses: actions/checkout@v7
         with:
-          go-version: '1.26.3'
+          fetch-depth: 0
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
           cache: true
 
+      - name: Install Gitleaks
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.30.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Scan Git history for secrets
+        run: gitleaks git --verbose .
+
+  go-quality:
+    name: Go Quality
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.go_lint == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Show Go version
+        run: go version
+
+      - name: Verify module dependencies
+        if: needs.changes.outputs.go == 'true'
+        run: go mod verify
+
+      - name: Check formatting
+        if: needs.changes.outputs.go == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          UNFORMATTED="$(gofmt -l .)"
+          if [[ -n "$UNFORMATTED" ]]; then
+            echo "The following files are not formatted correctly:"
+            printf '%s\n' "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: Vet
+        if: needs.changes.outputs.go == 'true'
+        run: go vet ./...
+
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run golangci-lint
         run: golangci-lint run --timeout=5m
 
-  govulncheck:
-    name: Go Vulnerability Check
+  go-test:
+    name: Go Tests
     runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26.3'
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests with race detector
+        run: go test -race -count=1 ./...
+
+  go-security:
+    name: Go Security
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
           cache: true
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - name: Run govulncheck
-        run: govulncheck ./...
-
-  gosec:
-    name: Go Security Scan
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.3'
-          cache: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run govulncheck
+        id: govulncheck
+        continue-on-error: true
+        run: govulncheck ./...
 
       - name: Run gosec
+        id: gosec
+        continue-on-error: true
         run: gosec ./...
 
-  shell-lint:
-    name: Shell Lint and Format
+      - name: Fail if a security check failed
+        if: steps.govulncheck.outcome == 'failure' || steps.gosec.outcome == 'failure'
+        run: exit 1
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_shelllint == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install shfmt
-        run: |
-          curl -fsSL \
-            "https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64" \
-            -o /usr/local/bin/shfmt
-          chmod +x /usr/local/bin/shfmt
-
-      - name: Run shfmt
-        run: shfmt -ln bash -d scripts/linux
-
-      - name: Run ShellCheck
-        run: |
-          shellcheck --severity=warning --shell=bash --format=tty scripts/linux/*.sh
-
-      - name: Install shellharden
-        run: |
-          wget -qO shellharden.tar.gz \
-            https://github.com/anordal/shellharden/releases/latest/download/shellharden-x86_64-unknown-linux-gnu.tar.gz
-          tar -xzf shellharden.tar.gz
-          sudo mv shellharden /usr/local/bin/
-          rm shellharden.tar.gz
-
-      - name: Run shellharden
-        run: shellharden --check scripts/linux/*.sh
-
-  ps-lint:
-    name: PowerShell Lint and Format
-    runs-on: windows-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_pslint == 'true'
-    permissions:
-      security-events: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
-        run: |
-          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-
-      - name: Check PowerShell formatting
-        shell: pwsh
-        run: |
-          $files = Get-ChildItem -Path ./scripts/windows -Filter *.ps1 -Recurse
-          $hasErrors = $false
-          foreach ($file in $files) {
-            $original  = Get-Content $file.FullName -Raw
-            $formatted = Invoke-Formatter -ScriptDefinition $original
-            if ($formatted -ne $original) {
-              Write-Host "[-] Formatting issue: $($file.Name)" -ForegroundColor Red
-              $origLines = $original  -split "`n"
-              $fmtLines = $formatted -split "`n"
-              $diff = Compare-Object $origLines $fmtLines
-              foreach ($line in $diff) {
-                if ($line.SideIndicator -eq '<=') {
-                  Write-Host "  - $($line.InputObject)" -ForegroundColor Red
-                } else {
-                  Write-Host "  + $($line.InputObject)" -ForegroundColor Green
-                }
-              }
-              $hasErrors = $true
-            }
-          }
-          if ($hasErrors) {
-            Write-Error "Formatting issues found. Run Invoke-Formatter on the affected file(s) to fix."
-            exit 1
-          }
-          Write-Host "[+] All PowerShell files are correctly formatted."
-
-      - name: Run PSScriptAnalyzer with SARIF output
-        shell: pwsh
-        run: ./scripts/windows/sarif-wrapper.ps1
-
-      - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: psscriptanalyzer.sarif
-
-  syft-grype:
-    name: SBOM and Vulnerability Scan
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_lint == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install syft
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-
-      - name: Install grype
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-
-      - name: Generate SBOM
-        run: syft . -o syft-json=sbom.json --source-name=orkowatch --source-version=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-
-      - name: Scan for vulnerabilities
-        run: grype sbom:sbom.json --fail-on medium
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_tests == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.3'
-          cache: true
-
-      - name: Run tests
-        run: go test -race -count=1 ./...
-
-  cross-build:
-    name: Cross-platform Build
-    runs-on: ubuntu-latest
-    needs: [classify, baseline]
-    if: needs.classify.outputs.run_cross == 'true'
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -363,19 +293,307 @@ jobs:
             goarch: arm64
           - goos: windows
             goarch: amd64
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26.3'
+          go-version-file: go.mod
           cache: true
 
-      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+      - name: Build
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
-        run: go build -o /dev/null ./cmd/owatch/main.go
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          EXT=""
+          if [[ "$GOOS" == "windows" ]]; then
+            EXT=".exe"
+          fi
+          OUTPUT="dist/owatch-${GOOS}-${GOARCH}${EXT}"
+          go build -trimpath -o "$OUTPUT" ./cmd/owatch/main.go
+
+          if [[ "$GOOS" == "linux" && "$GOARCH" == "amd64" ]]; then
+            go version -m "$OUTPUT"
+          fi
+
+      - name: Upload Linux artifact for SBOM scan
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: owatch-linux-amd64
+          path: dist/owatch-linux-amd64
+          if-no-files-found: error
+          retention-days: 7
+
+  sbom-security:
+    name: SBOM / Grype
+    runs-on: ubuntu-latest
+    needs: [changes, build]
+    if: needs.changes.outputs.go == 'true'
+
+    steps:
+      - name: Download built Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: owatch-linux-amd64
+          path: dist
+
+      - name: Make artifact executable
+        run: chmod +x dist/owatch-linux-amd64
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://get.anchore.io/syft | \
+            sudo sh -s -- -b /usr/local/bin v1.51.0
+
+      - name: Install Grype
+        run: |
+          curl -sSfL https://get.anchore.io/grype | \
+            sudo sh -s -- -b /usr/local/bin v0.117.0
+
+      - name: Show scanner versions
+        run: |
+          syft version
+          grype version
+
+      - name: Refresh Grype vulnerability database
+        run: grype db update
+
+      - name: Generate SBOM from built artifact
+        run: |
+          syft dist/owatch-linux-amd64 \
+            -o syft-json=sbom.json \
+            --source-name=orkowatch
+
+      - name: Scan SBOM
+        run: grype sbom:sbom.json --fail-on medium
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: orkowatch-sbom
+          path: sbom.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  makefile:
+    name: Makefile Validation
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.makefile == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install checkmake
+        run: |
+          go install github.com/checkmake/checkmake/cmd/checkmake@v0.3.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Makefile help target
+        run: make -f Makefile help > /dev/null
+
+      - name: Validate Makefile execution graph
+        run: make -n build
+
+      - name: Run checkmake
+        run: checkmake Makefile
+
+  shell:
+    name: Shell Lint / Format
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run shfmt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.sh')
+          if ((${#files[@]})); then
+            shfmt -ln bash -d "${files[@]}"
+          fi
+
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.sh')
+          if ((${#files[@]})); then
+            shellcheck --severity=warning --shell=bash --format=tty "${files[@]}"
+          fi
+
+      - name: Install shellharden
+        shell: bash
+        run: |
+          set -euo pipefail
+          wget -qO shellharden.tar.gz \
+            https://github.com/anordal/shellharden/releases/latest/download/shellharden-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf shellharden.tar.gz
+          sudo install -m 0755 shellharden /usr/local/bin/shellharden
+          rm -f shellharden shellharden.tar.gz
+
+      - name: Run shellharden
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.sh')
+          if ((${#files[@]})); then
+            shellharden --check "${files[@]}"
+          fi
+
+  powershell:
+    name: PowerShell Lint / Format
+    runs-on: windows-latest
+    needs: changes
+    if: needs.changes.outputs.powershell == 'true'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Check PowerShell formatting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Path ./scripts/windows -Include *.ps1,*.psm1,*.psd1 -Recurse
+          $hasErrors = $false
+
+          foreach ($file in $files) {
+            $original = Get-Content $file.FullName -Raw
+            $formatted = Invoke-Formatter -ScriptDefinition $original
+
+            if ($formatted -ne $original) {
+              Write-Host "[-] Formatting issue: $($file.Name)" -ForegroundColor Red
+              $origLines = $original -split "`n"
+              $fmtLines = $formatted -split "`n"
+              $diff = Compare-Object $origLines $fmtLines
+
+              foreach ($line in $diff) {
+                if ($line.SideIndicator -eq '<=') {
+                  Write-Host "  - $($line.InputObject)" -ForegroundColor Red
+                }
+                else {
+                  Write-Host "  + $($line.InputObject)" -ForegroundColor Green
+                }
+              }
+
+              $hasErrors = $true
+            }
+          }
+
+          if ($hasErrors) {
+            Write-Error "Formatting issues found. Run Invoke-Formatter on the affected file(s) to fix."
+            exit 1
+          }
+
+          Write-Host "[+] All PowerShell files are correctly formatted."
+
+      - name: Run PSScriptAnalyzer with SARIF output
+        shell: pwsh
+        run: ./scripts/windows/sarif-wrapper.ps1
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: psscriptanalyzer.sarif
+
+  summary:
+    name: CI Policy Summary
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - gitleaks
+      - go-quality
+      - go-test
+      - go-security
+      - build
+      - sbom-security
+      - makefile
+      - shell
+      - powershell
+    if: always()
+
+    steps:
+      - name: Report selected policy
+        shell: bash
+        run: |
+          {
+            echo "### CI policy result"
+            echo
+            echo "- Branch: \`${{ needs.changes.outputs.branch }}\`"
+            echo "- Documentation-only: \`${{ needs.changes.outputs.docs_only }}\`"
+            echo "- Secret scan: always"
+            echo "- Go pipeline requested: \`${{ needs.changes.outputs.go }}\`"
+            echo "- Go lint requested: \`${{ needs.changes.outputs.go_lint }}\`"
+            echo "- Makefile checks requested: \`${{ needs.changes.outputs.makefile }}\`"
+            echo "- Shell checks requested: \`${{ needs.changes.outputs.shell }}\`"
+            echo "- PowerShell checks requested: \`${{ needs.changes.outputs.powershell }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any required job failed
+        shell: bash
+        run: |
+          set -euo pipefail
+          results=(
+            "${{ needs.changes.result }}"
+            "${{ needs.gitleaks.result }}"
+            "${{ needs.go-quality.result }}"
+            "${{ needs.go-test.result }}"
+            "${{ needs.go-security.result }}"
+            "${{ needs.build.result }}"
+            "${{ needs.sbom-security.result }}"
+            "${{ needs.makefile.result }}"
+            "${{ needs.shell.result }}"
+            "${{ needs.powershell.result }}"
+          )
+
+          for result in "${results[@]}"; do
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "A required CI job failed or was cancelled."
+              exit 1
+            fi
+          done
+
+          echo "All required CI jobs passed or were intentionally skipped."
