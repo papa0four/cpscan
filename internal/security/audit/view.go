@@ -36,7 +36,7 @@ type (
 		Name        string        `json:"name" yaml:"name"`
 		Status      string        `json:"status" yaml:"status"`
 		Description string        `json:"description" yaml:"description"`
-		Duration    string        `json:"duration" yaml:"duration"`
+		Duration    string        `json:"duration,omitempty" yaml:"duration,omitempty"`
 		Findings    []FindingView `json:"findings,omitempty" yaml:"findings,omitempty"`
 		Details     []string      `json:"details,omitempty" yaml:"details,omitempty"`
 	}
