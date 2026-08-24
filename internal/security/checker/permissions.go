@@ -140,7 +140,7 @@ func appendSkippedNote(result *types.AuditResult, scan string, skipped int) {
 func NewUnixPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermissionChecker {
 	checker := &UnixPermissionChecker{
 		checkIdentity: checkIdentity{
-			domain:   "File Permission Security",
+			domain:   "File Permissions Security",
 			analyzes: "file and directory permissions",
 			osCtx:    osCtx,
 		},
