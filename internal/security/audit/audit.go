@@ -341,6 +341,9 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 	return summary
 }
 
+// timeCheck runs fn and records its wall-clock span. A check whose context
+// expired before fn returned is marked StatusError: its output reflects an
+// interrupted run and cannot be reported as a completed check.
 func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) types.AuditResult {
 	start := time.Now()
 	result := fn(ctx)
@@ -348,5 +351,12 @@ func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) 
 	result.StartTime = start
 	result.EndTime = end
 	result.Duration = end.Sub(start)
+
+	if ctx.Err() != nil {
+		result.Status = types.StatusError
+		result.Description = fmt.Sprintf("Check did not complete: %v", ctx.Err())
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Check interrupted: %v", types.SymbolError, ctx.Err()))
+	}
 	return result
 }

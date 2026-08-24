@@ -308,12 +308,15 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusCompleted})
 	}
 
-	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("scan timed out after %v", allTimeout)
+	result.Duration = time.Since(startTime)
+	if err := outputResults(cmd, result, mask); err != nil {
+		return err
 	}
 
-	result.Duration = time.Since(startTime)
-	return outputResults(cmd, result, mask)
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("scan timed out after %v; results above are incomplete", allTimeout)
+	}
+	return nil
 }
 
 func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {

@@ -243,14 +243,18 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	defer cancel()
 
 	result, err := auditor.RunAudit(ctx)
-	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("audit timeout after %v", timeout)
-	}
 	if err != nil {
 		return fmt.Errorf("audit failed: %w", err)
 	}
 
-	return outputResults(cmd, result, mask)
+	if err := outputResults(cmd, result, mask); err != nil {
+		return err
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("audit timeout after %v; results above are incomplete", timeout)
+	}
+	return nil
 }
 
 func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
