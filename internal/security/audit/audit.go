@@ -55,7 +55,8 @@ type (
 	}
 
 	// Summary reports the outcome of a completed audit at both check and finding
-	// level. PassedChecks counts checks that completed with zero findings.
+	// level. PassedChecks counts checks that reached StatusCompleted with zero
+	// findings; a WARNING or ERROR check is never counted as passed.
 	// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
 	// broken down by severity so the analyst can assess exposure at a glance
 	// without reading individual check output. TotalFindings is the sum of all
@@ -319,7 +320,7 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 		case result.Status == types.StatusSkipped:
 			summary.SkippedChecks++
 			continue
-		case len(result.Findings) == 0:
+		case result.Status == types.StatusCompleted &&  len(result.Findings) == 0:
 			summary.PassedChecks++
 		}
 

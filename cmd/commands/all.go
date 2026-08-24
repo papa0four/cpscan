@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -89,10 +90,19 @@ type (
 	ScanResult struct {
 		Timestamp     time.Time
 		Duration      time.Duration
+		Modules       []moduleRun
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
 		SecurityAudit *audit.Result
 		Errors        []string
+	}
+
+	// moduleRun records one module's outcome: COMPLETED, SKIPPED, or ERROR.
+	// A skipped or errored module keeps its row rather than vanishing from
+	// the run record.
+	moduleRun struct {
+		Name   string `json:"name" yaml:"name"`
+		Status string `json:"status" yaml:"status"`
 	}
 
 	// allResult is the typed serialization structure for all command JSON and
@@ -101,6 +111,7 @@ type (
 	allResult struct {
 		Timestamp string                     `json:"timestamp" yaml:"timestamp"`
 		Duration  string                     `json:"duration" yaml:"duration"`
+		Modules   []moduleRun                `json:"modules" yaml:"modules"`
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
 		Security  *audit.View                `json:"security,omitempty" yaml:"security,omitempty"`
@@ -140,6 +151,7 @@ func toAllResult(scan *ScanResult) allResult {
 	out := allResult{
 		Timestamp: scan.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  scan.Duration.String(),
+		Modules:   scan.Modules,
 		Errors:    scan.Errors,
 	}
 
@@ -263,32 +275,37 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		Errors:    make([]string, 0),
 	}
 
-	if !isModuleSkipped("osinfo") {
-		if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("OS fingerprint error: %v", err))
-		} else {
-			result.OSInfo = osInfo
-		}
+	if isModuleSkipped("osinfo") {
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusSkipped})
+	} else if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("OS fingerprint error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusError})
+	} else {
+		result.OSInfo = osInfo
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusCompleted})
 	}
 
-	if !isModuleSkipped("software") {
-		software, err := runSoftwareInventory(ctx, verboseHeaders)
-		if err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("Software inventory error: %v", err))
-		} else {
-			result.Software = software
-		}
+	if isModuleSkipped("software") {
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusSkipped})
+	} else if software, err := runSoftwareInventory(ctx, verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Software inventory error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusError})
+	} else {
+		result.Software = software
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusCompleted})
 	}
 
-	if !isModuleSkipped("audit") {
-		if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("Security audit error: %v", err))
-		} else {
-			result.SecurityAudit = securityResult
-		}
+	if isModuleSkipped("audit") {
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusSkipped})
+	} else if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Security audit error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusError})
+	} else {
+		result.SecurityAudit = securityResult
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusCompleted})
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
@@ -388,6 +405,15 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 // progress display when #35 lands.
 func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	fmt.Fprintf(w, "owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
+
+	// module accounting
+	if len(result.Modules) > 0 {
+		fmt.Fprintf(w, "Modules:\n")
+		for _, m := range result.Modules {
+			fmt.Fprintf(w, "  %-10s %s\n", m.Name, m.Status)
+		}
+		fmt.Fprintln(w)
+	}
 
 	// system
 	if result.OSInfo != nil {
