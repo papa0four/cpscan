@@ -32,13 +32,12 @@ type (
 	// Options: it arrives as the context passed to RunAudit, owned by the
 	// command layer, and bounds checks and enrichment together as one budget.
 	Options struct {
-		Verbose        bool
-		SpecificChecks []string
-		SkipChecks     []string
-		FilePermsPath  string
-		MinSeverity    string
-		Enrich         bool
-		HostInfo       *osfingerprint.OSInfo
+		Verbose       bool
+		Checks        []string
+		FilePermsPath string
+		MinSeverity   string
+		Enrich        bool
+		HostInfo      *osfingerprint.OSInfo
 	}
 
 	// Result represents the complete audit results
@@ -74,8 +73,17 @@ type (
 
 	// checkRunner pairs a check's canonical name with its execution function
 	checkRunner struct {
-		name string
-		run  func(ctx context.Context) types.AuditResult
+		name        string
+		display     string
+		description string
+		run         func(ctx context.Context) types.AuditResult
+	}
+
+	// indexedResult pairs a check result withits canonical index so
+	// concurrent completions can be written back into a fixed-order slice.
+	indexedResult struct {
+		index  int
+		result types.AuditResult
 	}
 )
 
@@ -105,13 +113,28 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	return auditor
 }
 
-// RunAudit performs the security audit with the specified options. ctx
-// bounds the entire run -- checks and enrichment share its deadline -- and
-// cancellation propagates into checker exec and filesystem work.
+// maxConcurrentChecks returns the bound on simultaneously executing checks.
+// The bound scales with the host rather than the check set, so adding checks
+// queues work instead of multiplying simultaneous subprocess and filesystem
+// load. Operators can lower it through the GOMAXPROCS environment variable.
+func maxConcurrentChecks() int {
+	return runtime.GOMAXPROCS(0)
+}
+
+// RunAudit executes the enabled checks concurrently, writing each result to
+// its check's canonical index so output order is independent of completion
+// order. A skipped check occupies its index with a StatusSkipped result.
+// ctx bounds the entire run -- checks and enrichment share its deadline --
+// and cancellation propagates into checker exec and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
+	runners := sa.checkRunners()
+	enabled, err := enabledSet(runners, sa.options.Checks)
+	if err != nil {
+		return nil, err
+	}
+
 	fingerprint := sa.options.HostInfo
 	if fingerprint == nil {
-		var err error
 		if fingerprint, err = osfingerprint.GetOSFingerprint(); err != nil && sa.verbose {
 			fmt.Printf("[!] OS fingerprint unavailable: %v\n", err)
 		}
@@ -120,61 +143,32 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	result := &Result{
 		StartTime:           time.Now(),
 		HostInfo:            fingerprint,
-		Results:             make([]types.AuditResult, 0),
+		Results:             make([]types.AuditResult, len(runners)),
 		EnrichmentRequested: sa.options.Enrich,
 	}
 
-	if len(sa.options.SpecificChecks) > 0 {
-		for _, check := range sa.options.SpecificChecks {
-			if sa.options.Verbose {
-				fmt.Printf("\n[*] Running %s check...\n", check)
-			}
-
-			var checkResult types.AuditResult
-			switch check {
-			case "ssh":
-				checkResult = timeCheck(ctx, sa.sshChecker.Check)
-				result.Results = append(result.Results, checkResult)
-			case "firewall":
-				checkResult = timeCheck(ctx, sa.firewallChecker.Check)
-				result.Results = append(result.Results, checkResult)
-			case "users":
-				checkResult = timeCheck(ctx, sa.userChecker.Check)
-				result.Results = append(result.Results, checkResult)
-			case "permissions":
-				checkResult = timeCheck(ctx, sa.permissionChecker.Check)
-				result.Results = append(result.Results, checkResult)
-			}
-		}
-		sa.finalize(ctx, result)
-		return result, nil
-	}
-
-	return sa.runAllChecks(ctx, result)
-}
-
-func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*Result, error) {
-	if sa.verbose {
-		fmt.Println("[*] Starting comprehensive security audit...")
-	}
-
-	checks := sa.activeChecks()
-	if len(checks) == 0 {
-		return nil, fmt.Errorf("all available checks were skipped; at least one must run")
-	}
-
+	sem := make(chan struct{}, maxConcurrentChecks())
+	resultsChan := make(chan indexedResult)
 	var wg sync.WaitGroup
-	resultsChan := make(chan types.AuditResult, len(checks))
 
-	for _, check := range checks {
-		wg.Add(1)
-		go func(c checkRunner) {
-			defer wg.Done()
+	for i, r := range runners {
+		if !enabled[r.name] {
 			if sa.verbose {
-				fmt.Printf("[*] Running %s check...\n", c.name)
+				fmt.Printf("[*] Skipping %s check...\n", r.name)
 			}
-			resultsChan <- timeCheck(ctx, c.run)
-		}(check)
+			result.Results[i] = skippedResult(r)
+			continue
+		}
+		if sa.verbose {
+			fmt.Printf("[*] Running %s check...\n", r.name)
+		}
+		wg.Add(1)
+		go func(idx int, c checkRunner) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			resultsChan <- indexedResult{index: idx, result: timeCheck(ctx, c.run)}
+		}(i, r)
 	}
 
 	go func() {
@@ -182,39 +176,73 @@ func (sa *SecurityAuditor) runAllChecks(ctx context.Context, result *Result) (*R
 		close(resultsChan)
 	}()
 
-	for checkResult := range resultsChan {
-		result.Results = append(result.Results, checkResult)
+	for ir := range resultsChan {
+		result.Results[ir.index] = ir.result
 	}
 
 	sa.finalize(ctx, result)
 	return result, nil
 }
 
-func (sa *SecurityAuditor) activeChecks() []checkRunner {
-	all := []checkRunner{
-		{name: "ssh", run: sa.sshChecker.Check},
-		{name: "firewall", run: sa.firewallChecker.Check},
-		{name: "users", run: sa.userChecker.Check},
-		{name: "permissions", run: sa.permissionChecker.Check},
+// checkRunners returns the canonical ordered check set. Slice position is
+// the check's fixed output index.
+func (sa *SecurityAuditor) checkRunners() []checkRunner {
+	return []checkRunner{
+		{
+			name:        "firewall",
+			display:     sa.firewallChecker.Name(),
+			description: sa.firewallChecker.Description(),
+			run:         sa.firewallChecker.Check,
+		},
+		{
+			name:        "permissions",
+			display:     sa.permissionChecker.Name(),
+			description: sa.permissionChecker.Description(),
+			run:         sa.permissionChecker.Check,
+		},
+		{
+			name:        "ssh",
+			display:     sa.sshChecker.Name(),
+			description: sa.sshChecker.Description(),
+			run:         sa.sshChecker.Check,
+		},
+		{
+			name:        "users",
+			display:     sa.userChecker.Name(),
+			description: sa.userChecker.Description(),
+			run:         sa.userChecker.Check,
+		},
 	}
+}
 
-	if len(sa.options.SkipChecks) == 0 {
-		return all
+// enabledSet  validates checks against the canonical runner set, rejecting
+// unknown names and an empty set
+func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error) {
+	known := make(map[string]bool, len(runners))
+	for _, r := range runners {
+		known[r.name] = true
 	}
-
-	skipped := make(map[string]struct{}, len(sa.options.SkipChecks))
-	for _, s := range sa.options.SkipChecks {
-		skipped[s] = struct{}{}
-	}
-
-	active := make([]checkRunner, 0, len(all))
-	for _, c := range all {
-		if _, skip := skipped[c.name]; skip {
-			continue
+	enabled := make(map[string]bool, len(checks))
+	for _, name := range checks {
+		if !known[name] {
+			return nil, fmt.Errorf("unknown check name %q", name)
 		}
-		active = append(active, c)
+		enabled[name] = true
 	}
-	return active
+	if len(enabled) == 0 {
+		return nil, fmt.Errorf("all available checks were skipped; at least one must run")
+	}
+	return enabled, nil
+}
+
+// skippedResult returns the result row for a check excluded by flag, so a
+// skip occupies its canonical index rather than vanishing from the set
+func skippedResult(r checkRunner) types.AuditResult {
+	return types.AuditResult{
+		Name:        r.display,
+		Description: r.description,
+		Status:      types.StatusSkipped,
+	}
 }
 
 // finalize computes duration, summary, and reference aggregation, then runs
@@ -285,10 +313,10 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 
 	for _, result := range results {
 		switch {
-		case result.Status == "ERROR":
+		case result.Status == types.StatusError:
 			// ERROR checks are neither passed nor skipped --
 			// their findings still count toward severity totals
-		case result.Status == "SKIPPED":
+		case result.Status == types.StatusSkipped:
 			summary.SkippedChecks++
 			continue
 		case len(result.Findings) == 0:

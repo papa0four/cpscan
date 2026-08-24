@@ -126,6 +126,9 @@ func buildAllMask() (scan.CheckMask, error) {
 			}
 			allChecks &^= skipMask
 		}
+		if allChecks == 0 {
+			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
+		}
 		mask |= allChecks
 	}
 	return mask, nil
@@ -321,11 +324,11 @@ func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *
 	}
 
 	opts := audit.Options{
-		Verbose:        verboseHeaders,
-		MinSeverity:    allMinSeverity,
-		Enrich:         allEnrich,
-		SpecificChecks: scan.EnabledChecks(mask),
-		HostInfo:       hostInfo,
+		Verbose:     verboseHeaders,
+		MinSeverity: allMinSeverity,
+		Enrich:      allEnrich,
+		Checks:      scan.EnabledChecks(mask),
+		HostInfo:    hostInfo,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)

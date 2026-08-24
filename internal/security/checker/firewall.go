@@ -11,20 +11,22 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// FirewallChecker defines interface for Firewall configuration checking
-type FirewallChecker interface {
-	Check(ctx context.Context) types.AuditResult
-}
-
 type (
+	// FirewallChecker defines interface for Firewall configuration checking
+	FirewallChecker interface {
+		Name() string
+		Description() string
+		Check(ctx context.Context) types.AuditResult
+	}
+
 	// UnixFirewallChecker implements FirewallChecker for Unix-like systems
 	UnixFirewallChecker struct {
-		osCtx registry.OSContext
+		checkIdentity
 	}
 
 	// WindowsFirewallChecker implements FirewallChecker for Windows systems
 	WindowsFirewallChecker struct {
-		osCtx registry.OSContext
+		checkIdentity
 	}
 
 	// firewallTool represents a firewall management tool
@@ -37,20 +39,28 @@ type (
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
 func NewUnixFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
-	return &UnixFirewallChecker{osCtx: osCtx}
+	return &UnixFirewallChecker{checkIdentity: checkIdentity{
+		domain:   "Firewall Configuration",
+		analyzes: "firewall configuration and rules",
+		osCtx:    osCtx,
+	}}
 }
 
 // NewWindowsFirewallChecker creates a new Windows firewall checker
 func NewWindowsFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
-	return &WindowsFirewallChecker{osCtx: osCtx}
+	return &WindowsFirewallChecker{checkIdentity: checkIdentity{
+		domain:   "Firewall Configuration",
+		analyzes: "firewall configuration and rules",
+		osCtx:    osCtx,
+	}}
 }
 
 // Check implements FirewallChecker interface for Unix systems
 func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Firewall Configuration",
+		Name:        f.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing firewall configuration and rules",
+		Description: f.Description(),
 		Details:     make([]string, 0),
 	}
 
@@ -133,9 +143,9 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 // Check implements FirewallChecker interface for Windows systems
 func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows Firewall Configuration",
+		Name:        f.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing Windows Firewall Configuration",
+		Description: f.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}

@@ -132,6 +132,10 @@ func buildMask() (scan.CheckMask, error) {
 		mask &^= skipMask
 	}
 
+	if mask == 0 {
+		return 0, fmt.Errorf("all available checks were skipped; at least one must run")
+	}
+
 	return mask, nil
 }
 
@@ -226,12 +230,11 @@ func logVerboseConfig(mask scan.CheckMask) {
 // to keep executing against the host.
 func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
-		Verbose:        verbose && reportFile == "",
-		SkipChecks:     skipChecks,
-		FilePermsPath:  checkFilePerms,
-		MinSeverity:    minSeverity,
-		SpecificChecks: scan.EnabledChecks(mask),
-		Enrich:         enrich,
+		Verbose:       verbose && reportFile == "",
+		FilePermsPath: checkFilePerms,
+		MinSeverity:   minSeverity,
+		Checks:        scan.EnabledChecks(mask),
+		Enrich:        enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)

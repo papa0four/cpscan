@@ -16,26 +16,40 @@ import (
 type (
 	// SSHChecker defines interface for SSH configuration checking
 	SSHChecker interface {
+		Name() string
+		Description() string
 		Check(ctx context.Context) types.AuditResult
 	}
 
 	// UnixSSHChecker implements SSHChecker for Unix-like systems
 	UnixSSHChecker struct {
+		checkIdentity
 		ConfigPaths []string
-		osCtx       registry.OSContext
 	}
 
 	// WindowsSSHChecker implements SSHChecker for Windows systems
 	WindowsSSHChecker struct {
+		checkIdentity
 		ConfigPath string
-		osCtx      registry.OSContext
+	}
+
+	// sshConfig holds parsed SSH configuration settings
+	sshConfig struct {
+		rootLogin         bool
+		passwordAuth      bool
+		permRootFound     bool
+		permPasswordFound bool
 	}
 )
 
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths
 func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 	return &UnixSSHChecker{
-		osCtx: osCtx,
+		checkIdentity: checkIdentity{
+			domain:   "SSH Configuration",
+			analyzes: "SSH configuration and security settings",
+			osCtx:    osCtx,
+		},
 		ConfigPaths: []string{
 			"/etc/ssh/sshd_config",
 			"/private/etc/ssh/sshd_config", // macOS path
@@ -46,25 +60,21 @@ func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 // NewWindowsSSHChecker creates a new Windows SSH checker
 func NewWindowsSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 	return &WindowsSSHChecker{
+		checkIdentity: checkIdentity{
+			domain:   "SSH Configuration",
+			analyzes: "SSH configuration and security settings",
+			osCtx:    osCtx,
+		},
 		ConfigPath: "C:\\ProgramData\\ssh\\sshd_config",
-		osCtx:      osCtx,
 	}
-}
-
-// sshConfig holds parsed SSH configuration settings
-type sshConfig struct {
-	rootLogin         bool
-	passwordAuth      bool
-	permRootFound     bool
-	permPasswordFound bool
 }
 
 // Check implements SSHChecker interface for Unix systems
 func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "SSH Configuration",
+		Name:        s.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing SSH Configuration settings",
+		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
@@ -167,9 +177,9 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 // Check implements SSHChecker interface for Windows systems
 func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows SSH Configuration",
+		Name:        s.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing Windows SSH configuration",
+		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}

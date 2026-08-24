@@ -48,7 +48,7 @@ func SuppressionNotice(w io.Writer, suppressed, total int, minSeverity string) e
 func DetailedSummary(w io.Writer, d SummaryData) error {
 	ew := &ErrWriter{w: w}
 	ew.Printf("Summary:\n")
-	ew.Printf("Checks Run:      %d\n", d.TotalChecks)
+	ew.Printf("Total Checks:    %d\n", d.TotalChecks)
 	ew.Printf("Passed:          %d\n", d.PassedChecks)
 	ew.Printf("Skipped:         %d\n", d.SkippedChecks)
 	if s := d.suppressed(); s > 0 {

@@ -44,21 +44,23 @@ type (
 	// honors ctx cancellation: exec invocations and filesystem walks stop
 	// when the caller's deadline expires.
 	PermissionChecker interface {
+		Name() string
+		Description() string
 		Check(ctx context.Context) types.AuditResult
 	}
 
 	// UnixPermissionChecker implements PermissionChecker for Unix-like systems
 	UnixPermissionChecker struct {
+		checkIdentity
 		paths    []criticalPath
 		osType   string
 		scanRoot string
-		osCtx    registry.OSContext
 	}
 
 	// WindowsPermissionChecker implements PermissionChecker for Windows systems
 	WindowsPermissionChecker struct {
+		checkIdentity
 		Paths    []string
-		osCtx    registry.OSContext
 		scanRoot string
 	}
 
@@ -137,9 +139,13 @@ func appendSkippedNote(result *types.AuditResult, scan string, skipped int) {
 // NewUnixPermissionChecker creates a new Unix permission checker
 func NewUnixPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermissionChecker {
 	checker := &UnixPermissionChecker{
+		checkIdentity: checkIdentity{
+			domain:   "File Permission Security",
+			analyzes: "file and directory permissions",
+			osCtx:    osCtx,
+		},
 		osType:   runtime.GOOS,
 		scanRoot: scanRoot,
-		osCtx:    osCtx,
 	}
 
 	// Set default critical paths based on OS
@@ -150,6 +156,11 @@ func NewUnixPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPe
 // NewWindowsPermissionChecker creates a new Windows permission checker
 func NewWindowsPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
+		checkIdentity: checkIdentity{
+			domain:   "File Permissions Security",
+			analyzes: "file and directory permissions",
+			osCtx:    osCtx,
+		},
 		Paths: []string{
 			"C:\\Windows\\System32",
 			"C:\\Program Files",
@@ -157,7 +168,6 @@ func NewWindowsPermissionChecker(osCtx registry.OSContext, scanRoot string) *Win
 			"C:\\ProgramData",
 			"C:\\Users",
 		},
-		osCtx:    osCtx,
 		scanRoot: scanRoot,
 	}
 }
@@ -165,9 +175,9 @@ func NewWindowsPermissionChecker(osCtx registry.OSContext, scanRoot string) *Win
 // Check implements PermissionChecker interface for Unix systems
 func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "File Permissions Security",
+		Name:        p.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing file and directory permissions",
+		Description: p.Description(),
 		Details:     make([]string, 0),
 	}
 
@@ -358,9 +368,9 @@ func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *t
 // Check implements PermissionChecker interface for Windows systems
 func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows File Permissions Security",
+		Name:        p.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing Windows file and directory permissions",
+		Description: p.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}

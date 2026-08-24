@@ -22,6 +22,8 @@ const windowsUserCSVFields = 8
 type (
 	// UserChecker defines interface for user account checking
 	UserChecker interface {
+		Name() string
+		Description() string
 		Check(ctx context.Context) types.AuditResult
 	}
 
@@ -36,15 +38,15 @@ type (
 	// during getLinuxUsers; it gates the no-password finding and surfaces a
 	// diagnostic when the check runs without sufficient privileges.
 	UnixUserChecker struct {
+		checkIdentity
 		config         platformConfig
 		osType         string
-		osCtx          registry.OSContext
 		shadowReadable bool
 	}
 
 	// WindowsUserChecker implements UserChecker for Windows systems
 	WindowsUserChecker struct {
-		osCtx registry.OSContext
+		checkIdentity
 	}
 
 	// userAccount represents a parsed user account from /etc/passwd and,
@@ -124,23 +126,31 @@ func getPlatformConfig() platformConfig {
 // NewUnixUserChecker creates a new Unix user checker with OS-specific settings
 func NewUnixUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 	return &UnixUserChecker{
+		checkIdentity: checkIdentity{
+			domain:   "User Account Security",
+			analyzes: "user accounts and security settings",
+			osCtx:    osCtx,
+		},
 		config: getPlatformConfig(),
 		osType: runtime.GOOS,
-		osCtx:  osCtx,
 	}
 }
 
 // NewWindowsUserChecker creates a new Windows user checker
 func NewWindowsUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
-	return &WindowsUserChecker{osCtx: osCtx}
+	return &WindowsUserChecker{checkIdentity: checkIdentity{
+		domain:   "User Account Security",
+		analyzes: "user accounts and security settings",
+		osCtx:    osCtx,
+	}}
 }
 
 // Check implements UserChecker interface for Unix systems
 func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "User Account Security",
+		Name:        u.Name(),
 		Status:      "CHECKING",
-		Description: fmt.Sprintf("Analyzing user accounts on %s", u.osType),
+		Description: u.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
@@ -647,9 +657,9 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 // Check implements UserChecker interface for Windows systems
 func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows User Account Security",
+		Name:        w.Name(),
 		Status:      "CHECKING",
-		Description: "Analyzing Windows user accounts and security settings",
+		Description: w.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}

@@ -30,7 +30,8 @@ type (
 		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 	}
 
-	// CheckView is the serializable projection of a single check's result
+	// CheckView is the serializable projection of a single check's result.
+	// Duration is empty for a skipped check.
 	CheckView struct {
 		Name        string        `json:"name" yaml:"name"`
 		Status      string        `json:"status" yaml:"status"`
@@ -105,8 +106,10 @@ func (r *Result) View(minSeverity string) View {
 			Name:        check.Name,
 			Status:      check.Status,
 			Description: check.Description,
-			Duration:    check.Duration.String(),
 			Details:     check.Details,
+		}
+		if check.Status != types.StatusSkipped {
+			cv.Duration = check.Duration.String()
 		}
 
 		for _, finding := range check.Findings {
