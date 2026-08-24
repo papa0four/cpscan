@@ -320,7 +320,7 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 		case result.Status == types.StatusSkipped:
 			summary.SkippedChecks++
 			continue
-		case result.Status == types.StatusCompleted &&  len(result.Findings) == 0:
+		case result.Status == types.StatusCompleted && len(result.Findings) == 0:
 			summary.PassedChecks++
 		}
 
