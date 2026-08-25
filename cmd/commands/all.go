@@ -314,7 +314,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("scan timed out after %v; results above are incomplete", allTimeout)
+		return fmt.Errorf("scan timed out after %v; %s", allTimeout, incompleteDetail(result))
 	}
 	return nil
 }
@@ -325,6 +325,32 @@ func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
 	}
 
 	return osfingerprint.GetOSFingerprint()
+}
+
+// incompleteDetail names the modules and checks that did not finish, so a
+// timed-out run tells the operator what to exclude or allow more time for.
+func incompleteDetail(result *ScanResult) string {
+	var parts []string
+
+	var modules []string
+	for _, m := range result.Modules {
+		if m.Status == types.StatusError {
+			modules = append(modules, m.Name)
+		}
+	}
+	if len(modules) > 0 {
+		parts = append(parts, fmt.Sprintf("--skip-modules %s", strings.Join(modules, ",")))
+	}
+
+	if result.SecurityAudit != nil && len(result.SecurityAudit.IncompleteChecks) > 0 {
+		parts = append(parts, fmt.Sprintf("--skip-checks %s",
+			strings.Join(result.SecurityAudit.IncompleteChecks, ",")))
+	}
+
+	if len(parts) == 0 {
+		return "results above are incomplete"
+	}
+	return "results above are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
 }
 
 // runSoftwareInventory enumerates installed software packages. verboseHeaders

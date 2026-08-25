@@ -40,12 +40,15 @@ type (
 		HostInfo      *osfingerprint.OSInfo
 	}
 
-	// Result represents the complete audit results
+	// Result represents the complete audit results. IncompleteChecks names,
+	// in canonical order, the checks interrupted before they finished, so a
+	// caller can report which ones to exclude or allow more time for.
 	Result struct {
 		StartTime           time.Time
 		EndTime             time.Time
 		Duration            time.Duration
 		Results             []types.AuditResult
+		IncompleteChecks    []string
 		HostInfo            *osfingerprint.OSInfo
 		Summary             Summary
 		EnrichmentRequested bool
@@ -80,11 +83,13 @@ type (
 		run         func(ctx context.Context) types.AuditResult
 	}
 
-	// indexedResult pairs a check result withits canonical index so
+	// indexedResult pairs a check result with its canonical index so
 	// concurrent completions can be written back into a fixed-order slice.
+	// incomplete marks a check interrupted before it finished.
 	indexedResult struct {
-		index  int
-		result types.AuditResult
+		index      int
+		result     types.AuditResult
+		incomplete bool
 	}
 )
 
@@ -150,6 +155,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	sem := make(chan struct{}, maxConcurrentChecks())
 	resultsChan := make(chan indexedResult)
+	incompleteByIndex := make([]bool, len(runners))
 	var wg sync.WaitGroup
 
 	for i, r := range runners {
@@ -168,7 +174,8 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			resultsChan <- indexedResult{index: idx, result: timeCheck(ctx, c.run)}
+			res, incomplete := timeCheck(ctx, c.run)
+			resultsChan <- indexedResult{index: idx, result: res, incomplete: incomplete}
 		}(i, r)
 	}
 
@@ -179,6 +186,13 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	for ir := range resultsChan {
 		result.Results[ir.index] = ir.result
+		incompleteByIndex[ir.index] = ir.incomplete
+	}
+
+	for i, r := range runners {
+		if incompleteByIndex[i] {
+			result.IncompleteChecks = append(result.IncompleteChecks, r.name)
+		}
 	}
 
 	sa.finalize(ctx, result)
@@ -343,8 +357,9 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 
 // timeCheck runs fn and records its wall-clock span. A check whose context
 // expired before fn returned is marked StatusError: its output reflects an
-// interrupted run and cannot be reported as a completed check.
-func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) types.AuditResult {
+// interrupted run and cannot be reported as a completed check. The second
+// return value reports whether the check was interrupted.
+func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) (types.AuditResult, bool) {
 	start := time.Now()
 	result := fn(ctx)
 	end := time.Now()
@@ -357,6 +372,7 @@ func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) 
 		result.Description = fmt.Sprintf("Check did not complete: %v", ctx.Err())
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Check interrupted: %v", types.SymbolError, ctx.Err()))
+		return result, true
 	}
-	return result
+	return result, false
 }
