@@ -73,7 +73,7 @@ func NewWindowsSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        s.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
@@ -93,7 +93,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	if file == nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("SSH configuration file not found in any of: %v", s.ConfigPaths)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: No SSH configuration file found", types.SymbolError))
@@ -126,7 +126,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	if err := scanner.Err(); err != nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("Error reading SSH configuration: %v", err)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: Failed to read configuration", types.SymbolError))
@@ -169,7 +169,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 		emitFinding(&result, s.osCtx, "ssh.password_auth_not_set")
 	}
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	result.Description = "SSH configuration analysis complete"
 	return result
 }
@@ -178,7 +178,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        s.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
@@ -309,7 +309,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 		}
 	}
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	result.Description = "Windows SSH Configuration analysis complete"
 	return result
 }

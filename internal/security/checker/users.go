@@ -149,7 +149,7 @@ func NewWindowsUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
 func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        u.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: u.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
@@ -163,7 +163,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 
 	users, err := u.getUsers(ctx)
 	if err != nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("Failed to analyze users: %v", err)
 		return result
 	}
@@ -171,7 +171,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
 	u.analyzeUsers(users, &result)
 	u.checkSecurityConcerns(ctx, &result)
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	return result
 }
 
@@ -658,7 +658,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        w.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: w.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
@@ -666,7 +666,7 @@ func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 
 	users, err := w.getWindowsUsers(ctx)
 	if err != nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("Failed to get user information: %v", err)
 		return result
 	}
@@ -674,7 +674,7 @@ func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	w.analyzeWindowsUsers(users, &result)
 	w.checkSecurityPolicies(ctx, &result)
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	return result
 }
 

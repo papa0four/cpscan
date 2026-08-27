@@ -176,7 +176,7 @@ func NewWindowsPermissionChecker(osCtx registry.OSContext, scanRoot string) *Win
 func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        p.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: p.Description(),
 		Details:     make([]string, 0),
 	}
@@ -195,7 +195,7 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	p.checkWorldWritableFiles(ctx, &result)
 	p.checkUnownedFiles(ctx, &result)
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	return result
 }
 
@@ -369,7 +369,7 @@ func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *t
 func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
 		Name:        p.Name(),
-		Status:      "CHECKING",
+		Status:      types.StatusChecking,
 		Description: p.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
@@ -381,7 +381,7 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 				fmt.Sprintf("%s Error checking %s: %v",
 					types.SymbolError, p.scanRoot, err))
 		}
-		result.Status = "COMPLETED"
+		result.Status = types.StatusCompleted
 		return result
 	}
 
@@ -396,7 +396,7 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 	// Check for potentially insecure shares
 	p.checkNetworkShares(ctx, &result)
 
-	result.Status = "COMPLETED"
+	result.Status = types.StatusCompleted
 	return result
 }
 
