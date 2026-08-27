@@ -252,9 +252,9 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		if len(result.IncompleteChecks) > 0 {
-			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or --skip-checks %s",
-				timeout, strings.Join(result.IncompleteChecks, ","))
+		if hint := scan.SkipHint(scan.CategoryCheck, result.IncompleteChecks); hint != "" {
+			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or %s",
+				timeout, hint)
 		}
 		return fmt.Errorf("audit timeout after %v; results above are incomplete", timeout)
 	}

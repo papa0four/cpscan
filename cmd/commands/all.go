@@ -338,13 +338,14 @@ func incompleteDetail(result *ScanResult) string {
 			modules = append(modules, m.Name)
 		}
 	}
-	if len(modules) > 0 {
-		parts = append(parts, fmt.Sprintf("--skip-modules %s", strings.Join(modules, ",")))
+	if hint := scan.SkipHint(scan.CategoryModule, modules); hint != "" {
+		parts = append(parts, hint)
 	}
 
-	if result.SecurityAudit != nil && len(result.SecurityAudit.IncompleteChecks) > 0 {
-		parts = append(parts, fmt.Sprintf("--skip-checks %s",
-			strings.Join(result.SecurityAudit.IncompleteChecks, ",")))
+	if result.SecurityAudit != nil {
+		if hint := scan.SkipHint(scan.CategoryCheck, result.SecurityAudit.IncompleteChecks); hint != "" {
+			parts = append(parts, hint)
+		}
 	}
 
 	if len(parts) == 0 {
