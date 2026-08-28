@@ -73,8 +73,8 @@ func init() {
 		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
-	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", "LOW",
-		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
+	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
@@ -215,13 +215,11 @@ func validateAllFlags(cmd *cobra.Command) error {
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	allMinSeverity = strings.ToUpper(allMinSeverity)
-	switch allMinSeverity {
-	case "LOW", "MEDIUM", "HIGH", "CRITICAL":
-		// accepted
-	default:
-		return fmt.Errorf("invalid min-severity: %s (valid: LOW, MEDIUM, HIGH, CRITICAL)", allMinSeverity)
+	normalized, ok := types.NormalizeSeverity(allMinSeverity)
+	if !ok {
+		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", allMinSeverity, types.SeverityNames())
 	}
+	allMinSeverity = normalized
 
 	return nil
 }

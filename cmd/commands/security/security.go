@@ -17,6 +17,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 var (
@@ -86,8 +87,8 @@ func init() {
 		"Save audit report to the specified directory; filename is generated automatically")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
-	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", "LOW",
-		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
+	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
 	SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
 		"Maximum time to run the audit")
 	SecurityCmd.Flags().BoolVar(&checkSSH, "ssh", false,
@@ -149,16 +150,11 @@ func validateFlags(cmd *cobra.Command) error {
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	minSeverity = strings.ToUpper(minSeverity)
-	validSeverities := map[string]bool{
-		"LOW":      true,
-		"MEDIUM":   true,
-		"HIGH":     true,
-		"CRITICAL": true,
+	normalized, ok := types.NormalizeSeverity(minSeverity)
+	if !ok {
+		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", minSeverity, types.SeverityNames())
 	}
-	if !validSeverities[minSeverity] {
-		return fmt.Errorf("invalid severity level: %s", minSeverity)
-	}
+	minSeverity = normalized
 
 	if err := validateFilePermsPath(cmd); err != nil {
 		return err
