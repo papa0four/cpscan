@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/security/types"
@@ -30,13 +31,14 @@ const (
 	// Permission bit masks
 	bitWorldWritable os.FileMode = 0002
 
-	// find command permission arguments
-	findPermSUID          = "-4000"
-	findPermSGID          = "-2000"
-	findPermWorldWritable = "-0002"
+	// Account databases consulted before the name service, and the
+	// colon-delimited field holding each numeric identifier.
+	unixPasswdFile = "/etc/passwd"
+	unixGroupFile  = "/etc/group"
+	unixIDField    = 2
 
-	// findScanTimeout bounds each FS-wide find operation to prevent audit hang
-	findScanTimeout = 60 * time.Second
+	identityKindUser  identityKind = "user"
+	identityKindGroup identityKind = "group"
 )
 
 type (
@@ -71,59 +73,103 @@ type (
 		expected    os.FileMode
 		recursive   bool
 	}
+
+	// identityCache reports whether numeric owners and groups resolve to a real
+	// principal, memoizing by identifier. A filesystem holds orders of magnitude
+	// more entries than distinct identifiers, so resolution collapses from one
+	// lookup per file to one per identifier.
+	identityCache struct {
+		users  map[uint32]bool
+		groups map[uint32]bool
+	}
+
+	// fsScan is the outcome of one filesystem traversal.
+	fsScan struct {
+		suid       []string
+		worldWrite []string
+		unowned    []string
+		unreadable int
+	}
+
+	// identityKind selects which account database a lookup consults.
+	identityKind string
 )
 
-// countUnreadablePaths counts the paths find could not read, i.e. permission denied
-func countUnreadablePaths(stderr []byte) int {
-	if len(stderr) == 0 {
-		return 0
+// newIdentityCache seeds the cache from the local account databases. Anything
+// they declare is known without consulting the name service.
+func newIdentityCache() *identityCache {
+	return &identityCache{
+		users:  localIDs(unixPasswdFile),
+		groups: localIDs(unixGroupFile),
 	}
-	count := 0
-	for _, line := range strings.Split(string(stderr), "\n") {
-		if strings.Contains(line, "Permission denied") {
-			count++
-		}
-	}
-	return count
 }
 
-// runBoundedFind executes find rooted at "/" and is bounded by findScanTimeout
-func runBoundedFind(ctx context.Context, root string, args []string) (output []byte, skipped int, err error) {
-	ctx, cancel := context.WithTimeout(ctx, findScanTimeout)
-	defer cancel()
-
-	full := append([]string{root, "-xdev"}, args...)
-	cmd := exec.CommandContext(ctx, "find", full...) // #nosec G204 -- root validated by caller; predicate args sourced from hardcoded permission constants
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, 0, fmt.Errorf("find timed out after %s", findScanTimeout)
+// localIDs returns the numeric identifiers declared by a colon-delimited
+// account database. An unreadable file yields an empty set, which is safe:
+// every identifier then falls through to the name service
+func localIDs(path string) map[uint32]bool {
+	ids := make(map[uint32]bool)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a package constant
+	if err != nil {
+		return ids
 	}
-
-	// ExitError means find ran and exited non-zero; this is okay
-	var exitErr *exec.ExitError
-	if runErr != nil && !errors.As(runErr, &exitErr) {
-		return nil, 0, runErr
-	}
-
-	return stdout.Bytes(), countUnreadablePaths(stderr.Bytes()), nil
-}
-
-// nonEmptyLines splits find output into clean line-by-line output
-func nonEmptyLines(output []byte) []string {
-	raw := strings.Split(string(output), "\n")
-	lines := make([]string, 0, len(raw))
-	for _, line := range raw {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) <= unixIDField {
+			continue
+		}
+		if id, err := strconv.ParseUint(fields[unixIDField], 10, 32); err == nil {
+			ids[uint32(id)] = true
 		}
 	}
-	return lines
+	return ids
+}
+
+// resolves reports whether both identifiers map to a known principal.
+func (c *identityCache) resolves(ctx context.Context, uid, gid uint32) bool {
+	return c.known(ctx, c.users, identityKindUser, uid) &&
+		c.known(ctx, c.groups, identityKindGroup, gid)
+}
+
+// known consults the cache, falling back to the name service for identifiers
+// the local database does not declare. Directory-provided accounts exist only
+// in the name service, so a local miss alone is not evidence of an orphan.
+func (c *identityCache) known(ctx context.Context, cache map[uint32]bool, kind identityKind, id uint32) bool {
+	if resolved, seen := cache[id]; seen {
+		return resolved
+	}
+	resolved := nameServiceKnows(ctx, kind, id)
+	cache[id] = resolved
+	return resolved
+}
+
+// nameServiceKnows asks the platform name service about a single identifier.
+// getent reports absence through its exit status while dscacheutil reports it
+// through empty output, so both conditions are treated as unresolved.
+func nameServiceKnows(ctx context.Context, kind identityKind, id uint32) bool {
+	value := strconv.FormatUint(uint64(id), 10)
+
+	var name string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		name = "dscacheutil"
+		args = []string{"-q", string(kind), "-a", string(kind) + "id", value}
+	default:
+		database := "passwd"
+		if kind == identityKindGroup {
+			database = "group"
+		}
+		name = "getent"
+		args = []string{database, value}
+	}
+
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- command is platform-fixed and the sole argument is a numeric identifier read from the filesystem
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(bytes.TrimSpace(out)) > 0
 }
 
 // appendSkippedNote annotates the number of paths find could not read
@@ -191,11 +237,24 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 		}
 	}
 
-	p.checkSUIDFiles(ctx, &result)
-	p.checkWorldWritableFiles(ctx, &result)
-	p.checkUnownedFiles(ctx, &result)
+	scan, err := p.scanFilesystem(ctx)
+	p.reportScan(&result, scan)
 
-	result.Status = types.StatusCompleted
+	switch {
+	case err != nil:
+		result.Status = types.StatusWarning
+		result.Description = fmt.Sprintf("Filesystem scan did not complete: %v", err)
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Filesystem scan did not complete: %v", types.SymbolError, err))
+	case scan.unreadable > 0:
+		result.Status = types.StatusWarning
+		result.Description = fmt.Sprintf("Filesystem scan could not read %d paths", scan.unreadable)
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s %d paths were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
+				types.SymbolWarning, scan.unreadable))
+	default:
+		result.Status = types.StatusCompleted
+	}
 	return result
 }
 
@@ -291,78 +350,100 @@ func (p *UnixPermissionChecker) checkPathPermissions(ctx context.Context, cp cri
 	return nil
 }
 
-func (p *UnixPermissionChecker) checkSUIDFiles(ctx context.Context, result *types.AuditResult) {
-	const scan string = "SUID/SGID scan"
-	output, skipped, err := runBoundedFind(ctx, p.effectiveRoot(), []string{
-		"-type", "f",
-		"(", "-perm", findPermSUID, "-o", "-perm", findPermSGID, ")",
-	})
-	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking SUID/SGID files: %v", types.SymbolError, err))
-		return
-	}
+// scanFilesystem walks the effective root once, collecting setuid, group- and
+// world-writable, and unowned entries together. Identity lookups are cached
+// per identifier rather than performed per entry, which is what makes a single
+// pass cheaper than the three it replaces.
+func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context) (fsScan, error) {
+	var scan fsScan
+	root := p.effectiveRoot()
 
-	files := nonEmptyLines(output)
-	if len(files) > 0 {
-		result.Details = append(result.Details, "", "SUID/SGID Files Found:")
-		for _, file := range files {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, file))
-		}
-		emitFinding(result, p.osCtx, "permissions.suid_sgid_binary")
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return scan, fmt.Errorf("stat scan root %s: %w", root, err)
 	}
-	appendSkippedNote(result, scan, skipped)
+	_, _, rootDev, haveRootDev := fileIdentity(rootInfo)
+
+	ids := newIdentityCache()
+
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			scan.unreadable++
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			scan.unreadable++
+			return nil
+		}
+
+		uid, gid, dev, haveIdentity := fileIdentity(info)
+
+		// Stay on one filesystem. Pseudo-filesystems and network mounts are
+		// out of scope and can be pathologically slow to traverse.
+		if haveRootDev && haveIdentity && dev != rootDev {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		mode := info.Mode()
+		if mode.IsRegular() {
+			if mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
+				scan.suid = append(scan.suid, describeEntry(path, info, uid, gid))
+			}
+			if mode.Perm()&bitWorldWritable != 0 {
+				scan.worldWrite = append(scan.worldWrite, describeEntry(path, info, uid, gid))
+			}
+		}
+
+		if haveIdentity && !ids.resolves(ctx, uid, gid) {
+			scan.unowned = append(scan.unowned, describeEntry(path, info, uid, gid))
+		}
+		return nil
+	})
+
+	return scan, walkErr
 }
 
-func (p *UnixPermissionChecker) checkWorldWritableFiles(ctx context.Context, result *types.AuditResult) {
-	const scan string = "World-writable scan"
-	output, skipped, err := runBoundedFind(ctx, p.effectiveRoot(), []string{
-		"-type", "f",
-		"-perm", findPermWorldWritable,
-		"-not", "-type", "l",
-		"-ls",
-	})
-	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking world-writable files: %v", types.SymbolError, err))
-		return
-	}
-
-	files := nonEmptyLines(output)
-	if len(files) > 0 {
-		result.Details = append(result.Details, "", "World-Writable Files Found:")
-		for _, file := range files {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, file))
-		}
-		emitFinding(result, p.osCtx, "permissions.world_writable_file")
-	}
-	appendSkippedNote(result, scan, skipped)
+// describeEntry renders one entry with its mode and numeric owner and group.
+// The identifiers stay numeric deliberately: for an unowned entry they are the
+// values that failed to resolve, and a name would be misleading.
+func describeEntry(path string, info fs.FileInfo, uid, gid uint32) string {
+	return fmt.Sprintf("%v uid=%d gid=%d %s", info.Mode(), uid, gid, path)
 }
 
-func (p *UnixPermissionChecker) checkUnownedFiles(ctx context.Context, result *types.AuditResult) {
-	const scan string = "Unowned-files scan"
-	output, skipped, err := runBoundedFind(ctx, p.effectiveRoot(), []string{
-		"-nouser", "-o", "-nogroup",
-		"-ls",
-	})
-	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking unowned files: %v", types.SymbolError, err))
-		return
+// reportScan records each category the traversal found.
+func (p *UnixPermissionChecker) reportScan(result *types.AuditResult, scan fsScan) {
+	sections := []struct {
+		heading string
+		entries []string
+		key     registry.FindingKey
+	}{
+		{"SUID/SGID Files Found:", scan.suid, "permissions.suid_sgid_binary"},
+		{"World-Writable Files Found:", scan.worldWrite, "permissions.world_writable_file"},
+		{"Unowned Files Found:", scan.unowned, "permissions.unowned_file"},
 	}
 
-	files := nonEmptyLines(output)
-	if len(files) > 0 {
-		result.Details = append(result.Details, "", "Unowned Files Found:")
-		for _, file := range files {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, file))
+	for _, section := range sections {
+		if len(section.entries) == 0 {
+			continue
 		}
-		emitFinding(result, p.osCtx, "permissions.unowned_file")
+		result.Details = append(result.Details, "", section.heading)
+		for _, entry := range section.entries {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolWarning, entry))
+		}
+		emitFinding(result, p.osCtx, section.key)
 	}
-	appendSkippedNote(result, scan, skipped)
 }
 
 // Check implements PermissionChecker interface for Windows systems
