@@ -117,7 +117,6 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	switch {
 	case activeFirewalls > 0:
 		result.Status = types.StatusCompleted
-		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)
 		if activeFirewalls > 1 {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s NOTE: Multiple active firewalls detected - verify configurations don't conflict",
@@ -131,7 +130,6 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 				types.SymbolInfo))
 	default:
 		result.Status = types.StatusWarning
-		result.Description = "No active firewall detected"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
 		emitFinding(&result, f.osCtx, "firewall.no_active_manager")
@@ -202,13 +200,11 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	// Set final status
 	if activeProfiles == 0 {
 		result.Status = types.StatusWarning
-		result.Description = "Windows Firewall is disabled for all profiles"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
 		emitFinding(&result, f.osCtx, "firewall.all_profiles_disabled")
 	} else {
 		result.Status = types.StatusCompleted
-		result.Description = fmt.Sprintf("Windows Firewall is active on %d profile(s)", activeProfiles)
 	}
 
 	return result

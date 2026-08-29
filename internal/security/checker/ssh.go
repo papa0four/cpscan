@@ -170,7 +170,6 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	result.Status = types.StatusCompleted
-	result.Description = "SSH configuration analysis complete"
 	return result
 }
 
@@ -310,6 +309,5 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	result.Status = types.StatusCompleted
-	result.Description = "Windows SSH Configuration analysis complete"
 	return result
 }
