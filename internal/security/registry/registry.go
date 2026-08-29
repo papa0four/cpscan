@@ -16,14 +16,23 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// Platform identifies the host OS family
-type Platform string
+type (
+	// platformRegistry holds all indexed definitions
+	platformRegistry map[Platform]map[FindingKey]FindingDefinition
 
-// Distro indentifies a *Nix distro family *if Windows, unused
-type Distro string
+	// familyRegistry holds finding definitions indexed by distro family,
+	// used for platforms whose findings vary by family (Linux, Unix/BSD)
+	familyRegistry map[Distro]map[FindingKey]FindingDefinition
 
-// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data
-type FindingKey string
+	// Platform identifies the host OS family
+	Platform string
+
+	// Distro indentifies a *Nix distro family *if Windows, unused
+	Distro string
+
+	// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data
+	FindingKey string
+)
 
 // Platform constants
 const (
@@ -81,15 +90,6 @@ type (
 		Resolution  string   `yaml:"resolution"`
 		References  []string `yaml:"references"`
 	}
-)
-
-type (
-	// platformRegistry holds all indexed definitions
-	platformRegistry map[Platform]map[FindingKey]FindingDefinition
-
-	// familyRegistry holds finding definitions indexed by distro family,
-	// used for platforms whose findings vary by family (Linux, Unix/BSD)
-	familyRegistry map[Distro]map[FindingKey]FindingDefinition
 )
 
 var (
@@ -236,6 +236,34 @@ func DetectOS() OSContext {
 		}
 	default:
 		return OSContext{Platform: platform}
+	}
+}
+
+// DisplayLabel returns the human-readable platform label used in check
+// display names: the platform class for Windows, macOS, and Linux, and the
+// specific BSD variant for Unix platforms
+func (c OSContext) DisplayLabel() string {
+	switch c.Platform {
+	case PlatformWindows:
+		return "Windows"
+	case PlatformDarwin:
+		return "macOS"
+	case PlatformLinux:
+		return "Linux"
+	case PlatformUnix:
+		if len(c.Families) > 0 {
+			switch c.Families[0] {
+			case DistroFreeBSD:
+				return "FreeBSD"
+			case DistroOpenBSD:
+				return "OpenBSD"
+			case DistroNetBSD:
+				return "NetBSD"
+			}
+		}
+		return "Unix"
+	default:
+		return "Host"
 	}
 }
 

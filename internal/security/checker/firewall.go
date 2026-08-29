@@ -11,20 +11,22 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// FirewallChecker defines interface for Firewall configuration checking
-type FirewallChecker interface {
-	Check(ctx context.Context) types.AuditResult
-}
-
 type (
+	// FirewallChecker defines interface for Firewall configuration checking
+	FirewallChecker interface {
+		Name() string
+		Description() string
+		Check(ctx context.Context) types.AuditResult
+	}
+
 	// UnixFirewallChecker implements FirewallChecker for Unix-like systems
 	UnixFirewallChecker struct {
-		osCtx registry.OSContext
+		checkIdentity
 	}
 
 	// WindowsFirewallChecker implements FirewallChecker for Windows systems
 	WindowsFirewallChecker struct {
-		osCtx registry.OSContext
+		checkIdentity
 	}
 
 	// firewallTool represents a firewall management tool
@@ -37,20 +39,28 @@ type (
 
 // NewUnixFirewallChecker creates a new Unix firewall checker
 func NewUnixFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
-	return &UnixFirewallChecker{osCtx: osCtx}
+	return &UnixFirewallChecker{checkIdentity: checkIdentity{
+		domain:   "Firewall Configuration",
+		analyzes: "firewall configuration and rules",
+		osCtx:    osCtx,
+	}}
 }
 
 // NewWindowsFirewallChecker creates a new Windows firewall checker
 func NewWindowsFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
-	return &WindowsFirewallChecker{osCtx: osCtx}
+	return &WindowsFirewallChecker{checkIdentity: checkIdentity{
+		domain:   "Firewall Configuration",
+		analyzes: "firewall configuration and rules",
+		osCtx:    osCtx,
+	}}
 }
 
 // Check implements FirewallChecker interface for Unix systems
 func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Firewall Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing firewall configuration and rules",
+		Name:        f.Name(),
+		Status:      types.StatusChecking,
+		Description: f.Description(),
 		Details:     make([]string, 0),
 	}
 
@@ -106,22 +116,20 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	// Check overall firewall status
 	switch {
 	case activeFirewalls > 0:
-		result.Status = "COMPLETED"
-		result.Description = fmt.Sprintf("Found %d active firewall(s)", activeFirewalls)
+		result.Status = types.StatusCompleted
 		if activeFirewalls > 1 {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s NOTE: Multiple active firewalls detected - verify configurations don't conflict",
 					types.SymbolInfo))
 		}
 	case uncheckedFirewalls > 0:
-		result.Status = "WARNING"
+		result.Status = types.StatusWarning
 		result.Description = "Firewall status could not be fully verified"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Firewall check skipped: rerun with elevated privileges for a definitive result",
 				types.SymbolInfo))
 	default:
-		result.Status = "WARNING"
-		result.Description = "No active firewall detected"
+		result.Status = types.StatusWarning
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No active firewall detected", types.SymbolWarning))
 		emitFinding(&result, f.osCtx, "firewall.no_active_manager")
@@ -133,9 +141,9 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 // Check implements FirewallChecker interface for Windows systems
 func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows Firewall Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing Windows Firewall Configuration",
+		Name:        f.Name(),
+		Status:      types.StatusChecking,
+		Description: f.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
@@ -144,7 +152,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	cmd := exec.CommandContext(ctx, "netsh", "advfirewall", "show", "allprofiles", "state")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = "Failed to check Windows Firewall status"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking firewall status: %v", types.SymbolError, err))
@@ -191,14 +199,12 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	// Set final status
 	if activeProfiles == 0 {
-		result.Status = "WARNING"
-		result.Description = "Windows Firewall is disabled for all profiles"
+		result.Status = types.StatusWarning
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
 		emitFinding(&result, f.osCtx, "firewall.all_profiles_disabled")
 	} else {
-		result.Status = "COMPLETED"
-		result.Description = fmt.Sprintf("Windows Firewall is active on %d profile(s)", activeProfiles)
+		result.Status = types.StatusCompleted
 	}
 
 	return result

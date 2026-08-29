@@ -249,6 +249,30 @@ func (c CheckCategory) prefix() byte {
 	}
 }
 
+// skipFlag returns the CLI flag that excludes entries in this category from a
+// run, or the empty string for categories with no exclusion flag
+func (c CheckCategory) skipFlag() string {
+	switch c {
+	case CategoryModule:
+		return "--skip-modules"
+	case CategoryCheck:
+		return "--skip-checks"
+	default:
+		return ""
+	}
+}
+
+// SkipHint returns the flag invocation that excludes names from a future run,
+// or the empty string when names is empty or the category has no exclusion
+// flag. Operator-facing messages embed it so the flag name has one definition.
+func SkipHint(category CheckCategory, names []string) string {
+	flag := category.skipFlag()
+	if flag == "" || len(names) == 0 {
+		return ""
+	}
+	return flag + " " + strings.Join(names, ",")
+}
+
 // Codes returns a filename-safe string encoding the enabled entries within
 // mask. Entries are grouped into four segments -- modules, checks, enrichment,
 // and composing flags -- separated by hyphens. Prefixed segments carry a

@@ -86,21 +86,33 @@ type (
 	}
 )
 
+// severityRank lists the canonical severity values in ascending rank order.
+// SeverityLevel, NormalizeSeverity, and SeverityNames all derive from it, so
+// the canonical set is enumerated once.
+var severityRank = []string{SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical}
+
 // SeverityLevel returns the numeric rank of a severity string for threshold
 // comparisons. Unknown values return -1 so they are never silently dropped.
 func SeverityLevel(s string) int {
-	switch strings.ToUpper(s) {
-	case SeverityLow:
-		return 0
-	case SeverityMedium:
-		return 1
-	case SeverityHigh:
-		return 2
-	case SeverityCritical:
-		return 3
-	default:
-		return -1
+	upper := strings.ToUpper(s)
+	for rank, name := range severityRank {
+		if name == upper {
+			return rank
+		}
 	}
+	return -1
+}
+
+// NormalizeSeverity upper-case severity and reports whether it is canonical
+func NormalizeSeverity(severity string) (string, bool) {
+	upper := strings.ToUpper(severity)
+	return upper, SeverityLevel(upper) >= 0
+}
+
+// SeverityNames returns the canonical severity values in ascending rank order
+// for operator-facing messages
+func SeverityNames() string {
+	return strings.Join(severityRank, ", ")
 }
 
 // MeetsMinSeverity reports whether findingSeverity is at or above the min

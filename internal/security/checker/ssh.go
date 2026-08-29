@@ -16,26 +16,40 @@ import (
 type (
 	// SSHChecker defines interface for SSH configuration checking
 	SSHChecker interface {
+		Name() string
+		Description() string
 		Check(ctx context.Context) types.AuditResult
 	}
 
 	// UnixSSHChecker implements SSHChecker for Unix-like systems
 	UnixSSHChecker struct {
+		checkIdentity
 		ConfigPaths []string
-		osCtx       registry.OSContext
 	}
 
 	// WindowsSSHChecker implements SSHChecker for Windows systems
 	WindowsSSHChecker struct {
+		checkIdentity
 		ConfigPath string
-		osCtx      registry.OSContext
+	}
+
+	// sshConfig holds parsed SSH configuration settings
+	sshConfig struct {
+		rootLogin         bool
+		passwordAuth      bool
+		permRootFound     bool
+		permPasswordFound bool
 	}
 )
 
 // NewUnixSSHChecker creates a new Unix SSH checker with default paths
 func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 	return &UnixSSHChecker{
-		osCtx: osCtx,
+		checkIdentity: checkIdentity{
+			domain:   "SSH Configuration",
+			analyzes: "SSH configuration and security settings",
+			osCtx:    osCtx,
+		},
 		ConfigPaths: []string{
 			"/etc/ssh/sshd_config",
 			"/private/etc/ssh/sshd_config", // macOS path
@@ -46,25 +60,21 @@ func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 // NewWindowsSSHChecker creates a new Windows SSH checker
 func NewWindowsSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 	return &WindowsSSHChecker{
+		checkIdentity: checkIdentity{
+			domain:   "SSH Configuration",
+			analyzes: "SSH configuration and security settings",
+			osCtx:    osCtx,
+		},
 		ConfigPath: "C:\\ProgramData\\ssh\\sshd_config",
-		osCtx:      osCtx,
 	}
-}
-
-// sshConfig holds parsed SSH configuration settings
-type sshConfig struct {
-	rootLogin         bool
-	passwordAuth      bool
-	permRootFound     bool
-	permPasswordFound bool
 }
 
 // Check implements SSHChecker interface for Unix systems
 func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "SSH Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing SSH Configuration settings",
+		Name:        s.Name(),
+		Status:      types.StatusChecking,
+		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
@@ -83,7 +93,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	if file == nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("SSH configuration file not found in any of: %v", s.ConfigPaths)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: No SSH configuration file found", types.SymbolError))
@@ -116,7 +126,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	if err := scanner.Err(); err != nil {
-		result.Status = "ERROR"
+		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("Error reading SSH configuration: %v", err)
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s ERROR: Failed to read configuration", types.SymbolError))
@@ -159,17 +169,16 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 		emitFinding(&result, s.osCtx, "ssh.password_auth_not_set")
 	}
 
-	result.Status = "COMPLETED"
-	result.Description = "SSH configuration analysis complete"
+	result.Status = types.StatusCompleted
 	return result
 }
 
 // Check implements SSHChecker interface for Windows systems
 func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        "Windows SSH Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing Windows SSH configuration",
+		Name:        s.Name(),
+		Status:      types.StatusChecking,
+		Description: s.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
@@ -299,7 +308,6 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 		}
 	}
 
-	result.Status = "COMPLETED"
-	result.Description = "Windows SSH Configuration analysis complete"
+	result.Status = types.StatusCompleted
 	return result
 }

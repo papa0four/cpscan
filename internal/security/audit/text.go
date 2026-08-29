@@ -27,6 +27,13 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 	for _, check := range v.Results {
 		ew.Printf("Check: %s\n", check.Name)
 		ew.Printf("Status: %s\n", check.Status)
+		if check.Description != "" {
+			ew.Printf("Description: %s\n", check.Description)
+		}
+		if check.Status == types.StatusSkipped {
+			ew.Printf("\n")
+			continue
+		}
 		ew.Printf("Duration: %s\n", check.Duration)
 
 		shownFindings += len(check.Findings)

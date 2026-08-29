@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -48,11 +49,14 @@ Results can be output in various formats and saved to a file.`,
 	Example: `  # Run all scans with default settings
   owatch all
 
-  # Run all scans with verbose output
+  # Show module and check progress while scanning
   owatch all -v
 
-  # Skip specific modules
+  # Skip modules; skipped modules are still reported
   owatch all --skip-modules audit,software
+
+  # Skip individual audit checks within the audit module
+  owatch all --skip-checks firewall,permissions
 
   # Save report to directory in JSON format
   owatch all -o json --report-file /path/to/reports`,
@@ -72,8 +76,8 @@ func init() {
 		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
 	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
-	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", "LOW",
-		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
+	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
 	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
@@ -89,10 +93,19 @@ type (
 	ScanResult struct {
 		Timestamp     time.Time
 		Duration      time.Duration
+		Modules       []moduleRun
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
 		SecurityAudit *audit.Result
 		Errors        []string
+	}
+
+	// moduleRun records one module's outcome: COMPLETED, SKIPPED, or ERROR.
+	// A skipped or errored module keeps its row rather than vanishing from
+	// the run record.
+	moduleRun struct {
+		Name   string `json:"name" yaml:"name"`
+		Status string `json:"status" yaml:"status"`
 	}
 
 	// allResult is the typed serialization structure for all command JSON and
@@ -101,6 +114,7 @@ type (
 	allResult struct {
 		Timestamp string                     `json:"timestamp" yaml:"timestamp"`
 		Duration  string                     `json:"duration" yaml:"duration"`
+		Modules   []moduleRun                `json:"modules" yaml:"modules"`
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
 		Security  *audit.View                `json:"security,omitempty" yaml:"security,omitempty"`
@@ -126,6 +140,9 @@ func buildAllMask() (scan.CheckMask, error) {
 			}
 			allChecks &^= skipMask
 		}
+		if allChecks == 0 {
+			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
+		}
 		mask |= allChecks
 	}
 	return mask, nil
@@ -137,6 +154,7 @@ func toAllResult(scan *ScanResult) allResult {
 	out := allResult{
 		Timestamp: scan.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  scan.Duration.String(),
+		Modules:   scan.Modules,
 		Errors:    scan.Errors,
 	}
 
@@ -200,13 +218,11 @@ func validateAllFlags(cmd *cobra.Command) error {
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	allMinSeverity = strings.ToUpper(allMinSeverity)
-	switch allMinSeverity {
-	case "LOW", "MEDIUM", "HIGH", "CRITICAL":
-		// accepted
-	default:
-		return fmt.Errorf("invalid min-severity: %s (valid: LOW, MEDIUM, HIGH, CRITICAL)", allMinSeverity)
+	normalized, ok := types.NormalizeSeverity(allMinSeverity)
+	if !ok {
+		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", allMinSeverity, types.SeverityNames())
 	}
+	allMinSeverity = normalized
 
 	return nil
 }
@@ -260,40 +276,48 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		Errors:    make([]string, 0),
 	}
 
-	if !isModuleSkipped("osinfo") {
-		if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("OS fingerprint error: %v", err))
-		} else {
-			result.OSInfo = osInfo
-		}
+	if isModuleSkipped("osinfo") {
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusSkipped})
+	} else if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("OS fingerprint error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusError})
+	} else {
+		result.OSInfo = osInfo
+		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusCompleted})
 	}
 
-	if !isModuleSkipped("software") {
-		software, err := runSoftwareInventory(ctx, verboseHeaders)
-		if err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("Software inventory error: %v", err))
-		} else {
-			result.Software = software
-		}
+	if isModuleSkipped("software") {
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusSkipped})
+	} else if software, err := runSoftwareInventory(ctx, verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Software inventory error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusError})
+	} else {
+		result.Software = software
+		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusCompleted})
 	}
 
-	if !isModuleSkipped("audit") {
-		if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("Security audit error: %v", err))
-		} else {
-			result.SecurityAudit = securityResult
-		}
-	}
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("scan timed out after %v", allTimeout)
+	if isModuleSkipped("audit") {
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusSkipped})
+	} else if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Security audit error: %v", err))
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusError})
+	} else {
+		result.SecurityAudit = securityResult
+		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusCompleted})
 	}
 
 	result.Duration = time.Since(startTime)
-	return outputResults(cmd, result, mask)
+	if err := outputResults(cmd, result, mask); err != nil {
+		return err
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("scan timed out after %v; %s", allTimeout, incompleteDetail(result))
+	}
+	return nil
 }
 
 func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
@@ -302,6 +326,33 @@ func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
 	}
 
 	return osfingerprint.GetOSFingerprint()
+}
+
+// incompleteDetail names the modules and checks that did not finish, so a
+// timed-out run tells the operator what to exclude or allow more time for.
+func incompleteDetail(result *ScanResult) string {
+	var parts []string
+
+	var modules []string
+	for _, m := range result.Modules {
+		if m.Status == types.StatusError {
+			modules = append(modules, m.Name)
+		}
+	}
+	if hint := scan.SkipHint(scan.CategoryModule, modules); hint != "" {
+		parts = append(parts, hint)
+	}
+
+	if result.SecurityAudit != nil {
+		if hint := scan.SkipHint(scan.CategoryCheck, result.SecurityAudit.IncompleteChecks); hint != "" {
+			parts = append(parts, hint)
+		}
+	}
+
+	if len(parts) == 0 {
+		return "results above are incomplete"
+	}
+	return "results above are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
 }
 
 // runSoftwareInventory enumerates installed software packages. verboseHeaders
@@ -321,11 +372,11 @@ func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *
 	}
 
 	opts := audit.Options{
-		Verbose:        verboseHeaders,
-		MinSeverity:    allMinSeverity,
-		Enrich:         allEnrich,
-		SpecificChecks: scan.EnabledChecks(mask),
-		HostInfo:       hostInfo,
+		Verbose:     verboseHeaders,
+		MinSeverity: allMinSeverity,
+		Enrich:      allEnrich,
+		Checks:      scan.EnabledChecks(mask),
+		HostInfo:    hostInfo,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -385,6 +436,15 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 // progress display when #35 lands.
 func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	fmt.Fprintf(w, "owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
+
+	// module accounting
+	if len(result.Modules) > 0 {
+		fmt.Fprintf(w, "Modules:\n")
+		for _, m := range result.Modules {
+			fmt.Fprintf(w, "  %-10s %s\n", m.Name, m.Status)
+		}
+		fmt.Fprintln(w)
+	}
 
 	// system
 	if result.OSInfo != nil {

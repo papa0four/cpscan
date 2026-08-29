@@ -17,6 +17,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 var (
@@ -58,7 +59,10 @@ This command checks various security aspects including:
 - File permissions
 
 You can run all checks or specify individual checks to run.`,
-	Example: `  # Run all security checks with verbose output
+	Example: `  # Run all security checks
+  owatch audit
+
+  # Show progress while checks run
   owatch audit -v
 
   # Run specific checks
@@ -67,14 +71,14 @@ You can run all checks or specify individual checks to run.`,
   owatch audit --users
   owatch audit --fperms /path/to/file
 
-  # Run checks with verbose output
-  owatch audit --ssh -v
+  # Skip checks; skipped checks are still reported as SKIPPED
+  owatch audit --skip-checks ssh,firewall
 
   # Set minimum severity level
   owatch audit --min-severity HIGH
 
   # Run checks and save report to file
-  owatch audit -v -o json --report-file /path/to/reports`,
+  owatch audit -o json --report-file /path/to/reports`,
 }
 
 func init() {
@@ -86,8 +90,8 @@ func init() {
 		"Save audit report to the specified directory; filename is generated automatically")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
-	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", "LOW",
-		"Minimum severity level to report (LOW, MEDIUM, HIGH, CRITICAL)")
+	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
 	SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
 		"Maximum time to run the audit")
 	SecurityCmd.Flags().BoolVar(&checkSSH, "ssh", false,
@@ -132,6 +136,10 @@ func buildMask() (scan.CheckMask, error) {
 		mask &^= skipMask
 	}
 
+	if mask == 0 {
+		return 0, fmt.Errorf("all available checks were skipped; at least one must run")
+	}
+
 	return mask, nil
 }
 
@@ -145,16 +153,11 @@ func validateFlags(cmd *cobra.Command) error {
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	minSeverity = strings.ToUpper(minSeverity)
-	validSeverities := map[string]bool{
-		"LOW":      true,
-		"MEDIUM":   true,
-		"HIGH":     true,
-		"CRITICAL": true,
+	normalized, ok := types.NormalizeSeverity(minSeverity)
+	if !ok {
+		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", minSeverity, types.SeverityNames())
 	}
-	if !validSeverities[minSeverity] {
-		return fmt.Errorf("invalid severity level: %s", minSeverity)
-	}
+	minSeverity = normalized
 
 	if err := validateFilePermsPath(cmd); err != nil {
 		return err
@@ -226,12 +229,11 @@ func logVerboseConfig(mask scan.CheckMask) {
 // to keep executing against the host.
 func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
-		Verbose:        verbose && reportFile == "",
-		SkipChecks:     skipChecks,
-		FilePermsPath:  checkFilePerms,
-		MinSeverity:    minSeverity,
-		SpecificChecks: scan.EnabledChecks(mask),
-		Enrich:         enrich,
+		Verbose:       verbose && reportFile == "",
+		FilePermsPath: checkFilePerms,
+		MinSeverity:   minSeverity,
+		Checks:        scan.EnabledChecks(mask),
+		Enrich:        enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -240,14 +242,22 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	defer cancel()
 
 	result, err := auditor.RunAudit(ctx)
-	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("audit timeout after %v", timeout)
-	}
 	if err != nil {
 		return fmt.Errorf("audit failed: %w", err)
 	}
 
-	return outputResults(cmd, result, mask)
+	if err := outputResults(cmd, result, mask); err != nil {
+		return err
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		if hint := scan.SkipHint(scan.CategoryCheck, result.IncompleteChecks); hint != "" {
+			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or %s",
+				timeout, hint)
+		}
+		return fmt.Errorf("audit timeout after %v; results above are incomplete", timeout)
+	}
+	return nil
 }
 
 func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
