@@ -655,30 +655,30 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 }
 
 // Check implements UserChecker interface for Windows systems
-func (w *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
+func (u *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	result := types.AuditResult{
-		Name:        w.Name(),
+		Name:        u.Name(),
 		Status:      types.StatusChecking,
-		Description: w.Description(),
+		Description: u.Description(),
 		Details:     make([]string, 0),
 		Findings:    make([]types.Finding, 0),
 	}
 
-	users, err := w.getWindowsUsers(ctx)
+	users, err := u.getWindowsUsers(ctx)
 	if err != nil {
 		result.Status = types.StatusError
 		result.Description = fmt.Sprintf("Failed to get user information: %v", err)
 		return result
 	}
 
-	w.analyzeWindowsUsers(users, &result)
-	w.checkSecurityPolicies(ctx, &result)
+	u.analyzeWindowsUsers(users, &result)
+	u.checkSecurityPolicies(ctx, &result)
 
 	result.Status = types.StatusCompleted
 	return result
 }
 
-func (w *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUserInfo, error) {
+func (u *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUserInfo, error) {
 	var users []windowsUserInfo
 
 	psCmd := `Get-LocalUser | ` +
@@ -737,7 +737,7 @@ func (w *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUser
 	return users, nil
 }
 
-func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
+func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
 	seen := make(map[registry.FindingKey]struct{})
 	for _, user := range users {
 		details := user.Name
@@ -746,7 +746,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			details += " (Administrator)"
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			emitFinding(result, w.osCtx, "users.administrator_account_active")
+			emitFinding(result, u.osCtx, "users.administrator_account_active")
 		} else if !user.Enabled {
 			details += " (Disabled)"
 			result.Details = append(result.Details,
@@ -757,28 +757,28 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 				details += " (Microsoft Account -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, w.osCtx, "users.microsoft_account_no_local_password", seen)
+				emitFindingOnce(result, u.osCtx, "users.microsoft_account_no_local_password", seen)
 			case "AzureAD":
 				details += " (Azure AD -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, w.osCtx, "users.azure_ad_account_no_local_password", seen)
+				emitFindingOnce(result, u.osCtx, "users.azure_ad_account_no_local_password", seen)
 			case "ActiveDirectory":
 				details += " (Active Directory -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, w.osCtx, "users.domain_account_no_local_password", seen)
+				emitFindingOnce(result, u.osCtx, "users.domain_account_no_local_password", seen)
 			case "Unknown":
 				details += " (Unknown principal source -- no local password hash)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				emitFindingOnce(result, w.osCtx, "users.unknown_principal_no_local_password", seen)
+				emitFindingOnce(result, u.osCtx, "users.unknown_principal_no_local_password", seen)
 			default:
 				// Local account or unrecognized source with no password required
 				details += " (No Password Required)"
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				emitFindingOnce(result, w.osCtx, "users.no_password_required", seen)
+				emitFindingOnce(result, u.osCtx, "users.no_password_required", seen)
 			}
 		} else {
 			result.Details = append(result.Details,
@@ -787,7 +787,7 @@ func (w *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 	}
 }
 
-func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *types.AuditResult) {
+func (u *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *types.AuditResult) {
 	cmd := exec.CommandContext(ctx, "net", "accounts")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
@@ -811,7 +811,7 @@ func (w *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *
 		} else {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-			emitFinding(result, w.osCtx, "users.uac_disabled")
+			emitFinding(result, u.osCtx, "users.uac_disabled")
 		}
 	}
 }
