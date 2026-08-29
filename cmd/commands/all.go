@@ -49,11 +49,14 @@ Results can be output in various formats and saved to a file.`,
 	Example: `  # Run all scans with default settings
   owatch all
 
-  # Run all scans with verbose output
+  # Show module and check progress while scanning
   owatch all -v
 
-  # Skip specific modules
+  # Skip modules; skipped modules are still reported
   owatch all --skip-modules audit,software
+
+  # Skip individual audit checks within the audit module
+  owatch all --skip-checks firewall,permissions
 
   # Save report to directory in JSON format
   owatch all -o json --report-file /path/to/reports`,

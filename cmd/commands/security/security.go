@@ -59,7 +59,10 @@ This command checks various security aspects including:
 - File permissions
 
 You can run all checks or specify individual checks to run.`,
-	Example: `  # Run all security checks with verbose output
+	Example: `  # Run all security checks
+  owatch audit
+
+  # Show progress while checks run
   owatch audit -v
 
   # Run specific checks
@@ -68,14 +71,14 @@ You can run all checks or specify individual checks to run.`,
   owatch audit --users
   owatch audit --fperms /path/to/file
 
-  # Run checks with verbose output
-  owatch audit --ssh -v
+  # Skip checks; skipped checks are still reported as SKIPPED
+  owatch audit --skip-checks ssh,firewall
 
   # Set minimum severity level
   owatch audit --min-severity HIGH
 
   # Run checks and save report to file
-  owatch audit -v -o json --report-file /path/to/reports`,
+  owatch audit -o json --report-file /path/to/reports`,
 }
 
 func init() {
