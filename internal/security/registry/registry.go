@@ -1,4 +1,10 @@
 // internal/security/registry/registry.go
+
+// Package registry holds the finding definitions that checkers emit, indexed
+// by platform and, on Linux and BSD hosts, by distribution family. Definitions
+// are authored as YAML and embedded at build time, so a finding's title,
+// severity, description, impact, resolution, and references live in one data
+// file rather than spread through checker code.
 package registry
 
 import (

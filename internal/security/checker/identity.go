@@ -1,4 +1,5 @@
 // internal/security/checker/identity.go
+
 package checker
 
 import "github.com/papa0four/orkowatch/internal/security/registry"

@@ -1,4 +1,5 @@
 // internal/security/enrichment/text.go
+
 package enrichment
 
 import (

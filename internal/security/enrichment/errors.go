@@ -1,4 +1,5 @@
 // internal/security/enrichment/errors.go
+
 package enrichment
 
 import "errors"

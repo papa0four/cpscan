@@ -1,4 +1,5 @@
 // internal/security/audit/text.go
+
 package audit
 
 import (

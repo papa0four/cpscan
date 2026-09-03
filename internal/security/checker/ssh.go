@@ -1,4 +1,5 @@
 // internal/security/checker/ssh.go
+
 package checker
 
 import (

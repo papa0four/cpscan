@@ -1,3 +1,5 @@
+// internal/scan/checks.go
+
 // Package scan defines the CheckMask type, category taxonomy, and registry
 // used to identify which audit checks, modules, enrichment adapters, and
 // composing flags are enabled for a given scan. The bitmask representation
@@ -10,12 +12,36 @@ import (
 	"strings"
 )
 
-// CheckMask is a bitmask of enabled audit checks, modules, enrichment
-// adapters, and composing flags. Each bit represents a single entry.
-// Callers compose a mask by OR-ing the constants defined in this package.
-// The 64-bit space is divided into four fixed ranges; see CheckCategory
-// for boundaries.
-type CheckMask uint64
+type (
+	// CheckMask is a bitmask of enabled audit checks, modules, enrichment
+	// adapters, and composing flags. Each bit represents a single entry.
+	// Callers compose a mask by OR-ing the constants defined in this package.
+	// The 64-bit space is divided into four fixed ranges; see CheckCategory
+	// for boundaries.
+	CheckMask uint64
+
+	// CheckCategory identifies which bit range a registry entry occupies.
+	// The four categories map directly to the four fixed ranges in CheckMask.
+	CheckCategory uint8
+
+	// registryEntry is a single record in the canonical check registry. It binds
+	// a CheckMask bit to its short filename code, canonical name, CLI flag name,
+	// and category. Every derived lookup -- name resolution, Codes output,
+	// EnabledChecks output -- reads this registry rather than maintaining
+	// parallel data structures.
+	//
+	// name is the canonical registry identifier used in skip-* flags and internal
+	// resolution. flag is the CLI flag name the analyst uses on the command line
+	// (e.g. --fwall, --fperms). Where the two are identical, both fields carry
+	// the same value. Neither field may be empty.
+	registryEntry struct {
+		bit      CheckMask
+		code     byte
+		name     string
+		flag     string
+		category CheckCategory
+	}
+)
 
 const (
 	// Module bits: 0-23.
@@ -84,10 +110,6 @@ const (
 	// Bit 63 reserved.
 )
 
-// CheckCategory identifies which bit range a registry entry occupies.
-// The four categories map directly to the four fixed ranges in CheckMask.
-type CheckCategory uint8
-
 const (
 	// CategoryModule identifies a module bit (bits 0 - 23)
 	CategoryModule CheckCategory = iota
@@ -104,163 +126,57 @@ const (
 	categoryCount
 )
 
-// registryEntry is a single record in the canonical check registry. It binds
-// a CheckMask bit to its short filename code, canonical name, CLI flag name,
-// and category. All derived lookups -- name validation, Codes output,
-// EnabledChecks output -- are built from this registry at init time rather
-// than maintaining parallel data structures.
-//
-// name is the canonical registry identifier used in skip-* flags and internal
-// resolution. flag is the CLI flag name the analyst uses on the command line
-// (e.g. --fwall, --fperms). Where the two are identical, both fields carry
-// the same value. Neither field may be empty.
-type registryEntry struct {
-	bit      CheckMask
-	code     byte
-	name     string
-	flag     string
-	category CheckCategory
-}
+var (
+	// registry is the canonical ordered list of all check, module, enrichment
+	// adapter, and composing flag entries. Iteration order determines the
+	// left-to-right code segment produced by Codes -- entries must remain ordered
+	// alphabetically by code within each category. New entries append within their
+	// category's reserved bit range. Existing entries must never be reordered or
+	// renumbered; doing so silently changes generated filenames for existing
+	// reports. Code characters are permanently bound to their bit within a
+	// category -- a code assigned to one entry can never be reassigned to another,
+	// even if the original entry is removed, as doing so breaks filename
+	// compatibility with previously generated reports.
+	registry = []registryEntry{
+		// Modules -- alphabetical by code within category.
+		// Modules have no individual CLI flags; name and flag are identical.
+		// Reserved entries are wired now to lock in bit positions permanently;
+		// implementation lands in a future branch.
+		{bit: ModuleAudit, code: 'a', name: "audit", flag: "audit", category: CategoryModule},
+		{bit: ModuleHistory, code: 'h', name: "history", flag: "history", category: CategoryModule},
+		{bit: ModuleLogs, code: 'l', name: "logs", flag: "logs", category: CategoryModule},
+		{bit: ModuleListeners, code: 'n', name: "listeners", flag: "listeners", category: CategoryModule},
+		{bit: ModuleOS, code: 'o', name: "osinfo", flag: "osinfo", category: CategoryModule},
+		{bit: ModuleRemote, code: 'r', name: "remote", flag: "remote", category: CategoryModule},
+		{bit: ModuleSoftware, code: 's', name: "software", flag: "software", category: CategoryModule},
 
-// registry is the canonical ordered list of all check, module, enrichment
-// adapter, and composing flag entries. Iteration order determines the
-// left-to-right code segment produced by Codes -- entries must remain ordered
-// alphabetically by code within each category. New entries append within their
-// category's reserved bit range. Existing entries must never be reordered or
-// renumbered; doing so silently changes generated filenames for existing
-// reports. Code characters are permanently bound to their bit within a
-// category -- a code assigned to one entry can never be reassigned to another,
-// even if the original entry is removed, as doing so breaks filename
-// compatibility with previously generated reports.
-var registry = []registryEntry{
-	// Modules -- alphabetical by code within category.
-	// Modules have no individual CLI flags; name and flag are identical.
-	// Reserved entries are wired now to lock in bit positions permanently;
-	// implementation lands in a future branch.
-	{bit: ModuleAudit, code: 'a', name: "audit", flag: "audit", category: CategoryModule},
-	{bit: ModuleHistory, code: 'h', name: "history", flag: "history", category: CategoryModule},
-	{bit: ModuleLogs, code: 'l', name: "logs", flag: "logs", category: CategoryModule},
-	{bit: ModuleListeners, code: 'n', name: "listeners", flag: "listeners", category: CategoryModule},
-	{bit: ModuleOS, code: 'o', name: "osinfo", flag: "osinfo", category: CategoryModule},
-	{bit: ModuleRemote, code: 'r', name: "remote", flag: "remote", category: CategoryModule},
-	{bit: ModuleSoftware, code: 's', name: "software", flag: "software", category: CategoryModule},
+		// Audit checks -- alphabetical by code within category.
+		// flag is the CLI flag name the analyst passes (e.g. --fwall, --fperms).
+		// name is the canonical registry identifier used in --skip-checks resolution.
+		{bit: CheckFirewall, code: 'f', name: "firewall", flag: "fwall", category: CategoryCheck},
+		{bit: CheckPerms, code: 'p', name: "permissions", flag: "fperms", category: CategoryCheck},
+		{bit: CheckSSH, code: 's', name: "ssh", flag: "ssh", category: CategoryCheck},
+		{bit: CheckUsers, code: 'u', name: "users", flag: "users", category: CategoryCheck},
 
-	// Audit checks -- alphabetical by code within category.
-	// flag is the CLI flag name the analyst passes (e.g. --fwall, --fperms).
-	// name is the canonical registry identifier used in --skip-checks resolution.
-	{bit: CheckFirewall, code: 'f', name: "firewall", flag: "fwall", category: CategoryCheck},
-	{bit: CheckPerms, code: 'p', name: "permissions", flag: "fperms", category: CategoryCheck},
-	{bit: CheckSSH, code: 's', name: "ssh", flag: "ssh", category: CategoryCheck},
-	{bit: CheckUsers, code: 'u', name: "users", flag: "users", category: CategoryCheck},
+		// Enrichment adapters -- reserved until each adapter lands.
+		// flag names will be assigned when each adapter is implemented.
+		{bit: EnrichGHSA, code: 'g', name: "ghsa", flag: "ghsa", category: CategoryEnrichment},
+		{bit: EnrichKEV, code: 'k', name: "kev", flag: "kev", category: CategoryEnrichment},
+		{bit: EnrichNVD, code: 'n', name: "nvd", flag: "nvd", category: CategoryEnrichment},
+		{bit: EnrichEPSS, code: 'p', name: "epss", flag: "epss", category: CategoryEnrichment},
 
-	// Enrichment adapters -- reserved until each adapter lands.
-	// flag names will be assigned when each adapter is implemented.
-	{bit: EnrichGHSA, code: 'g', name: "ghsa", flag: "ghsa", category: CategoryEnrichment},
-	{bit: EnrichKEV, code: 'k', name: "kev", flag: "kev", category: CategoryEnrichment},
-	{bit: EnrichNVD, code: 'n', name: "nvd", flag: "nvd", category: CategoryEnrichment},
-	{bit: EnrichEPSS, code: 'p', name: "epss", flag: "epss", category: CategoryEnrichment},
-
-	// Composing flags -- reserved until implementation lands.
-	// -m is the short flag; mitre is the canonical name.
-	{bit: FlagMITRE, code: 'm', name: "mitre", flag: "m", category: CategoryMITRE},
-}
-
-// validateRegistry panics at init if any registry entry within a category
-// has a duplicate code or duplicate name, if any entry's code sorts out of
-// ascending order relative to the prior entry in the same category, or if
-// any bit is duplicated across the entire registry. This surfaces
-// misconfiguration immediately on startup rather than producing silently
-// wrong output. Ordering validation only constrains the registry slice's
-// declared order; it has no bearing on bit values, which are assigned by
-// availability and are never reordered once permanently bound to a code.
-func validateRegistry() {
-	codes := make(map[CheckCategory]map[byte]bool)
-	names := make(map[CheckCategory]map[string]bool)
-	bits := make(map[CheckMask]bool)
-	lastCode := make(map[CheckCategory]byte)
-	seenCategory := make(map[CheckCategory]bool)
-
-	for _, e := range registry {
-		if bits[e.bit] {
-			panic(fmt.Sprintf("scan: registry duplicates bit 0x%x (name: %s)", e.bit, e.name))
-		}
-		bits[e.bit] = true
-
-		if codes[e.category] == nil {
-			codes[e.category] = make(map[byte]bool)
-		}
-		if codes[e.category][e.code] {
-			panic(fmt.Sprintf("scan: registry duplicate code '%c' in category %d (name: %s)", e.code, e.category, e.name))
-		}
-		codes[e.category][e.code] = true
-
-		if seenCategory[e.category] && e.code < lastCode[e.category] {
-			panic(fmt.Sprintf(
-				"scan: registry entry '%c' (name: %s) is out of alphabetical order in category %d; "+
-					"expected code >= '%c'. Insert new entries in alphabetical position by code -- "+
-					"do not renumber bits to match",
-				e.code, e.name, e.category, lastCode[e.category]))
-		}
-		lastCode[e.category] = e.code
-		seenCategory[e.category] = true
-
-		if names[e.category] == nil {
-			names[e.category] = make(map[string]bool)
-		}
-		if names[e.category][e.name] {
-			panic(fmt.Sprintf("scan: registry duplicate name %q in category %d", e.name, e.category))
-		}
-		names[e.category][e.name] = true
+		// Composing flags -- reserved until implementation lands.
+		// -m is the short flag; mitre is the canonical name.
+		{bit: FlagMITRE, code: 'm', name: "mitre", flag: "m", category: CategoryMITRE},
 	}
-}
 
-// checksByName is a derived lookup map built from the registry at init time.
-// It maps both the canonical name and the CLI flag name of each entry to its
-// registry entry for O(1) resolution by either form. Entries where name and
-// flag are identical occupy one slot. Callers must use MaskFromNames rather
-// than referencing this map directly.
-var checksByName map[string]registryEntry
-
-func init() {
-	validateRegistry()
-
-	const maxKeysPerEntry = 2
-	checksByName = make(map[string]registryEntry, len(registry)*maxKeysPerEntry)
-	for _, e := range registry {
-		checksByName[e.name] = e
-		checksByName[e.flag] = e
-	}
-}
-
-// prefix returns the single-byte segment label used in generated report
-// filenames. The label precedes a dot and the category's code string
-// (e.g. "m.os", "c.fpsu"). CategoryMITRE returns 0 because the composing
-// flag segment is always terminal and carries no prefix by convention.
-func (c CheckCategory) prefix() byte {
-	switch c {
-	case CategoryModule:
-		return 'm'
-	case CategoryCheck:
-		return 'c'
-	case CategoryEnrichment:
-		return 'e'
-	default:
-		return 0
-	}
-}
-
-// skipFlag returns the CLI flag that excludes entries in this category from a
-// run, or the empty string for categories with no exclusion flag
-func (c CheckCategory) skipFlag() string {
-	switch c {
-	case CategoryModule:
-		return "--skip-modules"
-	case CategoryCheck:
-		return "--skip-checks"
-	default:
-		return ""
-	}
-}
+	// checksByName is a derived lookup map built from the registry.
+	// It maps both the canonical name and the CLI flag name of each entry to its
+	// registry entry for O(1) resolution by either form. Entries where name and
+	// flag are identical occupy one slot. Callers must use MaskFromNames rather
+	// than referencing this map directly.
+	checksByName = buildChecksByName()
+)
 
 // SkipHint returns the flag invocation that excludes names from a future run,
 // or the empty string when names is empty or the category has no exclusion
@@ -351,19 +267,6 @@ func MaskFromNames(names []string, category CheckCategory) (CheckMask, error) {
 	return mask, nil
 }
 
-// validNamesFor returns a comma-separated string of all canonical names
-// registered under category. It is used to produce accurate error messages
-// in MaskFromNames without hardcoding the valid set at each callsite.
-func validNamesFor(category CheckCategory) string {
-	var names []string
-	for _, e := range registry {
-		if e.category == category {
-			names = append(names, e.name)
-		}
-	}
-	return strings.Join(names, ", ")
-}
-
 // String returns a human-readable label for the category, used in error
 // messages produced by MaskFromNames.
 func (c CheckCategory) String() string {
@@ -379,4 +282,111 @@ func (c CheckCategory) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// prefix returns the single-byte segment label used in generated report
+// filenames. The label precedes a dot and the category's code string
+// (e.g. "m.os", "c.fpsu"). CategoryMITRE returns 0 because the composing
+// flag segment is always terminal and carries no prefix by convention.
+func (c CheckCategory) prefix() byte {
+	switch c {
+	case CategoryModule:
+		return 'm'
+	case CategoryCheck:
+		return 'c'
+	case CategoryEnrichment:
+		return 'e'
+	default:
+		return 0
+	}
+}
+
+// skipFlag returns the CLI flag that excludes entries in this category from a
+// run, or the empty string for categories with no exclusion flag
+func (c CheckCategory) skipFlag() string {
+	switch c {
+	case CategoryModule:
+		return "--skip-modules"
+	case CategoryCheck:
+		return "--skip-checks"
+	default:
+		return ""
+	}
+}
+
+// validateRegistry panics during package initialization if any registry entry
+// within a category has a duplicate code or duplicate name, if any entry's
+// code sorts out of ascending order relative to the prior entry in the same
+// category, or if any bit is duplicated across the entire registry. This
+// surfaces misconfiguration immediately on startup rather than producing
+// silently wrong output. Ordering validation only constrains the registry
+// slice's declared order; it has no bearing on bit values, which are assigned
+// by availability and are never reordered once permanently bound to a code.
+func validateRegistry() {
+	codes := make(map[CheckCategory]map[byte]bool)
+	names := make(map[CheckCategory]map[string]bool)
+	bits := make(map[CheckMask]bool)
+	lastCode := make(map[CheckCategory]byte)
+	seenCategory := make(map[CheckCategory]bool)
+
+	for _, e := range registry {
+		if bits[e.bit] {
+			panic(fmt.Sprintf("scan: registry duplicates bit 0x%x (name: %s)", e.bit, e.name))
+		}
+		bits[e.bit] = true
+
+		if codes[e.category] == nil {
+			codes[e.category] = make(map[byte]bool)
+		}
+		if codes[e.category][e.code] {
+			panic(fmt.Sprintf("scan: registry duplicate code '%c' in category %d (name: %s)", e.code, e.category, e.name))
+		}
+		codes[e.category][e.code] = true
+
+		if seenCategory[e.category] && e.code < lastCode[e.category] {
+			panic(fmt.Sprintf(
+				"scan: registry entry '%c' (name: %s) is out of alphabetical order in category %d; "+
+					"expected code >= '%c'. Insert new entries in alphabetical position by code -- "+
+					"do not renumber bits to match",
+				e.code, e.name, e.category, lastCode[e.category]))
+		}
+		lastCode[e.category] = e.code
+		seenCategory[e.category] = true
+
+		if names[e.category] == nil {
+			names[e.category] = make(map[string]bool)
+		}
+		if names[e.category][e.name] {
+			panic(fmt.Sprintf("scan: registry duplicate name %q in category %d", e.name, e.category))
+		}
+		names[e.category][e.name] = true
+	}
+}
+
+// buildChecksByName validates the registry and returns the name and flag
+// lookup map. It panics on a malformed registry, halting the program at
+// startup rather than resolving names against a registry known to be wrong.
+func buildChecksByName() map[string]registryEntry {
+	validateRegistry()
+
+	const maxKeysPerEntry = 2
+	byName := make(map[string]registryEntry, len(registry)*maxKeysPerEntry)
+	for _, e := range registry {
+		byName[e.name] = e
+		byName[e.flag] = e
+	}
+	return byName
+}
+
+// validNamesFor returns a comma-separated string of all canonical names
+// registered under category. It is used to produce accurate error messages
+// in MaskFromNames without hardcoding the valid set at each callsite.
+func validNamesFor(category CheckCategory) string {
+	var names []string
+	for _, e := range registry {
+		if e.category == category {
+			names = append(names, e.name)
+		}
+	}
+	return strings.Join(names, ", ")
 }

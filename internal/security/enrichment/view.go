@@ -1,4 +1,5 @@
 // internal/security/enrichment/view.go
+
 package enrichment
 
 import "sort"

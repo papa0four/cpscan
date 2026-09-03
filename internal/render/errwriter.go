@@ -1,4 +1,5 @@
 // internal/render/errwriter.go
+
 package render
 
 import (

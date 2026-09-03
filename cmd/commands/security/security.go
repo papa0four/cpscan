@@ -1,4 +1,10 @@
 // cmd/commands/security/security.go
+
+// Package security implements the owatch audit command, which runs the
+// configuration security checks and renders their results. The command's
+// platform entry point is supplied by exactly one build-tagged file per
+// compiled target, so a target missing its platform file fails to compile
+// rather than shipping a nil RunE.
 package security
 
 import (

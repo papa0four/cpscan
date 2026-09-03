@@ -1,6 +1,7 @@
 //go:build linux || darwin || freebsd
 
 // internal/softwarelist/softwarelist_unix.go
+
 package softwarelist
 
 import (

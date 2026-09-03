@@ -1,4 +1,5 @@
 // internal/security/audit/view.go
+
 package audit
 
 import (

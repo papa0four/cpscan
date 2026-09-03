@@ -1,4 +1,5 @@
 // internal/security/checker/firewall.go
+
 package checker
 
 import (

@@ -1,4 +1,5 @@
 // internal/report/write.go
+
 package report
 
 import (

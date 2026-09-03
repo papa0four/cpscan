@@ -1,4 +1,9 @@
 // internal/security/types/types.go
+
+// Package types defines the vocabulary shared by every checker, renderer, and
+// report: the finding and result shapes, the status and severity values that
+// appear verbatim in output, and CWE identifier normalization. These are output
+// contract values and cannot change once shipped.
 package types
 
 import (

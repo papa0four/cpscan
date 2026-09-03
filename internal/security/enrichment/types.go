@@ -1,4 +1,5 @@
 // internal/security/enrichment/types.go
+
 package enrichment
 
 import "time"

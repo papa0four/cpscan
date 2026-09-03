@@ -1,6 +1,7 @@
 //go:build windows
 
 // internal/softwarelist/softwarelist_windows.go
+
 package softwarelist
 
 import (

@@ -1,4 +1,5 @@
 // internal/security/checker/users.go
+
 package checker
 
 import (

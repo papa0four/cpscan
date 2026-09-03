@@ -1,4 +1,5 @@
 // internal/security/checker/constants.go
+
 package checker
 
 // /etc/passwd field indices as defined by POSIX.

@@ -1,4 +1,5 @@
 // internal/render/finding.go
+
 package render
 
 import (

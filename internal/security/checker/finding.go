@@ -1,4 +1,5 @@
 // internal/security/checker/finding.go
+
 package checker
 
 import (

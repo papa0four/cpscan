@@ -1,4 +1,5 @@
 // internal/security/types/cwe.go
+
 package types
 
 import (

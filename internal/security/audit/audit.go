@@ -1,4 +1,9 @@
 // internal/security/audit/audit.go
+
+// Package audit orchestrates the security checks: it selects the enabled set,
+// runs them concurrently under a caller-supplied deadline, aggregates their
+// findings and CWE references, and optionally enriches those references. It
+// owns the serializable projection of a completed run and its text rendering.
 package audit
 
 import (

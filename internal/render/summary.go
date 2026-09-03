@@ -1,4 +1,5 @@
 // internal/render/summary.go
+
 package render
 
 import (

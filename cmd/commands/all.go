@@ -1,4 +1,5 @@
 // cmd/commands/all.go
+
 package cmd
 
 import (

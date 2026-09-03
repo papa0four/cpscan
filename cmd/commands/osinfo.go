@@ -1,4 +1,5 @@
 // cmd/commands/osinfo.go
+
 package cmd
 
 import (

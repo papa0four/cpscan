@@ -1,4 +1,5 @@
 // internal/security/checker/permissions.go
+
 package checker
 
 import (
