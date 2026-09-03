@@ -39,6 +39,7 @@ var (
 // allCmd represents the all command that combines all scanning modules
 var allCmd = &cobra.Command{
 	Use:   "all",
+	Args:  cobra.NoArgs,
 	Short: "Run all available scans",
 	Long: `The all command performs a comprehensive system scan including:
 - OS fingerprinting

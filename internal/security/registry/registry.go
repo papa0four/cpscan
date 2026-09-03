@@ -1,10 +1,8 @@
 // internal/security/registry/registry.go
 
-// Package registry holds the finding definitions that checkers emit, indexed
-// by platform and, on Linux and BSD hosts, by distribution family. Definitions
-// are authored as YAML and embedded at build time, so a finding's title,
-// severity, description, impact, resolution, and references live in one data
-// file rather than spread through checker code.
+// Package security implements the owatch audit command, which runs the
+// configuration security checks and renders their results as text, JSON, or
+// YAML, optionally writing them to a generated report file.
 package registry
 
 import (
@@ -33,7 +31,8 @@ type (
 	// Platform identifies the host OS family
 	Platform string
 
-	// Distro indentifies a *Nix distro family *if Windows, unused
+	// Distro identifies a Unix or Linux distribution family. It is unused on
+	// Windows and macOS, whose findings are indexed by platform alone.
 	Distro string
 
 	// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data

@@ -53,7 +53,8 @@ var (
 // build-tagged platform file per compiled target. A target missing its
 // platform file fails to compile rather than shipping a nil RunE.
 var SecurityCmd = &cobra.Command{
-	Use:     "audit [flags] [check...]",
+	Use:     "audit",
+	Args:    cobra.NoArgs,
 	Aliases: []string{"security_audit"},
 	Short:   "Perform a security audit of the system",
 	RunE:    platformRunE,

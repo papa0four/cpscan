@@ -13,6 +13,7 @@ import (
 // softwareCmd represents the software command
 var softwareCmd = &cobra.Command{
 	Use:   "software",
+	Args:  cobra.NoArgs,
 	Short: "List installed software on the host",
 	Long:  `The software command gathers and lists the installed software packages from the host operating system, including version details where available.`,
 	RunE: func(cmd *cobra.Command, args []string) error {

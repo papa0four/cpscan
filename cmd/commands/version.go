@@ -18,6 +18,7 @@ var Version = "dev"
 // versionCmd prints the application version, matching the --version output
 var versionCmd = &cobra.Command{
 	Use:   "version",
+	Args:  cobra.NoArgs,
 	Short: "Print the orkowatch version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("owatch version %s\n", Version)
