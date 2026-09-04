@@ -78,7 +78,7 @@ SUPPORTED_TARGETS := \
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check
+.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check check-platforms
 
 # -----------------------------------------------------------------------------
 # Build
@@ -108,6 +108,16 @@ build-all:
 			$(MAIN_PKG) && echo "[+] Done: $(BINARY_NAME)_$(GOOS_T)_$(GOARCH_T)$(EXT)"; \
 	)
 	@echo "[+] All targets built."
+
+check-platforms:
+	@echo "[*] Verifying every supported platform compiles..."
+	@$(foreach target,$(SUPPORTED_TARGETS), \
+		$(eval GOOS_T   := $(word 1,$(subst /, ,$(target)))) \
+		$(eval GOARCH_T := $(word 2,$(subst /, ,$(target)))) \
+		echo "[*] $(GOOS_T)/$(GOARCH_T)..."; \
+		CGO_ENABLED=0 GOOS=$(GOOS_T) GOARCH=$(GOARCH_T) go build ./... || exit 1; \
+	)
+	@echo "[+] All supported platforms compile."
 
 # -----------------------------------------------------------------------------
 # Install / Uninstall
@@ -208,7 +218,7 @@ syft-grype:
 	@echo "[*] Scanning SBOM with grype..."
 	@grype sbom:sbom.json --fail-on medium && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test
+check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test check-platforms
 	@echo ""
 	@echo "[+] All quality gates passed."
 
