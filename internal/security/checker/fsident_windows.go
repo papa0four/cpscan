@@ -1,5 +1,6 @@
-// internal/security/checker/fsident_windows.go
 //go:build windows
+
+// internal/security/checker/fsident_windows.go
 
 package checker
 

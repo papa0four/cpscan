@@ -1,6 +1,6 @@
-// cmd/commands/security/security_windows.go
 //go:build windows
-// +build windows
+
+// cmd/commands/security/security_windows.go
 
 package security
 
