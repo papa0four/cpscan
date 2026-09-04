@@ -1,5 +1,6 @@
-// internal/security/checker/fsident_unix.go
 //go:build linux || darwin || freebsd || openbsd || netbsd
+
+// internal/security/checker/fsident_unix.go
 
 package checker
 

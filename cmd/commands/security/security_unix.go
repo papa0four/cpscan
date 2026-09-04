@@ -1,6 +1,6 @@
+//go:build linux || darwin || freebsd || openbsd || netbsd
+
 // cmd/commands/security/security_unix.go
-//go:build linux || darwin || freebsd || openbsd
-// +build linux darwin freebsd openbsd
 
 package security
 

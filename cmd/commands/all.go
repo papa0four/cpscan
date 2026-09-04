@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -34,6 +33,10 @@ var (
 	allSkipChecks         []string
 	allTimeout            time.Duration
 	allMinSeverity        string
+
+	// allFormat is the effective output encoding, resolved once in
+	// validateAllFlags from allOutputFormat and allReportFile
+	allFormat report.Format
 )
 
 // allCmd represents the all command that combines all scanning modules
@@ -68,8 +71,8 @@ Results can be output in various formats and saved to a file.`,
 func init() {
 	allCmd.Flags().BoolVarP(&allVerbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
-	allCmd.Flags().StringVarP(&allOutputFormat, "output", "o", "text",
-		"Output format (json, yaml, text)")
+	allCmd.Flags().StringVarP(&allOutputFormat, "output", "o", string(report.FormatText),
+		fmt.Sprintf("Output format (%s)", report.FormatNames()))
 	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
 		"Save complete report to the specified directory; filename is generated automatically")
 	allCmd.Flags().StringSliceVar(&allSkipModules, "skip-modules", []string{},
@@ -195,16 +198,25 @@ func validateSkipModules() error {
 
 // validateAllFlags rejects invalid flag combinations for the all command.
 func validateAllFlags(cmd *cobra.Command) error {
-	switch allOutputFormat {
-	case "json", "yaml", "text":
-		// accepted
+	format, ok := report.ParseFormat(allOutputFormat)
+	if !ok {
+		return fmt.Errorf("invalid output format: %s (valid: %s)", allOutputFormat, report.FormatNames())
+	}
+
+	// Resolve the effective encoding at the boundary: an explicit -o wins,
+	// otherwise a report file implies JSON and a bare run is text.
+	switch {
+	case cmd.Flags().Changed("output"):
+		allFormat = format
+	case allReportFile != "":
+		allFormat = report.FormatJSON
 	default:
-		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", allOutputFormat)
+		allFormat = report.FormatText
 	}
 
 	if cmd.Flags().Changed("report-file") {
-		if err := validateAllReportDir(allReportFile); err != nil {
-			return err
+		if err := report.ValidateDir(allReportFile); err != nil {
+			return fmt.Errorf("--report-file: %w", err)
 		}
 	}
 
@@ -222,24 +234,10 @@ func validateAllFlags(cmd *cobra.Command) error {
 	// canonical form; validation and storage happen in the same step.
 	normalized, ok := types.NormalizeSeverity(allMinSeverity)
 	if !ok {
-		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", allMinSeverity, types.SeverityNames())
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", allMinSeverity, types.SeverityNames())
 	}
 	allMinSeverity = normalized
 
-	return nil
-}
-
-// validateAllReportDir confirms that the value passed to --report-file is an
-// existing directory. The program generates the filename inside it; the caller
-// supplies only the destination directory.
-func validateAllReportDir(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("--report-file: directory is not accessible: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("--report-file: %s is not a directory", path)
-	}
 	return nil
 }
 
@@ -312,7 +310,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	result.Duration = time.Since(startTime)
-	if err := outputResults(cmd, result, mask); err != nil {
+	if err := outputResults(result, mask); err != nil {
 		return err
 	}
 
@@ -385,25 +383,18 @@ func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *
 	return auditor.RunAudit(ctx)
 }
 
-func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) error {
-	format := "text"
-	if cmd.Flags().Changed("output") {
-		format = allOutputFormat
-	} else if allReportFile != "" {
-		format = "json"
-	}
-
+func outputResults(result *ScanResult, mask scan.CheckMask) error {
 	var buf bytes.Buffer
 
-	switch format {
-	case "json":
+	switch allFormat {
+	case report.FormatJSON:
 		data := toAllResult(result)
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(data); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
-	case "yaml":
+	case report.FormatYAML:
 		data := toAllResult(result)
 		if err := yaml.NewEncoder(&buf).Encode(data); err != nil {
 			return fmt.Errorf("failed to encode YAML: %w", err)
@@ -417,7 +408,7 @@ func outputResults(cmd *cobra.Command, result *ScanResult, mask scan.CheckMask) 
 	if allReportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(allReportFile, hostname, codes, format)
+		path := report.DefaultPath(allReportFile, hostname, codes, allFormat)
 		wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
 		if err := report.Write(path, buf.Bytes(), wOpts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {

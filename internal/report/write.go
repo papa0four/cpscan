@@ -13,6 +13,36 @@ import (
 	"time"
 )
 
+type (
+	// Format identifies an output encoding. ParseFormat is the only
+	// constructor from operator input, so a Format reaching a writer names
+	// one of the canonical set.
+	Format string
+
+	// Options carries caller decisions that affect write policy.
+	Options struct {
+		// AllowElevatedWrite is set when --allow-elevated-write is passed
+		// and, where a TTY exists, confirmed the prompt.
+		AllowElevatedWrite bool
+	}
+)
+
+const (
+	// FormatText is the default human-readable encoding.
+	FormatText Format = "text"
+	// FormatJSON is the structured encoding, and the implied format when a
+	// report file is written without an explicit --output.
+	FormatJSON Format = "json"
+	// FormatYAML is the alternate structured encoding.
+	FormatYAML Format = "yaml"
+
+	// maxOperatorHomes bounds the operator identities a write is judged
+	// against: the effective user's and, on Unix under sudo, the invoking
+	// user's. Windows has no effective/invoking split, but the same bound
+	// covers its cwd-plus-home allowlist roots.
+	maxOperatorHomes = 2
+)
+
 // Sentinel errors returned by Write for unsafe destinations.
 var (
 	ErrParentMissing       = errors.New("destination directory does not exist")
@@ -22,20 +52,20 @@ var (
 	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is writable by other users")
 )
 
-// maxOperatorHomes bounds the operator identities a write is judged
-// against: the effective user's and, on Unix under sudo, the invoking
-// user's. Windows has no effective/invoking split, but the same bound
-// covers its cwd-plus-home allowlist roots.
-const maxOperatorHomes = 2
-
-// Options carries caller decisions that affect write policy.
-type Options struct {
-	// AllowElevatedWrite is set when --allow-elevated-write is passed
-	// and, where a TTY exists, confirmed the prompt.
-	AllowElevatedWrite bool
+// formats is the canonical ordered format set paired with its filename
+// extension. ParseFormat, FormatNames, and Extension all derive from it,
+// so the set is enumerated once. The first entry supplies the fallback
+// extension for an unrecognized Format.
+var formats = []struct {
+	name Format
+	ext  string
+}{
+	{FormatText, "txt"},
+	{FormatJSON, "json"},
+	{FormatYAML, "yaml"},
 }
 
-// Write validates path through the full guard pipeline and writes data to it,
+// Write validates path through the full guard pipeline and writes data to it.
 func Write(path string, data []byte, opts Options) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -88,18 +118,33 @@ func Write(path string, data []byte, opts Options) error {
 	return openAndWrite(target, data)
 }
 
+// ValidateDir confirms path is an existing directory a report can be written
+// into. The filename is generated inside it, so the caller supplies only the
+// destination directory. Errors describe the condition without naming a flag,
+// so the caller supplies its own flag prefix.
+func ValidateDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("directory is not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	return nil
+}
+
 // DefaultPath returns the full path for a generated report file inside dir.
 // The filename follows the pattern owatch-<hostname>-<codes>-<timestamp>.<ext>
 // where codes is the category-prefixed segment string produced by scan.Codes
 // (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller.
 // dir must be an existing directory; the caller is responsible for validating it.
-func DefaultPath(dir, hostname, codes, format string) string {
+func DefaultPath(dir, hostname, codes string, format Format) string {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	var name string
 	if codes != "" {
-		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, extension(format))
+		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, format.Extension())
 	} else {
-		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, extension(format))
+		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, format.Extension())
 	}
 	return filepath.Join(dir, name)
 }
@@ -146,20 +191,35 @@ func ResolveHostname() string {
 	return "unknown"
 }
 
-func extension(format string) string {
-	switch format {
-	case "json":
-		return "json"
-	case "yaml":
-		return "yaml"
-	case "csv":
-		return "csv"
-	case "text":
-		return "txt"
-	default:
-		// Unrecognized format falls back to usable default
-		return "json"
+// ParseFormat resolve s to a canonical Format, resporting whether it names a
+// supported encoding
+func ParseFormat(s string) (Format, bool) {
+	for _, spec := range formats {
+		if string(spec.name) == s {
+			return spec.name, true
+		}
 	}
+	return "", false
+}
+
+// FormatNames returns the canonical format names in declaration order for
+// operator-facing messages.
+func FormatNames() string {
+	names := make([]string, 0, len(formats))
+	for _, spec := range formats {
+		names = append(names, string(spec.name))
+	}
+	return strings.Join(names, ", ")
+}
+
+// Extension returns f's filename extension without a leading dot
+func (f Format) Extension() string {
+	for _, spec := range formats {
+		if spec.name == f {
+			return spec.ext
+		}
+	}
+	return formats[0].ext
 }
 
 // pathWithin compares on path boundaries so a sibling is not mistaken for a child

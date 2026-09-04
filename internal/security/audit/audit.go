@@ -138,6 +138,10 @@ func maxConcurrentChecks() int {
 // ctx bounds the entire run -- checks and enrichment share its deadline --
 // and cancellation propagates into checker exec and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
+	if !registry.HasDefinitions(sa.osContext) {
+		return nil, fmt.Errorf("no finding definitions for %s; the audit cannot report findings on this platform",
+			sa.osContext.DisplayLabel())
+	}
 	runners := sa.checkRunners()
 	enabled, err := enabledSet(runners, sa.options.Checks)
 	if err != nil {

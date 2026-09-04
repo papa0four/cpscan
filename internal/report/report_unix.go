@@ -1,6 +1,6 @@
+//go:build linux || darwin || freebsd || openbsd || netbsd
+
 // internal/report/report_unix.go
-//go:build linux || darwin || freebsd || openbsd
-// +build linux darwin freebsd openbsd
 
 package report
 

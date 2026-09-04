@@ -61,6 +61,19 @@ RELEASE_TARGETS := \
 	darwin/arm64 \
 	windows/amd64
 
+# Every intended supported platform. Compiled as a gate, not shipped: a target
+# here must build, but it ships only once its modules are implemented
+SUPPORTED_TARGETS := \
+		linux/amd64 \
+		darwin/amd64 \
+		darwin/arm64 \
+		windows/amd64 \
+		freebsd/amd64 \
+		openbsd/amd64 \
+		netbsd/amd64
+
+
+
 # =============================================================================
 # Targets
 # =============================================================================

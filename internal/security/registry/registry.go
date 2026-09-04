@@ -1,8 +1,10 @@
 // internal/security/registry/registry.go
 
-// Package security implements the owatch audit command, which runs the
-// configuration security checks and renders their results as text, JSON, or
-// YAML, optionally writing them to a generated report file.
+// Package registry holds the finding definitions that checkers emit, indexed
+// by platform and, on Linux and BSD hosts, by distribution family. Definitions
+// are authored as YAML and embedded at build time, so a finding's title,
+// severity, description, impact, resolution, and references live in one data
+// file rather than spread through checker code.
 package registry
 
 import (
@@ -141,41 +143,55 @@ var (
 	registry, linuxRegistry, unixRegistry = loadRegistries()
 )
 
-// Lookup retrieves a FindingDefinition for the given OSContext and key.
+// Lookup retrieves a FindingDefinition for the given OSContenxt and key.
 func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
+	for _, defs := range definitionsFor(ctx) {
+		if def, ok := defs[key]; ok {
+			return def, true
+		}
+	}
+	return FindingDefinition{}, false
+}
+
+// HasDefinitions reports whether any finding definitions are registered for
+// ctx. A context with none makes every Lookup miss, so checkers would detect
+// conditions and emit nothing, reporting clean because the registry is empty
+// rather than because the host is. Callers must treat false as fatal.
+func HasDefinitions(ctx OSContext) bool {
+	for _, defs := range definitionsFor(ctx) {
+		if len(defs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// definitionsFor returns the definition sets that apply to ctx, most specific
+// first. Linux ends with the common set; other platforms have no fallback.
+func definitionsFor(ctx OSContext) []map[FindingKey]FindingDefinition {
+	var sets []map[FindingKey]FindingDefinition
 	switch ctx.Platform {
 	case PlatformLinux:
 		for _, family := range ctx.Families {
 			if fm, ok := linuxRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
+				sets = append(sets, fm)
 			}
 		}
-		// fall through to common Linux findings
-		if def, ok := linuxRegistry[DistroGeneric][key]; ok {
-			return def, true
+		if fm, ok := linuxRegistry[DistroGeneric]; ok {
+			sets = append(sets, fm)
 		}
-		return FindingDefinition{}, false
-
 	case PlatformUnix:
 		for _, family := range ctx.Families {
 			if fm, ok := unixRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
+				sets = append(sets, fm)
 			}
 		}
-		return FindingDefinition{}, false
-
 	default:
 		if pm, ok := registry[ctx.Platform]; ok {
-			if def, ok := pm[key]; ok {
-				return def, true
-			}
+			sets = append(sets, pm)
 		}
-		return FindingDefinition{}, false
 	}
+	return sets
 }
 
 // DetectOS identifies the current platform and, for Linux, resolves

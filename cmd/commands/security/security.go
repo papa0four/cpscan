@@ -1,10 +1,8 @@
 // cmd/commands/security/security.go
 
 // Package security implements the owatch audit command, which runs the
-// configuration security checks and renders their results. The command's
-// platform entry point is supplied by exactly one build-tagged file per
-// compiled target, so a target missing its platform file fails to compile
-// rather than shipping a nil RunE.
+// configuration security checks and renders their results as text, JSON, or
+// YAML, optionally writing them to a generated report file.
 package security
 
 import (
@@ -46,6 +44,10 @@ var (
 
 	// allow escalated dir write
 	allowElevatedWrite bool
+
+	// auditFormat is the effective output encoding, resolved once in
+	// validateFlags from outputFormat and reportFile
+	auditFormat report.Format
 )
 
 // SecurityCmd represents the security audit command. RunE is assigned at the
@@ -91,8 +93,8 @@ You can run all checks or specify individual checks to run.`,
 func init() {
 	SecurityCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Enable verbose output")
-	SecurityCmd.Flags().StringVarP(&outputFormat, "output", "o", "text",
-		"Output format (text, json, yaml)")
+	SecurityCmd.Flags().StringVarP(&outputFormat, "output", "o", string(report.FormatText),
+		fmt.Sprintf("Output format (%s)", report.FormatNames()))
 	SecurityCmd.Flags().StringVar(&reportFile, "report-file", "",
 		"Save audit report to the specified directory; filename is generated automatically")
 	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
@@ -151,18 +153,27 @@ func buildMask() (scan.CheckMask, error) {
 }
 
 func validateFlags(cmd *cobra.Command) error {
-	switch outputFormat {
-	case "json", "yaml", "text":
-		// accepted
+	format, ok := report.ParseFormat(outputFormat)
+	if !ok {
+		return fmt.Errorf("invalid output format: %s (valid: %s)", outputFormat, report.FormatNames())
+	}
+
+	// Resolve the effective encoding at the boundary: an explicit -o wins,
+	// otherwise a report file implies JSON and a bare run is text.
+	switch {
+	case cmd.Flags().Changed("output"):
+		auditFormat = format
+	case reportFile != "":
+		auditFormat = report.FormatJSON
 	default:
-		return fmt.Errorf("invalid output format: %s (valid: json, yaml, or text)", outputFormat)
+		auditFormat = report.FormatText
 	}
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
 	normalized, ok := types.NormalizeSeverity(minSeverity)
 	if !ok {
-		return fmt.Errorf("invlaid min-severity: %s (valid: %s)", minSeverity, types.SeverityNames())
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", minSeverity, types.SeverityNames())
 	}
 	minSeverity = normalized
 
@@ -171,8 +182,8 @@ func validateFlags(cmd *cobra.Command) error {
 	}
 
 	if cmd.Flags().Changed("report-file") {
-		if err := validateReportDir(reportFile); err != nil {
-			return err
+		if err := report.ValidateDir(reportFile); err != nil {
+			return fmt.Errorf("--report-file: %w", err)
 		}
 	}
 
@@ -180,19 +191,6 @@ func validateFlags(cmd *cobra.Command) error {
 		return err
 	}
 
-	return nil
-}
-
-// validateReportDir confirms that the value passed to --report-file is an existing directory.
-// The program generates the filename inside it; the caller supplies only the destination directory.
-func validateReportDir(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("--report-file: directory is not accessible: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("--report-file: %s is not a directory", path)
-	}
 	return nil
 }
 
@@ -253,7 +251,7 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 		return fmt.Errorf("audit failed: %w", err)
 	}
 
-	if err := outputResults(cmd, result, mask); err != nil {
+	if err := outputResults(result, mask); err != nil {
 		return err
 	}
 
@@ -267,25 +265,18 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	return nil
 }
 
-func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask) error {
+func outputResults(result *audit.Result, mask scan.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
 		return fmt.Errorf("audit produced no results")
-	}
-
-	format := "text"
-	if cmd.Flags().Changed("output") {
-		format = outputFormat
-	} else if reportFile != "" {
-		format = "json"
 	}
 
 	var output string
 	var err error
 
-	switch format {
-	case "json":
+	switch auditFormat {
+	case report.FormatJSON:
 		output, err = formatJSON(result)
-	case "yaml":
+	case report.FormatYAML:
 		output, err = formatYAML(result)
 	default:
 		output, err = formatText(result)
@@ -298,7 +289,7 @@ func outputResults(cmd *cobra.Command, result *audit.Result, mask scan.CheckMask
 	if reportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(reportFile, hostname, codes, format)
+		path := report.DefaultPath(reportFile, hostname, codes, auditFormat)
 		opts := report.Options{AllowElevatedWrite: allowElevatedWrite}
 		if err := report.Write(path, []byte(output), opts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
