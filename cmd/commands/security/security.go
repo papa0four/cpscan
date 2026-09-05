@@ -24,7 +24,9 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-var (
+// auditCmd holds one invocation's flag state. Cobra binds flags directly into
+// these fields, so the values a run needs are the values that run parsed.
+type auditCmd struct {
 	// Command flags
 	verbose      bool
 	outputFormat string
@@ -45,22 +47,25 @@ var (
 	// allow escalated dir write
 	allowElevatedWrite bool
 
-	// auditFormat is the effective output encoding, resolved once in
+	// format is the effective output encoding, resolved once in
 	// validateFlags from outputFormat and reportFile
-	auditFormat report.Format
-)
+	format report.Format
+}
 
-// SecurityCmd represents the security audit command. RunE is assigned at the
-// declaration site from platformRunE, a symbol provided by exactly one
-// build-tagged platform file per compiled target. A target missing its
-// platform file fails to compile rather than shipping a nil RunE.
-var SecurityCmd = &cobra.Command{
-	Use:     "audit",
-	Args:    cobra.NoArgs,
-	Aliases: []string{"security_audit"},
-	Short:   "Perform a security audit of the system",
-	RunE:    platformRunE,
-	Long: `Perform a comprehensive security audit of the system.
+// NewCmd returns the security audit command. RunE is bound to platformRunE, a
+// method provided by exactly one build-tagged file per compiled target, so a
+// target missing its platform file fails to compile rather than shipping a nil
+// RunE.
+func NewCmd() *cobra.Command {
+	c := &auditCmd{}
+
+	cmd := &cobra.Command{
+		Use:     "audit",
+		Args:    cobra.NoArgs,
+		Aliases: []string{"security_audit"},
+		Short:   "Perform a security audit of the system",
+		RunE:    c.platformRunE,
+		Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
 - Firewall rules
@@ -68,7 +73,7 @@ This command checks various security aspects including:
 - File permissions
 
 You can run all checks or specify individual checks to run.`,
-	Example: `  # Run all security checks
+		Example: `  # Run all security checks
   owatch audit
 
   # Show progress while checks run
@@ -88,57 +93,58 @@ You can run all checks or specify individual checks to run.`,
 
   # Run checks and save report to file
   owatch audit -o json --report-file /path/to/reports`,
-}
+	}
 
-func init() {
-	SecurityCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
+	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output")
-	SecurityCmd.Flags().StringVarP(&outputFormat, "output", "o", string(report.FormatText),
+	cmd.Flags().StringVarP(&c.outputFormat, "output", "o", string(report.FormatText),
 		fmt.Sprintf("Output format (%s)", report.FormatNames()))
-	SecurityCmd.Flags().StringVar(&reportFile, "report-file", "",
+	cmd.Flags().StringVar(&c.reportFile, "report-file", "",
 		"Save audit report to the specified directory; filename is generated automatically")
-	SecurityCmd.Flags().StringSliceVar(&skipChecks, "skip-checks", []string{},
+	cmd.Flags().StringSliceVar(&c.skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
-	SecurityCmd.Flags().StringVar(&minSeverity, "min-severity", types.SeverityLow,
+	cmd.Flags().StringVar(&c.minSeverity, "min-severity", types.SeverityLow,
 		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
-	SecurityCmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute,
+	cmd.Flags().DurationVar(&c.timeout, "timeout", 10*time.Minute,
 		"Maximum time to run the audit")
-	SecurityCmd.Flags().BoolVar(&checkSSH, "ssh", false,
+	cmd.Flags().BoolVar(&c.checkSSH, "ssh", false,
 		"Run SSH configuration check")
-	SecurityCmd.Flags().BoolVar(&checkFirewall, "fwall", false,
+	cmd.Flags().BoolVar(&c.checkFirewall, "fwall", false,
 		"Run firewall configuration check")
-	SecurityCmd.Flags().BoolVar(&checkUsers, "users", false,
+	cmd.Flags().BoolVar(&c.checkUsers, "users", false,
 		"Run user accounts check")
-	SecurityCmd.Flags().StringVar(&checkFilePerms, "fperms", "",
+	cmd.Flags().StringVar(&c.checkFilePerms, "fperms", "",
 		"Check permissions of specified file path")
-	SecurityCmd.Flags().BoolVarP(&enrich, "enrich", "e", false,
+	cmd.Flags().BoolVarP(&c.enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
-	SecurityCmd.Flags().BoolVar(&allowElevatedWrite, "allow-elevated-write", false,
+	cmd.Flags().BoolVar(&c.allowElevatedWrite, "allow-elevated-write", false,
 		"Permit an elevated write outside the allowlisted directories")
+
+	return cmd
 }
 
 // buildMask composes a CheckMask from the active flag values
-func buildMask() (scan.CheckMask, error) {
+func (c *auditCmd) buildMask() (scan.CheckMask, error) {
 	mask := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
 
-	if checkSSH || checkFirewall || checkUsers || checkFilePerms != "" {
+	if c.checkSSH || c.checkFirewall || c.checkUsers || c.checkFilePerms != "" {
 		mask = 0
-		if checkSSH {
+		if c.checkSSH {
 			mask |= scan.CheckSSH
 		}
-		if checkFirewall {
+		if c.checkFirewall {
 			mask |= scan.CheckFirewall
 		}
-		if checkUsers {
+		if c.checkUsers {
 			mask |= scan.CheckUsers
 		}
-		if checkFilePerms != "" {
+		if c.checkFilePerms != "" {
 			mask |= scan.CheckPerms
 		}
 	}
 
-	if len(skipChecks) > 0 {
-		skipMask, err := scan.MaskFromNames(skipChecks, scan.CategoryCheck)
+	if len(c.skipChecks) > 0 {
+		skipMask, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck)
 		if err != nil {
 			return 0, err
 		}
@@ -152,42 +158,42 @@ func buildMask() (scan.CheckMask, error) {
 	return mask, nil
 }
 
-func validateFlags(cmd *cobra.Command) error {
-	format, ok := report.ParseFormat(outputFormat)
+func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
+	format, ok := report.ParseFormat(c.outputFormat)
 	if !ok {
-		return fmt.Errorf("invalid output format: %s (valid: %s)", outputFormat, report.FormatNames())
+		return fmt.Errorf("invalid output format: %s (valid: %s)", c.outputFormat, report.FormatNames())
 	}
 
 	// Resolve the effective encoding at the boundary: an explicit -o wins,
 	// otherwise a report file implies JSON and a bare run is text.
 	switch {
 	case cmd.Flags().Changed("output"):
-		auditFormat = format
-	case reportFile != "":
-		auditFormat = report.FormatJSON
+		c.format = format
+	case c.reportFile != "":
+		c.format = report.FormatJSON
 	default:
-		auditFormat = report.FormatText
+		c.format = report.FormatText
 	}
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	normalized, ok := types.NormalizeSeverity(minSeverity)
+	normalized, ok := types.NormalizeSeverity(c.minSeverity)
 	if !ok {
-		return fmt.Errorf("invalid min-severity: %s (valid: %s)", minSeverity, types.SeverityNames())
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", c.minSeverity, types.SeverityNames())
 	}
-	minSeverity = normalized
+	c.minSeverity = normalized
 
-	if err := validateFilePermsPath(cmd); err != nil {
+	if err := c.validateFilePermsPath(cmd); err != nil {
 		return err
 	}
 
 	if cmd.Flags().Changed("report-file") {
-		if err := report.ValidateDir(reportFile); err != nil {
+		if err := report.ValidateDir(c.reportFile); err != nil {
 			return fmt.Errorf("--report-file: %w", err)
 		}
 	}
 
-	if _, err := scan.MaskFromNames(skipChecks, scan.CategoryCheck); err != nil {
+	if _, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck); err != nil {
 		return err
 	}
 
@@ -195,21 +201,21 @@ func validateFlags(cmd *cobra.Command) error {
 }
 
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
-func validateFilePermsPath(cmd *cobra.Command) error {
+func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
 	if !cmd.Flags().Changed("fperms") {
 		return nil
 	}
-	if checkFilePerms == "" {
+	if c.checkFilePerms == "" {
 		return fmt.Errorf("--fperms: requires a path")
 	}
-	if _, err := os.Stat(checkFilePerms); err != nil {
+	if _, err := os.Stat(c.checkFilePerms); err != nil {
 		return fmt.Errorf("--fperms: path is not accessible: %w", err)
 	}
 	return nil
 }
 
-func logVerboseConfig(mask scan.CheckMask) {
-	if !verbose || reportFile != "" {
+func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
+	if !c.verbose || c.reportFile != "" {
 		return
 	}
 	checks := scan.EnabledChecks(mask)
@@ -218,12 +224,12 @@ func logVerboseConfig(mask scan.CheckMask) {
 	} else {
 		fmt.Println("[*] Running comprehensive security audit")
 	}
-	fmt.Printf("[*] Output format: %s\n", outputFormat)
-	if len(skipChecks) > 0 {
-		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(skipChecks, ", "))
+	fmt.Printf("[*] Output format: %s\n", c.outputFormat)
+	if len(c.skipChecks) > 0 {
+		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(c.skipChecks, ", "))
 	}
-	fmt.Printf("[*] Minimum severity: %s\n", minSeverity)
-	fmt.Printf("[*] Timeout: %s\n", timeout)
+	fmt.Printf("[*] Minimum severity: %s\n", c.minSeverity)
+	fmt.Printf("[*] Timeout: %s\n", c.timeout)
 	fmt.Println()
 }
 
@@ -232,18 +238,18 @@ func logVerboseConfig(mask scan.CheckMask) {
 // work, so on timeout nothing owatch started is left running -- the prior
 // goroutine-and-select pattern reported the timeout but abandoned the scan
 // to keep executing against the host.
-func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
+func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
-		Verbose:       verbose && reportFile == "",
-		FilePermsPath: checkFilePerms,
-		MinSeverity:   minSeverity,
+		Verbose:       c.verbose && c.reportFile == "",
+		FilePermsPath: c.checkFilePerms,
+		MinSeverity:   c.minSeverity,
 		Checks:        scan.EnabledChecks(mask),
-		Enrich:        enrich,
+		Enrich:        c.enrich,
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
 
-	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
 	result, err := auditor.RunAudit(ctx)
@@ -251,21 +257,21 @@ func runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 		return fmt.Errorf("audit failed: %w", err)
 	}
 
-	if err := outputResults(result, mask); err != nil {
+	if err := c.outputResults(result, mask); err != nil {
 		return err
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
 		if hint := scan.SkipHint(scan.CategoryCheck, result.IncompleteChecks); hint != "" {
 			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or %s",
-				timeout, hint)
+				c.timeout, hint)
 		}
-		return fmt.Errorf("audit timeout after %v; results above are incomplete", timeout)
+		return fmt.Errorf("audit timeout after %v; results above are incomplete", c.timeout)
 	}
 	return nil
 }
 
-func outputResults(result *audit.Result, mask scan.CheckMask) error {
+func (c *auditCmd) outputResults(result *audit.Result, mask scan.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
 		return fmt.Errorf("audit produced no results")
 	}
@@ -273,24 +279,24 @@ func outputResults(result *audit.Result, mask scan.CheckMask) error {
 	var output string
 	var err error
 
-	switch auditFormat {
+	switch c.format {
 	case report.FormatJSON:
-		output, err = formatJSON(result)
+		output, err = c.formatJSON(result)
 	case report.FormatYAML:
-		output, err = formatYAML(result)
+		output, err = c.formatYAML(result)
 	default:
-		output, err = formatText(result)
+		output, err = c.formatText(result)
 	}
 
 	if err != nil {
 		return fmt.Errorf("failed to format results: %w", err)
 	}
 
-	if reportFile != "" {
+	if c.reportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(reportFile, hostname, codes, auditFormat)
-		opts := report.Options{AllowElevatedWrite: allowElevatedWrite}
+		path := report.DefaultPath(c.reportFile, hostname, codes, c.format)
+		opts := report.Options{AllowElevatedWrite: c.allowElevatedWrite}
 		if err := report.Write(path, []byte(output), opts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
 				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
@@ -307,8 +313,8 @@ func outputResults(result *audit.Result, mask scan.CheckMask) error {
 	return nil
 }
 
-func formatJSON(result *audit.Result) (string, error) {
-	formatted := result.View(minSeverity)
+func (c *auditCmd) formatJSON(result *audit.Result) (string, error) {
+	formatted := result.View(c.minSeverity)
 	jsonBytes, err := json.MarshalIndent(formatted, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal JSON: %w", err)
@@ -316,8 +322,8 @@ func formatJSON(result *audit.Result) (string, error) {
 	return string(jsonBytes), nil
 }
 
-func formatYAML(result *audit.Result) (string, error) {
-	formatted := result.View(minSeverity)
+func (c *auditCmd) formatYAML(result *audit.Result) (string, error) {
+	formatted := result.View(c.minSeverity)
 	yamlBytes, err := yaml.Marshal(formatted)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal YAML: %w", err)
@@ -327,7 +333,7 @@ func formatYAML(result *audit.Result) (string, error) {
 
 // formatText renders result as human-readable text: the system block via
 // osfingerprint.WriteText, then the security section via audit.WriteText.
-func formatText(result *audit.Result) (string, error) {
+func (c *auditCmd) formatText(result *audit.Result) (string, error) {
 	var builder strings.Builder
 
 	builder.WriteString("\nSecurity Audit Report\n")
@@ -339,7 +345,7 @@ func formatText(result *audit.Result) (string, error) {
 		builder.WriteString("\n")
 	}
 
-	if err := audit.WriteText(&builder, result, minSeverity); err != nil {
+	if err := audit.WriteText(&builder, result, c.minSeverity); err != nil {
 		return "", err
 	}
 

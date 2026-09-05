@@ -28,7 +28,12 @@ var RootCmd = &cobra.Command{
 }
 
 func init() {
-	RootCmd.AddCommand(security.SecurityCmd)
+	RootCmd.AddCommand(
+		newOsinfoCmd(),
+		newSoftwareCmd(),
+		newVersionCmd(),
+		security.NewCmd(),
+	)
 	RootCmd.Flags().BoolP("version", "V", false, "version for owatch")
 }
 
