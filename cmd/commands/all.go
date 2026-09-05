@@ -23,75 +23,26 @@ import (
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
-var (
-	allVerbose            bool
-	allEnrich             bool
-	allAllowElevatedWrite bool
-	allOutputFormat       string
-	allReportFile         string
-	allSkipModules        []string
-	allSkipChecks         []string
-	allTimeout            time.Duration
-	allMinSeverity        string
-
-	// allFormat is the effective output encoding, resolved once in
-	// validateAllFlags from allOutputFormat and allReportFile
-	allFormat report.Format
-)
-
-// allCmd represents the all command that combines all scanning modules
-var allCmd = &cobra.Command{
-	Use:   "all",
-	Args:  cobra.NoArgs,
-	Short: "Run all available scans",
-	Long: `The all command performs a comprehensive system scan including:
-- OS fingerprinting
-- Software inventory
-- Security audit
-- System configuration analysis
-
-Results can be output in various formats and saved to a file.`,
-	Example: `  # Run all scans with default settings
-  owatch all
-
-  # Show module and check progress while scanning
-  owatch all -v
-
-  # Skip modules; skipped modules are still reported
-  owatch all --skip-modules audit,software
-
-  # Skip individual audit checks within the audit module
-  owatch all --skip-checks firewall,permissions
-
-  # Save report to directory in JSON format
-  owatch all -o json --report-file /path/to/reports`,
-	RunE: runAllScans,
-}
-
-func init() {
-	allCmd.Flags().BoolVarP(&allVerbose, "verbose", "v", false,
-		"Enable verbose output for all scans")
-	allCmd.Flags().StringVarP(&allOutputFormat, "output", "o", string(report.FormatText),
-		fmt.Sprintf("Output format (%s)", report.FormatNames()))
-	allCmd.Flags().StringVar(&allReportFile, "report-file", "",
-		"Save complete report to the specified directory; filename is generated automatically")
-	allCmd.Flags().StringSliceVar(&allSkipModules, "skip-modules", []string{},
-		"Modules to skip (comma-separated: osinfo,software,audit)")
-	allCmd.Flags().StringSliceVar(&allSkipChecks, "skip-checks", []string{},
-		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
-	allCmd.Flags().DurationVar(&allTimeout, "timeout", 30*time.Minute,
-		"Maximum time to run all scans")
-	allCmd.Flags().StringVar(&allMinSeverity, "min-severity", types.SeverityLow,
-		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
-	allCmd.Flags().BoolVarP(&allEnrich, "enrich", "e", false,
-		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
-	allCmd.Flags().BoolVar(&allAllowElevatedWrite, "allow-elevated-write", false,
-		"Permit an elevated write outside the allowlisted directories")
-
-	RootCmd.AddCommand(allCmd)
-}
-
 type (
+	//allCmd holds one invocation's flag state. Cobra binds flags directly
+	// into these fields, so the values a run reads are the values that run
+	// parsed.
+	allCmd struct {
+		verbose            bool
+		enrich             bool
+		allowElevatedWrite bool
+		outputFormat       string
+		reportFile         string
+		skipModules        []string
+		skipChecks         []string
+		timeout            time.Duration
+		minSeverity        string
+
+		// format is the effective output encoding, resolved once in
+		// validateAllFlags from allOutputFormat and allReportFile
+		format report.Format
+	}
+
 	// ScanResult represents the combined results of all scans. It is the
 	// authoritative result type for the all command and is not shared with
 	// the audit subsystem.
@@ -127,19 +78,73 @@ type (
 	}
 )
 
+// newAllCmd returns the command that combines all scanning modules
+func newAllCmd() *cobra.Command {
+	c := &allCmd{}
+
+	cmd := &cobra.Command{
+		Use:   "all",
+		Args:  cobra.NoArgs,
+		Short: "Run all available scans",
+		RunE:  c.runAllScans,
+		Long: `The all command performs a comprehensive system scan including:
+- OS fingerprinting
+- Software inventory
+- Security audit
+- System configuration analysis
+
+Results can be output in various formats and saved to a file.`,
+		Example: `  # Run all scans with default settings
+  owatch all
+
+  # Show module and check progress while scanning
+  owatch all -v
+
+  # Skip modules; skipped modules are still reported
+  owatch all --skip-modules audit,software
+
+  # Skip individual audit checks within the audit module
+  owatch all --skip-checks firewall,permissions
+
+  # Save report to directory in JSON format
+  owatch all -o json --report-file /path/to/reports`,
+	}
+
+	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
+		"Enable verbose output for all scans")
+	cmd.Flags().StringVarP(&c.outputFormat, "output", "o", string(report.FormatText),
+		fmt.Sprintf("Output format (%s)", report.FormatNames()))
+	cmd.Flags().StringVar(&c.reportFile, "report-file", "",
+		"Save complete report to the specified directory; filename is generated automatically")
+	cmd.Flags().StringSliceVar(&c.skipModules, "skip-modules", []string{},
+		"Modules to skip (comma-separated: osinfo,software,audit)")
+	cmd.Flags().StringSliceVar(&c.skipChecks, "skip-checks", []string{},
+		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
+	cmd.Flags().DurationVar(&c.timeout, "timeout", 30*time.Minute,
+		"Maximum time to run all scans")
+	cmd.Flags().StringVar(&c.minSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
+	cmd.Flags().BoolVarP(&c.enrich, "enrich", "e", false,
+		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
+	cmd.Flags().BoolVar(&c.allowElevatedWrite, "allow-elevated-write", false,
+		"Permit an elevated write outside the allowlisted directories")
+
+	return cmd
+}
+
 // buildAllMask composes a CheckMask from the active module and security check flags
-func buildAllMask() (scan.CheckMask, error) {
+func (c *allCmd) buildAllMask() (scan.CheckMask, error) {
 	var mask scan.CheckMask
-	if !isModuleSkipped("osinfo") {
+	if !c.isModuleSkipped("osinfo") {
 		mask |= scan.ModuleOS
 	}
-	if !isModuleSkipped("software") {
+	if !c.isModuleSkipped("software") {
 		mask |= scan.ModuleSoftware
 	}
-	if !isModuleSkipped("audit") {
+	if !c.isModuleSkipped("audit") {
 		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
-		if len(allSkipChecks) > 0 {
-			skipMask, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck)
+		if len(c.skipChecks) > 0 {
+			skipMask, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck)
 			if err != nil {
 				return 0, err
 			}
@@ -155,7 +160,7 @@ func buildAllMask() (scan.CheckMask, error) {
 
 // toAllResult converts a ScanResult into the typed serialization structure
 // for all command output.
-func toAllResult(scan *ScanResult) allResult {
+func (c *allCmd) toAllResult(scan *ScanResult) allResult {
 	out := allResult{
 		Timestamp: scan.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  scan.Duration.String(),
@@ -177,7 +182,7 @@ func toAllResult(scan *ScanResult) allResult {
 
 	// security audit
 	if scan.SecurityAudit != nil {
-		view := scan.SecurityAudit.View(allMinSeverity)
+		view := scan.SecurityAudit.View(c.minSeverity)
 		if out.System != nil {
 			// avoid duplicating hist identity alread in out.System
 			view.SystemInfo = nil
@@ -189,70 +194,70 @@ func toAllResult(scan *ScanResult) allResult {
 }
 
 // validateSkipModules rejects any --skip-modules value that is not recognized
-func validateSkipModules() error {
-	if _, err := scan.MaskFromNames(allSkipModules, scan.CategoryModule); err != nil {
+func (c *allCmd) validateSkipModules() error {
+	if _, err := scan.MaskFromNames(c.skipModules, scan.CategoryModule); err != nil {
 		return err
 	}
 	return nil
 }
 
 // validateAllFlags rejects invalid flag combinations for the all command.
-func validateAllFlags(cmd *cobra.Command) error {
-	format, ok := report.ParseFormat(allOutputFormat)
+func (c *allCmd) validateAllFlags(cmd *cobra.Command) error {
+	format, ok := report.ParseFormat(c.outputFormat)
 	if !ok {
-		return fmt.Errorf("invalid output format: %s (valid: %s)", allOutputFormat, report.FormatNames())
+		return fmt.Errorf("invalid output format: %s (valid: %s)", c.outputFormat, report.FormatNames())
 	}
 
 	// Resolve the effective encoding at the boundary: an explicit -o wins,
 	// otherwise a report file implies JSON and a bare run is text.
 	switch {
 	case cmd.Flags().Changed("output"):
-		allFormat = format
-	case allReportFile != "":
-		allFormat = report.FormatJSON
+		c.format = format
+	case c.reportFile != "":
+		c.format = report.FormatJSON
 	default:
-		allFormat = report.FormatText
+		c.format = report.FormatText
 	}
 
 	if cmd.Flags().Changed("report-file") {
-		if err := report.ValidateDir(allReportFile); err != nil {
+		if err := report.ValidateDir(c.reportFile); err != nil {
 			return fmt.Errorf("--report-file: %w", err)
 		}
 	}
 
-	if err := validateSkipModules(); err != nil {
+	if err := c.validateSkipModules(); err != nil {
 		return err
 	}
 
-	if len(allSkipChecks) > 0 {
-		if _, err := scan.MaskFromNames(allSkipChecks, scan.CategoryCheck); err != nil {
+	if len(c.skipChecks) > 0 {
+		if _, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck); err != nil {
 			return err
 		}
 	}
 
 	// Normalize once at the boundary so every downstream consumer sees the
 	// canonical form; validation and storage happen in the same step.
-	normalized, ok := types.NormalizeSeverity(allMinSeverity)
+	normalized, ok := types.NormalizeSeverity(c.minSeverity)
 	if !ok {
-		return fmt.Errorf("invalid min-severity: %s (valid: %s)", allMinSeverity, types.SeverityNames())
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", c.minSeverity, types.SeverityNames())
 	}
-	allMinSeverity = normalized
+	c.minSeverity = normalized
 
 	return nil
 }
 
-func runAllScans(cmd *cobra.Command, args []string) error {
+func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
 
-	if err := validateAllFlags(cmd); err != nil {
+	if err := c.validateAllFlags(cmd); err != nil {
 		return err
 	}
 
-	if isModuleSkipped("osinfo") && isModuleSkipped("software") && isModuleSkipped("audit") {
+	if c.isModuleSkipped("osinfo") && c.isModuleSkipped("software") && c.isModuleSkipped("audit") {
 		return fmt.Errorf("all modules have been skipped, at least one module must be run")
 	}
 
-	mask, err := buildAllMask()
+	mask, err := c.buildAllMask()
 	if err != nil {
 		return err
 	}
@@ -261,14 +266,14 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	// terminal without --report-file, preventing duplication when piping
 	// or redirecting output. Computed once here as the single suppression
 	// point for the whole run.
-	verboseHeaders := allVerbose && render.StdoutIsTerminal() && allReportFile == ""
+	verboseHeaders := c.verbose && render.StdoutIsTerminal() && c.reportFile == ""
 
 	// The whole scan runs synchronously under one deadline. Cancellation
 	// reaches the audit's checkers and the software module's package-manager
 	// invocations, so a timed-out scan leaves nothing running -- the prior
 	// goroutine-and-select pattern reported the timeout but abandoned the
 	// scan to keep executing against the host.
-	ctx, cancel := context.WithTimeout(cmd.Context(), allTimeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
 	result := &ScanResult{
@@ -276,7 +281,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		Errors:    make([]string, 0),
 	}
 
-	if isModuleSkipped("osinfo") {
+	if c.isModuleSkipped("osinfo") {
 		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusSkipped})
 	} else if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
@@ -287,7 +292,7 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusCompleted})
 	}
 
-	if isModuleSkipped("software") {
+	if c.isModuleSkipped("software") {
 		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusSkipped})
 	} else if software, err := runSoftwareInventory(ctx, verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
@@ -298,9 +303,9 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusCompleted})
 	}
 
-	if isModuleSkipped("audit") {
+	if c.isModuleSkipped("audit") {
 		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusSkipped})
-	} else if securityResult, err := runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
+	} else if securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
 			fmt.Sprintf("Security audit error: %v", err))
 		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusError})
@@ -310,12 +315,12 @@ func runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	result.Duration = time.Since(startTime)
-	if err := outputResults(result, mask); err != nil {
+	if err := c.outputResults(result, mask); err != nil {
 		return err
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("scan timed out after %v; %s", allTimeout, incompleteDetail(result))
+		return fmt.Errorf("scan timed out after %v; %s", c.timeout, incompleteDetail(result))
 	}
 	return nil
 }
@@ -366,15 +371,15 @@ func runSoftwareInventory(ctx context.Context, verboseHeaders bool) ([]softwarel
 	return softwarelist.GetInstalledSoftwareList(ctx)
 }
 
-func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
 	if verboseHeaders {
 		fmt.Println("[*] Security Audit Scan")
 	}
 
 	opts := audit.Options{
 		Verbose:     verboseHeaders,
-		MinSeverity: allMinSeverity,
-		Enrich:      allEnrich,
+		MinSeverity: c.minSeverity,
+		Enrich:      c.enrich,
 		Checks:      scan.EnabledChecks(mask),
 		HostInfo:    hostInfo,
 	}
@@ -383,33 +388,33 @@ func runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *
 	return auditor.RunAudit(ctx)
 }
 
-func outputResults(result *ScanResult, mask scan.CheckMask) error {
+func (c *allCmd) outputResults(result *ScanResult, mask scan.CheckMask) error {
 	var buf bytes.Buffer
 
-	switch allFormat {
+	switch c.format {
 	case report.FormatJSON:
-		data := toAllResult(result)
+		data := c.toAllResult(result)
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(data); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	case report.FormatYAML:
-		data := toAllResult(result)
+		data := c.toAllResult(result)
 		if err := yaml.NewEncoder(&buf).Encode(data); err != nil {
 			return fmt.Errorf("failed to encode YAML: %w", err)
 		}
 	default:
-		if err := renderAllText(&buf, result); err != nil {
+		if err := c.renderAllText(&buf, result); err != nil {
 			return fmt.Errorf("failed to render text output: %w", err)
 		}
 	}
 
-	if allReportFile != "" {
+	if c.reportFile != "" {
 		hostname := report.ResolveHostname()
 		codes := scan.Codes(mask)
-		path := report.DefaultPath(allReportFile, hostname, codes, allFormat)
-		wOpts := report.Options{AllowElevatedWrite: allAllowElevatedWrite}
+		path := report.DefaultPath(c.reportFile, hostname, codes, c.format)
+		wOpts := report.Options{AllowElevatedWrite: c.allowElevatedWrite}
 		if err := report.Write(path, buf.Bytes(), wOpts); err != nil {
 			if errors.Is(err, report.ErrElevatedWriteDenied) {
 				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
@@ -427,7 +432,7 @@ func outputResults(result *ScanResult, mask scan.CheckMask) error {
 // renderAllText writes a concise human-readable summary of the scan result
 // to w. This is the non-TUI text path; it will be replaced by the Bubbletea
 // progress display when #35 lands.
-func renderAllText(w *bytes.Buffer, result *ScanResult) error {
+func (c *allCmd) renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	fmt.Fprintf(w, "owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
 
 	// module accounting
@@ -460,19 +465,19 @@ func renderAllText(w *bytes.Buffer, result *ScanResult) error {
 	// security findings
 	if result.SecurityAudit != nil {
 		fmt.Fprintf(w, "Security Audit\n")
-		if err := audit.WriteText(w, result.SecurityAudit, allMinSeverity); err != nil {
+		if err := audit.WriteText(w, result.SecurityAudit, c.minSeverity); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func isModuleSkipped(module string) bool {
-	if len(allSkipModules) == 0 {
+func (c *allCmd) isModuleSkipped(module string) bool {
+	if len(c.skipModules) == 0 {
 		return false
 	}
 
-	for _, skip := range allSkipModules {
+	for _, skip := range c.skipModules {
 		if strings.EqualFold(skip, module) {
 			return true
 		}
