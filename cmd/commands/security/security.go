@@ -7,50 +7,53 @@ package security
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
+	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
-	"github.com/papa0four/orkowatch/internal/report"
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// auditCmd holds one invocation's flag state. Cobra binds flags directly into
-// these fields, so the values a run needs are the values that run parsed.
-type auditCmd struct {
-	// Command flags
-	verbose      bool
-	outputFormat string
-	reportFile   string
-	skipChecks   []string
-	minSeverity  string
-	timeout      time.Duration
+type (
+	// auditCmd holds one invocation's flag state. Cobra binds flags directly into
+	// these fields, so the values a run needs are the values that run parsed.
+	auditCmd struct {
+		// Command flags
+		verbose     bool
+		skipChecks  []string
+		minSeverity string
+		timeout     time.Duration
 
-	// Individual check flags
-	checkSSH       bool
-	checkFirewall  bool
-	checkUsers     bool
-	checkFilePerms string
+		// Individual check flags
+		checkSSH       bool
+		checkFirewall  bool
+		checkUsers     bool
+		checkFilePerms string
 
-	// enrichment flag
-	enrich bool
+		// enrichment flag
+		enrich bool
 
-	// allow escalated dir write
-	allowElevatedWrite bool
+		// out owns the output destination flags and the emission of the
+		// finished report.
+		out *delivery.Flags
+	}
 
-	// format is the effective output encoding, resolved once in
-	// validateFlags from outputFormat and reportFile
-	format report.Format
-}
+	// auditReport adapts a finished audit result to delivery.Report. It pairs the
+	// result with the command whose min-severityu governs its projection.
+	auditReport struct {
+		c      *auditCmd
+		result *audit.Result
+	}
+)
 
 // NewCmd returns the security audit command. RunE is bound to platformRunE, a
 // method provided by exactly one build-tagged file per compiled target, so a
@@ -97,10 +100,6 @@ You can run all checks or specify individual checks to run.`,
 
 	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output")
-	cmd.Flags().StringVarP(&c.outputFormat, "output", "o", string(report.FormatText),
-		fmt.Sprintf("Output format (%s)", report.FormatNames()))
-	cmd.Flags().StringVar(&c.reportFile, "report-file", "",
-		"Save audit report to the specified directory; filename is generated automatically")
 	cmd.Flags().StringSliceVar(&c.skipChecks, "skip-checks", []string{},
 		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
 	cmd.Flags().StringVar(&c.minSeverity, "min-severity", types.SeverityLow,
@@ -117,8 +116,8 @@ You can run all checks or specify individual checks to run.`,
 		"Check permissions of specified file path")
 	cmd.Flags().BoolVarP(&c.enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
-	cmd.Flags().BoolVar(&c.allowElevatedWrite, "allow-elevated-write", false,
-		"Permit an elevated write outside the allowlisted directories")
+
+	c.out = delivery.Bind(cmd)
 
 	return cmd
 }
@@ -159,20 +158,8 @@ func (c *auditCmd) buildMask() (scan.CheckMask, error) {
 }
 
 func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
-	format, ok := report.ParseFormat(c.outputFormat)
-	if !ok {
-		return fmt.Errorf("invalid output format: %s (valid: %s)", c.outputFormat, report.FormatNames())
-	}
-
-	// Resolve the effective encoding at the boundary: an explicit -o wins,
-	// otherwise a report file implies JSON and a bare run is text.
-	switch {
-	case cmd.Flags().Changed("output"):
-		c.format = format
-	case c.reportFile != "":
-		c.format = report.FormatJSON
-	default:
-		c.format = report.FormatText
+	if err := c.out.Resolve(cmd); err != nil {
+		return err
 	}
 
 	// Normalize once at the boundary so every downstream consumer sees the
@@ -185,12 +172,6 @@ func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
 
 	if err := c.validateFilePermsPath(cmd); err != nil {
 		return err
-	}
-
-	if cmd.Flags().Changed("report-file") {
-		if err := report.ValidateDir(c.reportFile); err != nil {
-			return fmt.Errorf("--report-file: %w", err)
-		}
 	}
 
 	if _, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck); err != nil {
@@ -215,7 +196,7 @@ func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
 }
 
 func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
-	if !c.verbose || c.reportFile != "" {
+	if !c.verbose || c.out.ToFile() {
 		return
 	}
 	checks := scan.EnabledChecks(mask)
@@ -224,7 +205,7 @@ func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
 	} else {
 		fmt.Println("[*] Running comprehensive security audit")
 	}
-	fmt.Printf("[*] Output format: %s\n", c.outputFormat)
+	fmt.Printf("[*] Output format: %s\n", c.out.Format())
 	if len(c.skipChecks) > 0 {
 		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(c.skipChecks, ", "))
 	}
@@ -240,7 +221,7 @@ func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
 // to keep executing against the host.
 func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
 	opts := audit.Options{
-		Verbose:       c.verbose && c.reportFile == "",
+		Verbose:       c.verbose && !c.out.ToFile(),
 		FilePermsPath: c.checkFilePerms,
 		MinSeverity:   c.minSeverity,
 		Checks:        scan.EnabledChecks(mask),
@@ -276,78 +257,33 @@ func (c *auditCmd) outputResults(result *audit.Result, mask scan.CheckMask) erro
 		return fmt.Errorf("audit produced no results")
 	}
 
-	var output string
-	var err error
-
-	switch c.format {
-	case report.FormatJSON:
-		output, err = c.formatJSON(result)
-	case report.FormatYAML:
-		output, err = c.formatYAML(result)
-	default:
-		output, err = c.formatText(result)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to format results: %w", err)
-	}
-
-	if c.reportFile != "" {
-		hostname := report.ResolveHostname()
-		codes := scan.Codes(mask)
-		path := report.DefaultPath(c.reportFile, hostname, codes, c.format)
-		opts := report.Options{AllowElevatedWrite: c.allowElevatedWrite}
-		if err := report.Write(path, []byte(output), opts); err != nil {
-			if errors.Is(err, report.ErrElevatedWriteDenied) {
-				return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
-			}
-			return fmt.Errorf("failed to write report file: %w", err)
-		}
-		// Always confirm the written path; this is the only stdout output
-		// when --report-file is set.
-		fmt.Printf("[+] Report saved to: %s\n", path)
-		return nil
-	}
-
-	fmt.Println(output)
-	return nil
+	return c.out.Deliver(auditReport{c: c, result: result}, mask)
 }
 
-func (c *auditCmd) formatJSON(result *audit.Result) (string, error) {
-	formatted := result.View(c.minSeverity)
-	jsonBytes, err := json.MarshalIndent(formatted, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-	return string(jsonBytes), nil
+// View returns the severity-filtered audit projection.
+func (r auditReport) View() any {
+	return r.result.View(r.c.minSeverity)
 }
 
-func (c *auditCmd) formatYAML(result *audit.Result) (string, error) {
-	formatted := result.View(c.minSeverity)
-	yamlBytes, err := yaml.Marshal(formatted)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal YAML: %w", err)
-	}
-	return string(yamlBytes), nil
-}
-
-// formatText renders result as human-readable text: the system block via
+// WriteText renders the audit as human-readable text: the system block via
 // osfingerprint.WriteText, then the security section via audit.WriteText.
-func (c *auditCmd) formatText(result *audit.Result) (string, error) {
-	var builder strings.Builder
+func (r auditReport) WriteText(w io.Writer) error {
+	ew := render.NewErrWriter(w)
+	ew.Printf("\nSecurity Audit Report\n")
+	ew.Printf("====================\n\n")
+	if err := ew.Err(); err != nil {
+		return err
+	}
 
-	builder.WriteString("\nSecurity Audit Report\n")
-	builder.WriteString("====================\n\n")
-	if result.HostInfo != nil {
-		if err := osfingerprint.WriteText(&builder, result.HostInfo); err != nil {
-			return "", err
+	if r.result.HostInfo != nil {
+		if err := osfingerprint.WriteText(w, r.result.HostInfo); err != nil {
+			return err
 		}
-		builder.WriteString("\n")
+		ew.Printf("\n")
+		if err := ew.Err(); err != nil {
+			return err
+		}
 	}
 
-	if err := audit.WriteText(&builder, result, c.minSeverity); err != nil {
-		return "", err
-	}
-
-	return builder.String(), nil
+	return audit.WriteText(w, r.result, r.c.minSeverity)
 }

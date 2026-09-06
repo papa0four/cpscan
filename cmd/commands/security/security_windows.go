@@ -23,7 +23,7 @@ func (c *auditCmd) platformRunE(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if c.verbose && c.reportFile == "" {
+	if c.verbose && !c.out.ToFile() {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
 	c.logVerboseConfig(mask)

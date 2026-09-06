@@ -17,8 +17,14 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// windowsUserCSVFields is the number of columns produced by Get-LocalUser
-const windowsUserCSVFields = 8
+const (
+	// windowsUserCSVFields is the number of columns produced by Get-LocalUser
+	windowsUserCSVFields = 8
+
+	// windowsAdminCSVFields is the number of columns produced by
+	// Get-LocalGroupMember
+	windowsAdminCSVFields = 1
+)
 
 type (
 	// UserChecker defines interface for user account checking
@@ -45,9 +51,13 @@ type (
 		shadowReadable bool
 	}
 
-	// WindowsUserChecker implements UserChecker for Windows systems
+	// WindowsUserChecker implements UserChecker for Windows systems.
+	// adminLookupErr is set when Administrators group membership could not be
+	// read; analyzeWindowsUsers reports the condition rather than presenting
+	// every account as non-administrative.
 	WindowsUserChecker struct {
 		checkIdentity
+		adminLookupErr error
 	}
 
 	// userAccount represents a parsed user account from /etc/passwd and,
@@ -680,62 +690,76 @@ func (u *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 }
 
 func (u *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUserInfo, error) {
-	var users []windowsUserInfo
-
 	psCmd := `Get-LocalUser | ` +
 		`Select-Object Name,Enabled,PasswordRequired,PasswordLastSet,LastLogon,AccountExpires,Description,PrincipalSource | ` +
 		`ConvertTo-Csv -NoTypeInformation`
-	cmd := exec.CommandContext(ctx, "powershell", "-Command", psCmd)
-	output, err := cmd.CombinedOutput()
+	output, err := exec.CommandContext(ctx, "powershell", "-Command", psCmd).Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("enumerate local users: %w", psError(err))
 	}
 
-	adminCmd := exec.CommandContext(ctx, "powershell", "-Command",
-		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-Csv -NoTypeInformation`)
-	adminOutput, err := adminCmd.CombinedOutput()
+	records, err := parsePowershellCSV(output, windowsUserCSVFields)
 	if err != nil {
-		adminOutput = []byte{}
-	}
-	adminUsers := make(map[string]bool)
-	for _, line := range strings.Split(string(adminOutput), "\n") {
-		if strings.Contains(line, "\\") {
-			parts := strings.Split(line, "\\")
-			adminUsers[strings.TrimSpace(parts[len(parts)-1])] = true
-		}
+		return nil, fmt.Errorf("enumerate local users: %w", err)
 	}
 
-	lines := strings.Split(string(output), "\n")
-	for i, line := range lines {
-		if i == 0 || strings.TrimSpace(line) == "" {
-			continue
-		}
+	// A failed membership lookup leaves admins nil, which reads as "no
+	// administrators" at every index. analyzeWindowsUsers reports the
+	// condition so the run cannot pass that off as a clean result.
+	admins, err := u.getWindowsAdmins(ctx)
+	if err != nil {
+		u.adminLookupErr = err
+	}
 
-		fields := strings.Split(line, ",")
-		if len(fields) < windowsUserCSVFields {
-			continue
-		}
-
-		for i := range fields {
-			fields[i] = strings.Trim(fields[i], `"`)
-		}
-
-		user := windowsUserInfo{
-			Name:             fields[0],
-			Enabled:          fields[1] == "True",
-			PasswordRequired: fields[2] == "True",
-			PasswordLastSet:  fields[3],
-			LastLogon:        fields[4],
-			AccountExpires:   fields[5],
-			Description:      fields[6],
-			PrincipalSource:  fields[7],
-			IsAdmin:          adminUsers[fields[0]],
-		}
-
-		users = append(users, user)
+	users := make([]windowsUserInfo, 0, len(records))
+	for _, rec := range records {
+		users = append(users, windowsUserInfo{
+			Name:             rec[0],
+			Enabled:          rec[1] == "True",
+			PasswordRequired: rec[2] == "True",
+			PasswordLastSet:  rec[3],
+			LastLogon:        rec[4],
+			AccountExpires:   rec[5],
+			Description:      rec[6],
+			PrincipalSource:  rec[7],
+			IsAdmin:          admins[rec[0]],
+		})
 	}
 
 	return users, nil
+}
+
+// getWindowsAdmins returns local Administrators group membership keyed by bare
+// account name. An error means membership could not be determined, which is
+// distinct from an empty group, and callers must not report accounts as
+// non-administrative on the strength of it.
+func (u *WindowsUserChecker) getWindowsAdmins(ctx context.Context) (map[string]bool, error) {
+	output, err := exec.CommandContext(ctx, "powershell", "-Command",
+		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-CSV -NoTypeInformation`).Output()
+	if err != nil {
+		return nil, psError(err)
+	}
+
+	records, err := parsePowershellCSV(output, windowsAdminCSVFields)
+	if err != nil {
+		return nil, psError(err)
+	}
+
+	// Names arrive qualified as SOURCE\account, where SOURCE is the machine,
+	// a domain, or AzureAD. An unqualified name is kept as-is rather than
+	// dropped, so a member that cannot be split is still counted.
+	admins := make(map[string]bool, len(records))
+	for _, rec := range records {
+		name := rec[0]
+		if idx := strings.LastIndex(name, `\`); idx >= 0 {
+			name = name[idx+1:]
+		}
+		if name != "" {
+			admins[name] = true
+		}
+	}
+
+	return admins, nil
 }
 
 func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
@@ -785,6 +809,12 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s %s", types.SymbolOK, details))
 		}
+	}
+
+	if u.adminLookupErr != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Administrator membership could not be determined; accounts above are not marked administrative: %v",
+				types.SymbolWarning, u.adminLookupErr))
 	}
 }
 
