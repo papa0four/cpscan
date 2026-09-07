@@ -762,53 +762,79 @@ func (u *WindowsUserChecker) getWindowsAdmins(ctx context.Context) (map[string]b
 	return admins, nil
 }
 
+// passwordlessAccount maps a principal source to the annotation, finding key
+// and severity for an account that requires no local password. A source that
+// validates credentials off the host explains the missing local hash; a local
+// or unrecognized source does not.
+//
+// Get-LocalUser reports PrincipalSource Local for a Microsoft account signed
+// into a local profile, so the MicrosoftAccount case does not fire for that
+// configuration and such an account is reported as a local account with no
+// password.
+func passwordlessAccount(source string) (note string, key registry.FindingKey, severe bool) {
+	switch source {
+	case "MicrosoftAccount":
+		return "Microsoft Account -- no local password hash",
+			"users.microsoft_account_no_local_password", false
+	case "AzureAD":
+		return "Azure AD -- no local password hash",
+			"users.azure_ad_account_no_local_password", false
+	case "ActiveDirectory":
+		return "Active Directory -- no local password hash",
+			"users.domain_account_no_local_password", false
+	case "Unknown":
+		return "Unknown principal source -- no local password hash",
+			"users.unknown_principal_no_local_password", true
+	default:
+		return "No local password required", "users.no_password_required", true
+	}
+}
+
 func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
 	seen := make(map[registry.FindingKey]struct{})
 	for _, user := range users {
-		details := user.Name
+		notes := make([]string, 0, 2)
+		symbol := types.SymbolOK
 
+		// Administrator membership is independent of whether the account is
+		// enabled or requires a local password, so it annotates the entry
+		// instead of replacing its other state. The finding is emitted only
+		// for enabled members, matching the key's claim that the account is
+		// active; a disabled member is still annotated so the membership
+		// stays visible.
 		if user.IsAdmin {
-			details += " (Administrator)"
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, details))
-			emitFinding(result, u.osCtx, "users.administrator_account_active")
-		} else if !user.Enabled {
-			details += " (Disabled)"
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolInfo, details))
-		} else if !user.PasswordRequired {
-			switch user.PrincipalSource {
-			case "MicrosoftAccount":
-				details += " (Microsoft Account -- no local password hash)"
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, u.osCtx, "users.microsoft_account_no_local_password", seen)
-			case "AzureAD":
-				details += " (Azure AD -- no local password hash)"
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, u.osCtx, "users.azure_ad_account_no_local_password", seen)
-			case "ActiveDirectory":
-				details += " (Active Directory -- no local password hash)"
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolInfo, details))
-				emitFindingOnce(result, u.osCtx, "users.domain_account_no_local_password", seen)
-			case "Unknown":
-				details += " (Unknown principal source -- no local password hash)"
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				emitFindingOnce(result, u.osCtx, "users.unknown_principal_no_local_password", seen)
-			default:
-				// Local account or unrecognized source with no password required
-				details += " (No Password Required)"
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolWarning, details))
-				emitFindingOnce(result, u.osCtx, "users.no_password_required", seen)
+			notes = append(notes, "Administrator")
+			symbol = types.SymbolWarning
+			if user.Enabled {
+				emitFindingOnce(result, u.osCtx, "users.administrator_account_active", seen)
 			}
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolOK, details))
 		}
+
+		switch {
+		case !user.Enabled:
+			// A disabled account cannot be logged into, so its password state
+			// is recorded but not judged.
+			notes = append(notes, "Disabled")
+			if !user.IsAdmin {
+				symbol = types.SymbolInfo
+			}
+		case !user.PasswordRequired:
+			note, key, severe := passwordlessAccount(user.PrincipalSource)
+			notes = append(notes, note)
+			if severe {
+				symbol = types.SymbolWarning
+			} else if !user.IsAdmin {
+				symbol = types.SymbolInfo
+			}
+			emitFindingOnce(result, u.osCtx, key, seen)
+		}
+
+		details := user.Name
+		if len(notes) > 0 {
+			details += " (" + strings.Join(notes, ", ") + ")"
+		}
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s %s", symbol, details))
 	}
 
 	if u.adminLookupErr != nil {
