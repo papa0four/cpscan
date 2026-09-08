@@ -260,7 +260,7 @@ func MaskFromNames(names []string, category CheckCategory) (CheckMask, error) {
 		e, ok := checksByName[lower]
 		if !ok || e.category != category {
 			return 0, fmt.Errorf("invalid name %q for category %s (valid: %s)",
-				name, category, validNamesFor(category))
+				name, category, ValidNamesFor(category))
 		}
 		mask |= e.bit
 	}
@@ -378,10 +378,12 @@ func buildChecksByName() map[string]registryEntry {
 	return byName
 }
 
-// validNamesFor returns a comma-separated string of all canonical names
-// registered under category. It is used to produce accurate error messages
-// in MaskFromNames without hardcoding the valid set at each callsite.
-func validNamesFor(category CheckCategory) string {
+// ValidNamesFor returns a comma-separated string of all canonical names
+// registered under category, in registry order. It is the single source for
+// operator-facing name lists: MaskFromNames error messages and the help text
+// of the flags that accept those names both derive from it, so neither can
+// drift from the registry.
+func ValidNamesFor(category CheckCategory) string {
 	var names []string
 	for _, e := range registry {
 		if e.category == category {

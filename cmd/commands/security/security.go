@@ -7,6 +7,7 @@ package security
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,14 +25,25 @@ import (
 )
 
 type (
+	// AuditFlags holds the audit configuration one invocation parsed. The audit
+	// command binds to it, and all attaches the same surface rather than retyping
+	// it, so the two cannot drift.
+	AuditFlags struct {
+		skipChecks  []string
+		minSeverity string
+		enrich      bool
+
+		// skipMask is the resolved exclusion set, computed once in Resolve
+		// from skipChecks.
+		skipMask scan.CheckMask
+	}
+
 	// auditCmd holds one invocation's flag state. Cobra binds flags directly into
 	// these fields, so the values a run needs are the values that run parsed.
 	auditCmd struct {
 		// Command flags
-		verbose     bool
-		skipChecks  []string
-		minSeverity string
-		timeout     time.Duration
+		verbose bool
+		timeout time.Duration
 
 		// Individual check flags
 		checkSSH       bool
@@ -39,8 +51,8 @@ type (
 		checkUsers     bool
 		checkFilePerms string
 
-		// enrichment flag
-		enrich bool
+		// audit owns the configuration flags shared with the all command.
+		audit *AuditFlags
 
 		// out owns the output destination flags and the emission of the
 		// finished report.
@@ -48,12 +60,73 @@ type (
 	}
 
 	// auditReport adapts a finished audit result to delivery.Report. It pairs the
-	// result with the command whose min-severityu governs its projection.
+	// result with the command whose min-severity governs its projection.
 	auditReport struct {
 		c      *auditCmd
 		result *audit.Result
 	}
 )
+
+// BindAudit registers the audit configuration flags on cmd and returns the
+// state they write into. Resolve must run before any accessor.
+func BindAudit(cmd *cobra.Command) *AuditFlags {
+	a := &AuditFlags{}
+
+	cmd.Flags().StringSliceVar(&a.skipChecks, "skip-checks", []string{},
+		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
+			scan.ValidNamesFor(scan.CategoryCheck)))
+	cmd.Flags().StringVar(&a.minSeverity, "min-severity", types.SeverityLow,
+		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
+	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
+		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
+	return a
+}
+
+// Resolve validates the parsed values, resolves the skip set, and normalizes
+// severity to its canonical form so every downstream consumer sees one shape.
+// Skip-check names are validated before severity, which is the order both
+// commands already report in.
+func (a *AuditFlags) Resolve() error {
+	if a == nil {
+		return errors.New("audit flags were not bound to the command")
+	}
+
+	skipMask, err := scan.MaskFromNames(a.skipChecks, scan.CategoryCheck)
+	if err != nil {
+		return err
+	}
+	a.skipMask = skipMask
+
+	normalized, ok := types.NormalizeSeverity(a.minSeverity)
+	if !ok {
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", a.minSeverity, types.SeverityNames())
+	}
+	a.minSeverity = normalized
+
+	return nil
+}
+
+// MinSeverity returns the canonical severity floor Resolve settled on.
+func (a *AuditFlags) MinSeverity() string {
+	return a.minSeverity
+}
+
+// Enrich reports whether findings are annotated from external sources.
+func (a *AuditFlags) Enrich() bool {
+	return a.enrich
+}
+
+// SkipMask returns the checks excluded by --skip-checks. Callers clear these
+// bits from the set they would otherwise run.
+func (a *AuditFlags) SkipMask() scan.CheckMask {
+	return a.skipMask
+}
+
+// SkipChecks returns the raw --skip-checks values, for operator-facing output
+// that echoes what was passed rather than what it resolved to.
+func (a *AuditFlags) SkipChecks() []string {
+	return a.skipChecks
+}
 
 // NewCmd returns the security audit command. RunE is bound to platformRunE, a
 // method provided by exactly one build-tagged file per compiled target, so a
@@ -100,10 +173,6 @@ You can run all checks or specify individual checks to run.`,
 
 	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output")
-	cmd.Flags().StringSliceVar(&c.skipChecks, "skip-checks", []string{},
-		"Checks to skip (comma-separated: ssh, firewall, users, permissions)")
-	cmd.Flags().StringVar(&c.minSeverity, "min-severity", types.SeverityLow,
-		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
 	cmd.Flags().DurationVar(&c.timeout, "timeout", 10*time.Minute,
 		"Maximum time to run the audit")
 	cmd.Flags().BoolVar(&c.checkSSH, "ssh", false,
@@ -114,9 +183,8 @@ You can run all checks or specify individual checks to run.`,
 		"Run user accounts check")
 	cmd.Flags().StringVar(&c.checkFilePerms, "fperms", "",
 		"Check permissions of specified file path")
-	cmd.Flags().BoolVarP(&c.enrich, "enrich", "e", false,
-		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 
+	c.audit = BindAudit(cmd)
 	c.out = delivery.Bind(cmd)
 
 	return cmd
@@ -142,13 +210,7 @@ func (c *auditCmd) buildMask() (scan.CheckMask, error) {
 		}
 	}
 
-	if len(c.skipChecks) > 0 {
-		skipMask, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck)
-		if err != nil {
-			return 0, err
-		}
-		mask &^= skipMask
-	}
+	mask &^= c.audit.SkipMask()
 
 	if mask == 0 {
 		return 0, fmt.Errorf("all available checks were skipped; at least one must run")
@@ -162,23 +224,11 @@ func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
 		return err
 	}
 
-	// Normalize once at the boundary so every downstream consumer sees the
-	// canonical form; validation and storage happen in the same step.
-	normalized, ok := types.NormalizeSeverity(c.minSeverity)
-	if !ok {
-		return fmt.Errorf("invalid min-severity: %s (valid: %s)", c.minSeverity, types.SeverityNames())
-	}
-	c.minSeverity = normalized
-
-	if err := c.validateFilePermsPath(cmd); err != nil {
+	if err := c.audit.Resolve(); err != nil {
 		return err
 	}
 
-	if _, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck); err != nil {
-		return err
-	}
-
-	return nil
+	return c.validateFilePermsPath(cmd)
 }
 
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
@@ -206,10 +256,10 @@ func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
 		fmt.Println("[*] Running comprehensive security audit")
 	}
 	fmt.Printf("[*] Output format: %s\n", c.out.Format())
-	if len(c.skipChecks) > 0 {
-		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(c.skipChecks, ", "))
+	if skipped := c.audit.SkipChecks(); len(skipped) > 0 {
+		fmt.Printf("[*] Skipped checks: %s\n", strings.Join(skipped, ", "))
 	}
-	fmt.Printf("[*] Minimum severity: %s\n", c.minSeverity)
+	fmt.Printf("[*] Minimum severity: %s\n", c.audit.minSeverity)
 	fmt.Printf("[*] Timeout: %s\n", c.timeout)
 	fmt.Println()
 }
@@ -223,9 +273,9 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) 
 	opts := audit.Options{
 		Verbose:       c.verbose && !c.out.ToFile(),
 		FilePermsPath: c.checkFilePerms,
-		MinSeverity:   c.minSeverity,
+		MinSeverity:   c.audit.MinSeverity(),
 		Checks:        scan.EnabledChecks(mask),
-		Enrich:        c.enrich,
+		Enrich:        c.audit.Enrich(),
 	}
 
 	auditor := audit.NewSecurityAuditor(opts)
@@ -262,7 +312,7 @@ func (c *auditCmd) outputResults(result *audit.Result, mask scan.CheckMask) erro
 
 // View returns the severity-filtered audit projection.
 func (r auditReport) View() any {
-	return r.result.View(r.c.minSeverity)
+	return r.result.View(r.c.audit.MinSeverity())
 }
 
 // WriteText renders the audit as human-readable text: the system block via
@@ -285,5 +335,5 @@ func (r auditReport) WriteText(w io.Writer) error {
 		}
 	}
 
-	return audit.WriteText(w, r.result, r.c.minSeverity)
+	return audit.WriteText(w, r.result, r.c.audit.MinSeverity())
 }

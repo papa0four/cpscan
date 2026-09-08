@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/scan"
@@ -26,11 +27,12 @@ type (
 	// parsed.
 	allCmd struct {
 		verbose     bool
-		enrich      bool
 		skipModules []string
-		skipChecks  []string
 		timeout     time.Duration
-		minSeverity string
+
+		// audit owns the configuration flags the audit command defines; all
+		// attaches them rather than retyping them.
+		audit *security.AuditFlags
 
 		// out owns the output destination flags and the emission of the
 		// finished report.
@@ -114,16 +116,12 @@ Results can be output in various formats and saved to a file.`,
 	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
 	cmd.Flags().StringSliceVar(&c.skipModules, "skip-modules", []string{},
-		"Modules to skip (comma-separated: osinfo,software,audit)")
-	cmd.Flags().StringSliceVar(&c.skipChecks, "skip-checks", []string{},
-		"Audit checks to skip (comma-separated: firewall, permissions, ssh, users)")
+		fmt.Sprintf("Modules to skip (comma-separated: %s)",
+			scan.ValidNamesFor(scan.CategoryModule)))
 	cmd.Flags().DurationVar(&c.timeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
-	cmd.Flags().StringVar(&c.minSeverity, "min-severity", types.SeverityLow,
-		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
-	cmd.Flags().BoolVarP(&c.enrich, "enrich", "e", false,
-		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 
+	c.audit = security.BindAudit(cmd)
 	c.out = delivery.Bind(cmd)
 
 	return cmd
@@ -140,15 +138,9 @@ func (c *allCmd) buildAllMask() (scan.CheckMask, error) {
 	}
 	if !c.isModuleSkipped("audit") {
 		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
-		if len(c.skipChecks) > 0 {
-			skipMask, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck)
-			if err != nil {
-				return 0, err
-			}
-			allChecks &^= skipMask
-		}
+		allChecks &^= c.audit.SkipMask()
 		if allChecks == 0 {
-			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
+			return 0, fmt.Errorf("all audit checks were skippedl; use `--skip-modules audit` to skip the audit module")
 		}
 		mask |= allChecks
 	}
@@ -179,7 +171,7 @@ func (c *allCmd) toAllResult(scan *ScanResult) allResult {
 
 	// security audit
 	if scan.SecurityAudit != nil {
-		view := scan.SecurityAudit.View(c.minSeverity)
+		view := scan.SecurityAudit.View(c.audit.MinSeverity())
 		if out.System != nil {
 			// avoid duplicating hist identity alread in out.System
 			view.SystemInfo = nil
@@ -208,21 +200,7 @@ func (c *allCmd) validateAllFlags(cmd *cobra.Command) error {
 		return err
 	}
 
-	if len(c.skipChecks) > 0 {
-		if _, err := scan.MaskFromNames(c.skipChecks, scan.CategoryCheck); err != nil {
-			return err
-		}
-	}
-
-	// Normalize once at the boundary so every downstream consumer sees the
-	// canonical form; validation and storage happen in the same step.
-	normalized, ok := types.NormalizeSeverity(c.minSeverity)
-	if !ok {
-		return fmt.Errorf("invalid min-severity: %s (valid: %s)", c.minSeverity, types.SeverityNames())
-	}
-	c.minSeverity = normalized
-
-	return nil
+	return c.audit.Resolve()
 }
 
 func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
@@ -357,8 +335,8 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask scan.CheckMask
 
 	opts := audit.Options{
 		Verbose:     verboseHeaders,
-		MinSeverity: c.minSeverity,
-		Enrich:      c.enrich,
+		MinSeverity: c.audit.MinSeverity(),
+		Enrich:      c.audit.Enrich(),
 		Checks:      scan.EnabledChecks(mask),
 		HostInfo:    hostInfo,
 	}
@@ -423,7 +401,7 @@ func (c *allCmd) renderAllText(w io.Writer, result *ScanResult) error {
 		if err := ew.Err(); err != nil {
 			return err
 		}
-		if err := audit.WriteText(w, result.SecurityAudit, c.minSeverity); err != nil {
+		if err := audit.WriteText(w, result.SecurityAudit, c.audit.MinSeverity()); err != nil {
 			return err
 		}
 	}
