@@ -140,7 +140,7 @@ func (c *allCmd) buildAllMask() (scan.CheckMask, error) {
 		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
 		allChecks &^= c.audit.SkipMask()
 		if allChecks == 0 {
-			return 0, fmt.Errorf("all audit checks were skippedl; use `--skip-modules audit` to skip the audit module")
+			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
 		}
 		mask |= allChecks
 	}
