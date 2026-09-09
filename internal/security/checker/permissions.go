@@ -148,7 +148,8 @@ func (c *identityCache) known(ctx context.Context, cache map[uint32]bool, kind i
 // getent reports absence through its exit status while dscacheutil reports it
 // through empty output, so both conditions are treated as unresolved.
 func nameServiceKnows(ctx context.Context, kind identityKind, id uint32) bool {
-	value := strconv.FormatUint(uint64(id), 10)
+	const base = 10
+	value := strconv.FormatUint(uint64(id), base)
 
 	var name string
 	var args []string
