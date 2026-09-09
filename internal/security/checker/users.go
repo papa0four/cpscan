@@ -625,17 +625,7 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 			}
 		}
 
-		out, err := exec.CommandContext(ctx, "passwd", "-S", "root").CombinedOutput()
-		if err == nil {
-			if strings.Contains(string(out), "NP") || strings.Contains(string(out), "L") {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s Root account is locked", types.SymbolOK))
-			} else {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
-				emitFinding(result, u.osCtx, "users.root_account_unlocked")
-			}
-		}
+		u.checkRootPasswordStatus(ctx, result)
 	}
 
 	for _, source := range u.config.userSources {
@@ -661,6 +651,48 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 						types.SymbolError, source, err))
 			}
 		}
+	}
+}
+
+// checkRootPasswordStatus reports root's password state from passwd -S. The
+// status field distinguishes three conditions a substring search cannot: NP
+// means no password is set, which is more dangerous than an unlocked account
+// rather than safer. A failed query is reported instead of skipped, because
+// passwd refuses to disclose root's status to an unprivileged caller, so a
+// silent skip would read as a clean result on every unprivileged run.
+func (u *UnixUserChecker) checkRootPasswordStatus(ctx context.Context, result *types.AuditResult) {
+	out, err := exec.CommandContext(ctx, "passwd", "-S", "root").Output()
+	if err != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Root password status could not be determined: %v",
+				types.SymbolWarning, execError(err)))
+		return
+	}
+
+	fields := strings.Fields(string(out))
+	if len(fields) <= passwdStatusField {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Root password status could not be determined: unexpected passwd -S output",
+				types.SymbolWarning))
+		return
+	}
+
+	switch fields[passwdStatusField] {
+	case passwdStatusLocked:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Root account password is locked", types.SymbolOK))
+	case passwdStatusNoPassword:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s CRITICAL: Root account has no password set", types.SymbolCritical))
+		emitFinding(result, u.osCtx, "user.empty_password_hash")
+	case passwdStatusUsable:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
+		emitFinding(result, u.osCtx, "users.root_account_unlocked")
+	default:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Root password status could not be determined: unrecognized status %q",
+				types.SymbolWarning, fields[passwdStatusField]))
 	}
 }
 
@@ -694,7 +726,7 @@ func (u *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUser
 		`ConvertTo-Csv -NoTypeInformation`
 	output, err := exec.CommandContext(ctx, "powershell", "-Command", psCmd).Output()
 	if err != nil {
-		return nil, fmt.Errorf("enumerate local users: %w", psError(err))
+		return nil, fmt.Errorf("enumerate local users: %w", execError(err))
 	}
 
 	records, err := parsePowershellCSV(output, windowsUserCSVFields)
@@ -736,12 +768,12 @@ func (u *WindowsUserChecker) getWindowsAdmins(ctx context.Context) (map[string]b
 	output, err := exec.CommandContext(ctx, "powershell", "-Command",
 		`Get-LocalGroupMember -Group "Administrators" | Select-Object Name | ConvertTo-CSV -NoTypeInformation`).Output()
 	if err != nil {
-		return nil, psError(err)
+		return nil, execError(err)
 	}
 
 	records, err := parsePowershellCSV(output, windowsAdminCSVFields)
 	if err != nil {
-		return nil, psError(err)
+		return nil, execError(err)
 	}
 
 	// Names arrive qualified as SOURCE\account, where SOURCE is the machine,

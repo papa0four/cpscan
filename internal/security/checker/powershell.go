@@ -5,10 +5,7 @@ package checker
 import (
 	"bytes"
 	"encoding/csv"
-	"errors"
 	"fmt"
-	"os/exec"
-	"strings"
 )
 
 // parsePowerShellCSV parses ConvertTo-Csv output into data records, dropping
@@ -31,15 +28,4 @@ func parsePowershellCSV(output []byte, fields int) ([][]string, error) {
 	}
 
 	return records[1:], nil
-}
-
-// psError attaches the captured stderr to an exec failure. PowerShell reports
-// why a cmdlet failed on stderr, and that text is the difference between an
-// actionable diagnostic and "exit status 1".
-func psError(err error) error {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
-	}
-	return err
 }

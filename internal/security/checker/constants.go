@@ -17,6 +17,14 @@ const (
 	shadowMinFields       = 2
 	passwdMinFieldsForUID = 3
 
+	// passwd -S reports account status as the second whitespace-separated
+	// field, in one of three states: a usable password, no password set, or
+	// a locked password
+	passwdStatusField      = 1
+	passwdStatusUsable     = "P"
+	passwdStatusNoPassword = "NP"
+	passwdStatusLocked     = "L"
+
 	// /etc/group field indices and minimum field count as defined by POSIX.
 	groupFieldMembers = 3
 	groupFieldCount   = 4
