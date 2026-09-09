@@ -119,8 +119,8 @@ func localIDs(path string) map[uint32]bool {
 		if len(fields) <= unixIDField {
 			continue
 		}
-		if id, err := strconv.ParseUint(fields[unixIDField], 10, 32); err == nil {
-			ids[uint32(id)] = true
+		if id, ok := parseUnixID(fields[unixIDField]); ok {
+			ids[id] = true
 		}
 	}
 	return ids

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -37,7 +36,7 @@ type (
 	// platformConfig holds OS-specific configuration for user checking
 	platformConfig struct {
 		userSources []string
-		minUID      int
+		minUID      uint32
 	}
 
 	// UnixUserChecker implements UserChecker for Unix-like systems.
@@ -68,8 +67,8 @@ type (
 	// in /etc/shadow; false indicates no credential is set.
 	userAccount struct {
 		username    string
-		uid         int
-		gid         int
+		uid         uint32
+		gid         uint32
 		homeDir     string
 		shell       string
 		isSystem    bool
@@ -247,11 +246,11 @@ func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, err
 
 			switch fields[0] {
 			case "UniqueID:":
-				if uid, err := strconv.Atoi(fields[1]); err == nil {
+				if uid, ok := parseUnixID(fields[1]); ok {
 					account.uid = uid
 				}
 			case "PrimaryGroupID:":
-				if gid, err := strconv.Atoi(fields[1]); err == nil {
+				if gid, ok := parseUnixID(fields[1]); ok {
 					account.gid = gid
 				}
 			case "NFSHomeDirectory:":
@@ -311,12 +310,12 @@ func (u *UnixUserChecker) getBSDUsers(ctx context.Context) ([]userAccount, error
 			continue
 		}
 
-		uid, err := strconv.Atoi(fields[passwdFieldUID])
-		if err != nil {
+		uid, ok := parseUnixID(fields[passwdFieldUID])
+		if !ok {
 			continue
 		}
-		gid, err := strconv.Atoi(fields[passwdFieldGID])
-		if err != nil {
+		gid, ok := parseUnixID(fields[passwdFieldGID])
+		if !ok {
 			continue
 		}
 
@@ -410,12 +409,12 @@ func (u *UnixUserChecker) getLinuxUsers(ctx context.Context) ([]userAccount, err
 			continue
 		}
 
-		uid, err := strconv.Atoi(fields[passwdFieldUID])
-		if err != nil {
+		uid, ok := parseUnixID(fields[passwdFieldUID])
+		if !ok {
 			continue
 		}
-		gid, err := strconv.Atoi(fields[passwdFieldGID])
-		if err != nil {
+		gid, ok := parseUnixID(fields[passwdFieldGID])
+		if !ok {
 			continue
 		}
 
@@ -646,8 +645,8 @@ func (u *UnixUserChecker) checkSecurityConcerns(ctx context.Context, result *typ
 			for scanner.Scan() {
 				fields := strings.Split(scanner.Text(), ":")
 				if len(fields) >= passwdMinFieldsForUID {
-					uid, err := strconv.Atoi(fields[passwdFieldUID])
-					if err == nil && uid == rootUID && fields[passwdFieldUsername] != "root" {
+					uid, ok := parseUnixID(fields[passwdFieldUID])
+					if ok && uid == rootUID && fields[passwdFieldUsername] != "root" {
 						result.Details = append(result.Details,
 							fmt.Sprintf("%s CRITICAL: User %s has UID 0",
 								types.SymbolCritical, fields[0]))
