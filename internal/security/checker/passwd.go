@@ -18,8 +18,6 @@ const (
 // accepting one would place it below the regular-user minimum, mark it a
 // system account, and drop it from the report.
 func parseUnixID(field string) (uint32, bool) {
-	const base = 10
-	const bitSize = 32
 	id, err := strconv.ParseUint(field, decimalBase, idBitSize)
 	if err != nil {
 		return 0, false
