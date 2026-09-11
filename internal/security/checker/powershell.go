@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-// parsePowerShellCSV parses ConvertTo-Csv output into data records, dropping
+// parsePowershellCSV parses ConvertTo-Csv output into data records, dropping
 // the header row. PowerShell emits RFC 4180 CSV terminated with CRLF, so
 // fields are quoted and may contain commas; splitting on "," and "\n" corrupts
 // the last field of every row and any field holding a comma. fields is the

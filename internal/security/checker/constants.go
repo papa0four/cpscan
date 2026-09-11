@@ -4,15 +4,17 @@ package checker
 
 // /etc/passwd field indices as defined by POSIX.
 const (
-	passwdFieldUsername = 0
-	passwdFieldPassword = 1
-	passwdFieldUID      = 2
-	passwdFieldGID      = 3
-	passwdFieldGECOS    = 4
-	passwdFieldHomeDir  = 5
-	passwdFieldShell    = 6
-	passwdFieldCount    = 7
+	passwdFieldUsername = iota
+	passwdFieldPassword
+	passwdFieldUID
+	passwdFieldGID
+	passwdFieldGECOS
+	passwdFieldHomeDir
+	passwdFieldShell
+	passwdFieldCount
+)
 
+const (
 	// Minimum field counts for Unix authentication files.
 	shadowMinFields       = 2
 	passwdMinFieldsForUID = 3

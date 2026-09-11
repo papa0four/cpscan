@@ -876,32 +876,8 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 }
 
 func (u *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *types.AuditResult) {
-	cmd := exec.CommandContext(ctx, "net", "accounts")
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		result.Details = append(result.Details, "", "Password Policies:")
-		for _, policy := range strings.Split(string(output), "\n") {
-			policy = strings.TrimSpace(policy)
-			if policy != "" && !strings.HasPrefix(policy, "The command completed") {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s %s", types.SymbolInfo, policy))
-			}
-		}
-	}
-
-	uacCmd := exec.CommandContext(ctx, "powershell", "-Command",
-		`Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System -Name EnableLUA`)
-	uacOutput, err := uacCmd.CombinedOutput()
-	if err == nil {
-		if strings.Contains(string(uacOutput), "1") {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s User Account Control (UAC) is enabled", types.SymbolOK))
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-			emitFinding(result, u.osCtx, "users.uac_disabled")
-		}
-	}
+	u.checkPasswordPolicy(ctx, result)
+	u.checkUAC(result)
 }
 
 func isSuspiciousUser(user userAccount) bool {
@@ -945,4 +921,47 @@ func isSafeUsername(username string) bool {
 		}
 	}
 	return len(username) > 0
+}
+
+// checkPasswordPolicy lists the local password policy. The values are reported
+// but not yet judged against a baseline; evaluating them is tracked separately.
+// A failed query is reported rather than skipped, so an abesent policy section
+// cannot be mistaken for a host with nothing to report.
+func (u *WindowsUserChecker) checkPasswordPolicy(ctx context.Context, result *types.AuditResult) {
+	output, err := exec.CommandContext(ctx, "net", "accounts").Output()
+	if err != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Password policy could not be read: %v",
+				types.SymbolWarning, execError(err)))
+		return
+	}
+
+	result.Details = append(result.Details, "", "Password Policies:")
+	for _, policy := range strings.Split(string(output), "\n") {
+		policy = strings.TrimSpace(policy)
+		if policy != "" && !strings.HasPrefix(policy, "The command completed") {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s %s", types.SymbolInfo, policy))
+		}
+	}
+}
+
+// checkUAX reports User Account control state. An unreadable setting is
+// reported as unknown rather than as disabled: emitting the finding on a
+// failed read would assert a weakness the check never observed.
+func (u *WindowsUserChecker) checkUAC(result *types.AuditResult) {
+	enabled, err := uacEnabled()
+	switch {
+	case err != nil:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s User Account Control state could not be determined: %v",
+				types.SymbolWarning, err))
+	case enabled:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s User Account Control (UAC) is enabled", types.SymbolOK))
+	default:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
+		emitFinding(result, u.osCtx, "users.uac_disabled")
+	}
 }
