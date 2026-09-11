@@ -10,5 +10,5 @@ import "errors"
 // WindowsUserChecker is its only caller and never runs here; this exists so
 // so the package compiles on every supported target, mirroring fileIdentity.
 func uacEnabled() (bool, error) {
-	return false, errors.New("User Account Control is a Windows setting")
+	return false, errors.New("UAC is a Windows-only setting")
 }
