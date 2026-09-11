@@ -13,8 +13,8 @@ import (
 const (
 	// uacPolicyKey and uacPolicyValue locate the User Account control policy
 	// setting. EnableLUA is a DWORD: 1 when UAC is on, 0 when it is off.
-	uacPolicyKey = `SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`
-	uacPolicyValue = "EnableLUA"
+	uacPolicyKey    = `SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`
+	uacPolicyValue  = "EnableLUA"
 	uacEnabledValue = 1
 )
 
