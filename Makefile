@@ -72,13 +72,18 @@ SUPPORTED_TARGETS := \
 		openbsd/amd64 \
 		netbsd/amd64
 
+# The distinct operating systems in SUPPORTED_TARGETS. Build constraints in this
+# tree split on GOOS alone, so linting once per GOOS reaches every build-tagged
+# file without repeating identical work per architecture. sort also dedupes.
+SUPPORTED_GOOS := $(sort $(foreach t,$(SUPPORTED_TARGETS),$(word 1,$(subst /, ,$(t)))))
+
 
 
 # =============================================================================
 # Targets
 # =============================================================================
 
-.PHONY: build install uninstall clean help fmt fmt-check vet lint govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check check-platforms
+.PHONY: build install uninstall clean help fmt fmt-check vet lint lint-platforms govulncheck gosec gitleaks syft-grype test check docs build-all shell-lint ps-lint makefile-check check-platforms
 
 # -----------------------------------------------------------------------------
 # Build
@@ -180,6 +185,15 @@ lint:
 	@golangci-lint run --timeout=5m
 	@echo "[+] lint passed."
 
+## lint-platforms: run golangci-lint once per supported GOOS
+lint-platforms:
+	@echo "[*] Linting every supported GOOS..."
+	@$(foreach goos,$(SUPPORTED_GOOS), \
+		echo "[*] $(goos)..."; \
+		GOOS=$(goos) golangci-lint run --timeout=5m || exit 1; \
+	)
+	@echo "[+] All supported platforms lint clean."
+
 ## govulncheck: scan dependencies for known vulnerabilities
 govulncheck:
 	@echo "[*] Running govulncheck..."
@@ -217,8 +231,9 @@ syft-grype:
 	@syft . -o syft-json=sbom.json --source-name=orkowatch --source-version=$(VERSION)
 	@echo "[*] Scanning SBOM with grype..."
 	@grype sbom:sbom.json --fail-on medium && echo "[+] No vulnerabilities found." || (echo "[-] Vulnerabilities detected. Review output above." && exit 1)
+
 ## check: run all quality gates in sequence (fmt-check, vet, lint, test)
-check: makefile-check fmt-check vet lint govulncheck gosec gitleaks syft-grype test check-platforms
+check: makefile-check fmt-check vet lint lint-platforms govulncheck gosec gitleaks syft-grype test check-platforms
 	@echo ""
 	@echo "[+] All quality gates passed."
 

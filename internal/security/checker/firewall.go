@@ -97,7 +97,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		}
 
 		cmd := exec.CommandContext(ctx, fw.command[0], fw.command[1:]...) // #nosec G204 -- command args sourced from hardcoded firewallTool struct definitions, not user
-		output, err := cmd.CombinedOutput()
+		output, err := cmd.Output()
 
 		if err == nil && len(output) > 0 {
 			activeFirewalls++
@@ -151,7 +151,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	// Check firewall status for all profiles
 	cmd := exec.CommandContext(ctx, "netsh", "advfirewall", "show", "allprofiles", "state")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		result.Status = types.StatusError
 		result.Description = "Failed to check Windows Firewall status"
@@ -184,7 +184,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	// Check firewall rules if at least one profile is active
 	if activeProfiles > 0 {
 		cmd = exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose")
-		output, err := cmd.CombinedOutput()
+		output, err := cmd.Output()
 		if err != nil {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Error enumerating firewall rules: %v", types.SymbolError, err))

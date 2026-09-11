@@ -189,7 +189,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 	// Check OpenSSH installation
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 		"(Get-Service -Name sshd -ErrorAction SilentlyContinue).Status")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	serviceStatus := strings.TrimSpace(string(output))
 	if err == nil && serviceStatus != "" {
 		sshdInstalled = true
@@ -295,7 +295,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 			fmt.Sprintf("%s PuTTY is installed", types.SymbolInfo))
 
 		cmd = exec.CommandContext(ctx, "reg", "query", `HKCU\Software\SimonTatham\PuTTY\Sessions`)
-		output, err := cmd.CombinedOutput()
+		output, err := cmd.Output()
 		if err == nil && len(output) > 0 {
 			sessions := strings.Split(string(output), "\n")
 			result.Details = append(result.Details,

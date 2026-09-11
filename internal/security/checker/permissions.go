@@ -524,7 +524,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 
 func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult) {
 	cmd := exec.CommandContext(ctx, "net", "share")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Error checking network shares: %v",

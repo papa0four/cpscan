@@ -201,14 +201,14 @@ func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, err
 	var users []userAccount
 
 	cmd := exec.CommandContext(ctx, "dscl", ".", "list", "/Users")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get macOS users: %v", err)
 	}
 
 	adminUsers := make(map[string]bool)
 	adminCmd := exec.CommandContext(ctx, "dscacheutil", "-q", "group", "-a", "name", "admin")
-	if adminOutput, err := adminCmd.CombinedOutput(); err == nil {
+	if adminOutput, err := adminCmd.Output(); err == nil {
 		for _, line := range strings.Split(string(adminOutput), "\n") {
 			if strings.HasPrefix(line, "users:") {
 				members := strings.TrimPrefix(line, "users:")
@@ -231,7 +231,7 @@ func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, err
 
 		infoCmd := exec.CommandContext(ctx, "dscl", ".", "read", "/Users/"+username, // #nosec G204 -- username validated by isSafeUsername before use
 			"UniqueID", "PrimaryGroupID", "NFSHomeDirectory", "UserShell")
-		infoOutput, err := infoCmd.CombinedOutput()
+		infoOutput, err := infoCmd.Output()
 		if err != nil {
 			continue
 		}
@@ -271,7 +271,7 @@ func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, err
 		// A dscl failure means the account's disabled state is unknown, not
 		// enabled -- leave isDisabled false only when the read succeeded and
 		// the DisabledUser marker is genuinely absent.
-		if authOutput, err := authCmd.CombinedOutput(); err == nil {
+		if authOutput, err := authCmd.Output(); err == nil {
 			account.isDisabled = strings.Contains(string(authOutput), "DisabledUser")
 		}
 
@@ -333,7 +333,7 @@ func (u *UnixUserChecker) getBSDUsers(ctx context.Context) ([]userAccount, error
 		}
 
 		groupCmd := exec.CommandContext(ctx, "id", "-Gn", account.username) // #nosec G204 -- username validated by isSafeUsername before use
-		if output, err := groupCmd.CombinedOutput(); err == nil {
+		if output, err := groupCmd.Output(); err == nil {
 			for _, group := range strings.Fields(string(output)) {
 				if group == "wheel" {
 					account.isAdmin = true
@@ -384,7 +384,7 @@ func (u *UnixUserChecker) getLinuxUsers(ctx context.Context) ([]userAccount, err
 	sudoers := make(map[string]bool)
 	for _, group := range []string{"sudo", "wheel", "admin"} {
 		cmd := exec.CommandContext(ctx, "getent", "group", group) // #nosec G204 -- group names are hardcoded literals, not user input
-		if output, err := cmd.CombinedOutput(); err == nil {
+		if output, err := cmd.Output(); err == nil {
 			for _, line := range strings.Split(string(output), "\n") {
 				if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
 					for _, member := range strings.Split(fields[groupFieldMembers], ",") {
@@ -714,7 +714,8 @@ func (u *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	u.analyzeWindowsUsers(users, &result)
-	u.checkSecurityPolicies(ctx, &result)
+	u.checkPasswordPolicy(ctx, &result)
+	u.checkUAC(&result)
 
 	result.Status = types.StatusCompleted
 	return result
@@ -873,11 +874,6 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result
 			fmt.Sprintf("%s Administrator membership could not be determined; accounts above are not marked administrative: %v",
 				types.SymbolWarning, u.adminLookupErr))
 	}
-}
-
-func (u *WindowsUserChecker) checkSecurityPolicies(ctx context.Context, result *types.AuditResult) {
-	u.checkPasswordPolicy(ctx, result)
-	u.checkUAC(result)
 }
 
 func isSuspiciousUser(user userAccount) bool {
