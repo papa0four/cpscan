@@ -43,11 +43,15 @@ type (
 	// shadowReadable is set to true when /etc/shadow was successfully opened
 	// during getLinuxUsers; it gates the no-password finding and surfaces a
 	// diagnostic when the check runs without sufficient privileges.
+	// adminLookupErr is set when no privileged group could be read at all;
+	// analyzeUsers reports that rather than presenting every account as
+	// unprivileged.
 	UnixUserChecker struct {
 		checkIdentity
 		config         platformConfig
 		osType         string
 		shadowReadable bool
+		adminLookupErr error
 	}
 
 	// WindowsUserChecker implements UserChecker for Windows systems.
@@ -208,7 +212,10 @@ func (u *UnixUserChecker) getMacOSUsers(ctx context.Context) ([]userAccount, err
 
 	adminUsers := make(map[string]bool)
 	adminCmd := exec.CommandContext(ctx, "dscacheutil", "-q", "group", "-a", "name", "admin")
-	if adminOutput, err := adminCmd.Output(); err == nil {
+	adminOutput, err := adminCmd.Output()
+	if err != nil {
+		u.adminLookupErr = execError(err)
+	} else {
 		for _, line := range strings.Split(string(adminOutput), "\n") {
 			if strings.HasPrefix(line, "users:") {
 				members := strings.TrimPrefix(line, "users:")
@@ -352,6 +359,34 @@ func (u *UnixUserChecker) getBSDUsers(ctx context.Context) ([]userAccount, error
 	return users, nil
 }
 
+// privilegedGroupMembers returns the union of the members of the groups that
+// confer administrative access. Each group is queried independently so one
+// that does not exist on this distribution does not discard the members of the
+// ones that do. The error is non-nil only when no group could be read at all,
+// which is the case a caller must not mistake for a host with no
+// administrators.
+func (u *UnixUserChecker) privilegedGroupMembers(ctx context.Context) (map[string]bool, error) {
+	members := make(map[string]bool)
+	var read int
+	var lastErr error
+
+	for _, group := range []string{"sudo", "wheel", "admin"} {
+		output, err := exec.CommandContext(ctx, "getend", "group", group).Output() // #nosec G204 -- group names are hardcoded literals, not user inut
+		if err != nil {
+			lastErr = execError(err)
+			continue
+		}
+		read++
+		addGroupMembers(output, members)
+	}
+
+	if read == 0 {
+		return members, lastErr
+	}
+
+	return members, nil
+}
+
 func (u *UnixUserChecker) getLinuxUsers(ctx context.Context) ([]userAccount, error) {
 	var users []userAccount
 
@@ -378,23 +413,9 @@ func (u *UnixUserChecker) getLinuxUsers(ctx context.Context) ([]userAccount, err
 		}
 	}
 
-	// Query each privileged group independently so a missing group (e.g. wheel
-	// or admin absent on Debian-family systems) does not cause the entire
-	// lookup to fail and silently zero out the sudoers map.
-	sudoers := make(map[string]bool)
-	for _, group := range []string{"sudo", "wheel", "admin"} {
-		cmd := exec.CommandContext(ctx, "getent", "group", group) // #nosec G204 -- group names are hardcoded literals, not user input
-		if output, err := cmd.Output(); err == nil {
-			for _, line := range strings.Split(string(output), "\n") {
-				if fields := strings.Split(line, ":"); len(fields) >= groupFieldCount {
-					for _, member := range strings.Split(fields[groupFieldMembers], ",") {
-						if name := strings.TrimSpace(member); name != "" {
-							sudoers[name] = true
-						}
-					}
-				}
-			}
-		}
+	sudoers, err := u.privilegedGroupMembers(ctx)
+	if err != nil {
+		u.adminLookupErr = err
 	}
 
 	scanner := bufio.NewScanner(passwdFile)
@@ -512,6 +533,12 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s No-password check skipped: /etc/shadow is not readable without elevated privileges",
 				types.SymbolInfo))
+	}
+
+	if u.adminLookupErr != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Privileged group membership could be determined; accounts above are not marked administrative: %v",
+				types.SymbolWarning, u.adminLookupErr))
 	}
 
 	if len(adminUsers) > 0 {
