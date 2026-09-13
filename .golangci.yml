@@ -18,8 +18,12 @@ linters:
     - whitespace
     - gocognit
     - nestif
+    - dupl
 
   settings:
+    dupl:
+      threshold: 80
+      
     errcheck:
       check-blank: true
 
@@ -45,7 +49,7 @@ linters:
   exclusions:
     rules:
       - linters: [gocognit]
-        text: 'WriteText|Block|scanFilesystem|SSHChecker\).Check|getPlatformSoftwareList'
+        text: 'WriteText|Block|scanFilesystem|getPlatformSoftwareList'
 
       - linters: [gocognit]
         text: 'getMacOSUsers|getBSDUsers|getLinuxUsers|analyzeUsers|checkAuthConfig|checkSecurityConcerns'
