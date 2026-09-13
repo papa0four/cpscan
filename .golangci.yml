@@ -55,7 +55,7 @@ linters:
         text: 'getMacOSUsers|getBSDUsers|getLinuxUsers|analyzeUsers|checkAuthConfig|checkSecurityConcerns'
 
       - linters: [nestif]
-        text: 'if elevated|if len\(check\.Findings\) > 0|if sshdInstalled|if u\.osType'
+        text: 'if elevated|if len\(check\.Findings\) > 0|if u\.osType'
 
 formatters:
   enable:
